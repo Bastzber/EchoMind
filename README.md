@@ -21,17 +21,19 @@ SoundBot 使用 Electron 提供桌面界面，以 FastAPI、SQLite、PyAV 和 Ch
 
 ## 📥 下载
 
-**最新测试版本：** [SoundBot v0.2.1-beta.3](https://github.com/Huckrick/SoundBot/releases/tag/v0.2.1-beta.3)
+**最新测试版本：v0.3.0-beta.5（测试版 V5）· Windows x64**
 
-当前源码版本为 **v0.2.1-beta.3（预发布）**。本版本修复 Windows 安装版沙箱 preload 崩溃引发的文件/文件夹导入与波形不可用，并将固定 revision 的 CLAP 模型、PyAV/FFmpeg 音频运行时和完整校验信息一并装入安装包。
-
-| 资源 | 适用环境 | 下载 |
+| 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| macOS 安装包 | macOS 14+、Apple Silicon arm64 | [在 v0.2.1-beta.3 Release 中下载 DMG](https://github.com/Huckrick/SoundBot/releases/tag/v0.2.1-beta.3) |
-| Windows 安装包 | Windows 10/11 x64 | [在 v0.2.1-beta.3 Release 中下载 EXE](https://github.com/Huckrick/SoundBot/releases/tag/v0.2.1-beta.3) |
-| CLAP 修复/开发资源 | 两个平台通用；必须与应用版本完全匹配 | [在对应 Release 中下载可选的 `models.zip`](https://github.com/Huckrick/SoundBot/releases) |
+| **完整安装包**（3.27 GB） | 解压即用，推荐 | [百度网盘](https://pan.baidu.com/s/15Xd2k2od5080t4tGYx0JSw?pwd=pvdt)　提取码：`pvdt` |
+| 分卷安装包（part01 + part02） | GitHub 附件单文件上限 2 GB，需合并 | [Releases](https://github.com/Bastzber/EchoMind/releases) |
+| 一句话描述包 | 已内置在安装包根目录 | `win-unpacked\EchoMind-描述包.json` |
 
-> 这是测试版本。升级前请备份 SoundBot 用户数据目录。v0.2.1-beta.3 安装包已内置固定 revision 的 CLAP 模型、逐文件 manifest 与 Apache-2.0 许可说明，普通用户无需另行下载 `models.zip`。模型加载异常时，文件仍会安全保存在 SQLite 中，基础管理、波形、播放、标签和关键词检索仍可使用。
+> 安装包 3.27 GB，超过 GitHub 单附件 2 GB 上限，所以 Release 里只能放分卷（两个都下完，双击 `合并分卷.bat` 合成完整 zip，校验值见 Release 说明）。普通用户直接用网盘那一份更省事。
+>
+> 解压后双击 `win-unpacked\EchoMind.exe` 即可运行。首次启动会加载 CLAP 模型（30~60 秒）并索引音效库。
+
+> 这是测试版本，升级前建议备份用户数据目录 `%APPDATA%\EchoMind`。
 
 ### 界面预览
 
@@ -43,7 +45,7 @@ SoundBot 使用 Electron 提供桌面界面，以 FastAPI、SQLite、PyAV 和 Ch
 
 ## ✨ 功能特性
 
-| 能力 | v0.2.1-beta.3 行为 |
+| 能力 | v0.3.0-beta.5 行为 |
 | --- | --- |
 | 文件导入 | 沙箱化 preload 通过最小 IPC bridge 调用原生文件/文件夹选择器并只提交绝对路径；后端先写入 SQLite，再由可取消、可轮询的持久化作业生成波形和两个向量 |
 | 音频解码 | 固定版本 `av==18.0.0`（PyAV）及其 wheel 内 FFmpeg 动态库统一解码，不依赖系统 `ffmpeg` 命令 |

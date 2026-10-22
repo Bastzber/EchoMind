@@ -1876,8 +1876,11 @@ function setupIpcHandlers() {
 
   ipcMain.handle('descriptions-import', async () => {
     try {
+      // 安装包里预置了描述包，直接定位到 exe 同目录，省得用户翻文件夹
+      const bundled = path.join(path.dirname(app.getPath('exe')), 'EchoMind-描述包.json');
       const result = await dialog.showOpenDialog(mainWindow, {
         title: '选择描述包',
+        defaultPath: fs.existsSync(bundled) ? bundled : undefined,
         properties: ['openFile'],
         filters: [{ name: 'JSON', extensions: ['json'] }]
       });

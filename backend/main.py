@@ -400,7 +400,10 @@ async def lifespan(app: FastAPI):
                 await asyncio.to_thread(searcher._get_all_files, None)
                 logger.info("[Warmup] 关键词搜索文件快照已预热")
                 # 再跑一次真实检索：Chroma 的向量是懒加载的，不先查一遍，
-                # 用户的首个搜索仍要等 20 秒以上的冷读。
+                # 用户的首个语义搜索仍要等 20 秒以上的冷读。
+                # 但要延后：这句会占住 GPU/CPU 十几秒，紧跟启动跑会和用户
+                # 刚打开界面时的第一次关键词搜索抢资源（实测把 0.1s 拖成 26s）。
+                await asyncio.sleep(45)
                 _t = time.time()
                 try:
                     await searcher.search_async(

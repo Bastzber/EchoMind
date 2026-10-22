@@ -40,6 +40,12 @@
     "electronDownload": {
       "mirror": "https://npmmirror.com/mirrors/electron/"
     },
+    "extraFiles": [
+      {
+        "from": "assets/descriptions/EchoMind-描述包.json",
+        "to": "EchoMind-描述包.json"
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",

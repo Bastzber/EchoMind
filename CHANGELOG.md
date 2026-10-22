@@ -4,6 +4,32 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ## [Unreleased] / 未发布
 
+## [0.3.0-beta.5] - 2026-10-22 (Prerelease / 预发布)
+
+测试版 V5。本版本集中修复索引稳定性、检索排序与启动体验。
+
+### Added / 新增
+
+- Added portable description packs (export/import) that match by path relative to the library root, so one machine's AI descriptions can be reused after moving the library to another drive or machine; importing triggers a text-index rebuild automatically. / 新增可移植的一句话描述包（导出/导入），按「相对音效库根目录的路径」匹配，换盘换机后可复用已生成的描述；导入后自动重建文本索引。
+- Added drag-and-drop import for folders and audio files, with a path-classification IPC in the main process. / 新增拖拽文件夹/音频文件导入，主进程提供路径类型识别。
+- Added infinite scrolling for folder listings backed by a new `folder` filter on `GET /api/v1/files`. / 新增文件夹列表滚动分页，后端 `GET /api/v1/files` 支持 `folder` 前缀过滤。
+
+### Fixed / 修复
+
+- Fixed the packaged mel worker being started as a second HTTP server, which made every audio embedding fail (15,226 false failures). / 修复打包后 mel worker 被当成第二个 HTTP 服务启动、导致音频向量全部编码失败（15,226 条假失败）。
+- Fixed the poison-file blacklist living in the session directory and permanently skipping healthy files; it now lives in user data, requires two strikes, expires after 3 days and is capped. / 修复毒文件黑名单写在会话目录并永久跳过正常文件的问题：改为用户数据目录、连续失败 2 次才拉黑、3 天过期并限制条目数。
+- Fixed the searcher being rebuilt on every request (7–13 s each) by caching per project and collection, and by serializing the startup warm-up. / 修复每次搜索重建检索器（每次 7~13 秒）的问题：按工程与集合缓存，并让启动预热串行化。
+- Fixed expanded dictionary synonyms being scored as high as the original query, which ranked unrelated files (e.g. DRIP.wav) above real matches. / 修复词典扩展词拿到与原查询同等高分、把无关文件排到首位的问题。
+- Fixed the query cache never hitting (per-instance cache keyed by text revision) and the keyword layer re-parsing every file. / 修复查询缓存永不命中、关键词层逐文件重复解析的问题。
+- Fixed folders whose listing was empty because it filtered only the paginated in-memory subset. / 修复点击大目录列表为空（只过滤本地分页数据）的问题。
+- Fixed the user-configured LLM provider being overwritten by the bundled Ark configuration on every backend start. / 修复每次后端启动都会用内置方舟配置覆盖用户 LLM 设置的问题。
+- Fixed reasoning-model output being stored as descriptions when `content` was empty. / 修复推理模型 content 为空时把思考过程写入描述的问题。
+
+### Changed / 变更
+
+- Split search into a fast keyword channel (60–300 ms) and a background semantic supplement that appends instead of replacing results. / 搜索拆为快速关键词通道（60~300 毫秒）与后台语义补充，语义结果只追加不替换。
+- Added a local Chinese→English lexicon for CLAP text queries, and warmed Chroma with a real query at startup. / 新增中文→英文本地词典供 CLAP 文本检索使用，并在启动时用真实查询预热 Chroma。
+
 ## [0.2.1-beta.3] - 2026-08-14 (Prerelease / 预发布)
 
 ### Added / 新增

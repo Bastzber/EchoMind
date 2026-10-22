@@ -1,13 +1,15 @@
 # 🎵 SoundBot - AI 音效管理器 / AI Sound Effect Manager
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.2.1--beta.3-orange.svg)](https://github.com/Huckrick/SoundBot/releases/tag/v0.2.1-beta.3)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
 [English](README.en.md) · [更新日志](CHANGELOG.md) · [版本发布](https://github.com/Huckrick/SoundBot/releases) · [GPL-3.0-or-later](LICENSE)
 
 > 用自然语言找到你想要的声音——本地优先、AI 驱动的桌面音效管理器。
+
+**本仓库当前版本：`v0.3.0-beta.5`（测试版 V5）**。下文中的"下载 / Release"链接指向上游 SoundBot 的历史发布，本仓库尚未单独发布安装包。
 
 > **本项目基于 [SoundBot](https://github.com/Huckrick/SoundBot) 修改而来**（原作者 Nagisa_Huckrick / 胡杨，GPL-3.0-or-later）。
 > 本仓库保留原许可证与署名，在其基础上做了中文本地化、检索链路与索引稳定性的调整，

@@ -3,3 +3,37 @@
 # tree representation stable so Git's Windows CRLF conversion cannot change
 # the controlled bytes after checkout.
 tests/build/licenses/CLAP_MODEL_NOTICE.txt text eol=lf
+
+# 统一换行：仓库内一律 LF，Windows 专属脚本保留 CRLF
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.gif binary
+*.zip binary
+*.7z binary
+*.whl binary
+*.exe binary
+*.dll binary
+*.pyd binary
+*.so binary
+*.db binary
+*.sqlite binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.bin binary
+
+# 文档与数据保持文本
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

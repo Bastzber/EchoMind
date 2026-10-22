@@ -298,7 +298,11 @@ class OptimizedAudioSearcher(AudioSearcher):
                 lowered,
                 [t.strip() for t in re.split(r'[_\-\s]+', lowered) if t.strip()],
             )
-            self._kw_query_cache = cached_query
+            try:
+                self._kw_query_cache = cached_query
+            except AttributeError:
+                # 某些调用方（测试里的轻量替身）没有 __dict__，缓存失败不影响结果
+                pass
         _, query_lower, query_tokens = cached_query
         if not query_lower:
             return 0.0, "none"
@@ -452,6 +456,9 @@ class OptimizedAudioSearcher(AudioSearcher):
             # 轻量元组查询：5 万条不再逐条构造 AudioFileRecord（省 ~9 秒）
             try:
                 rows = db_manager.get_search_rows(self.project_id)
+                # 明确物化成列表：调用方若被 mock 成返回 Mock，迭代时才报错，
+                # 这里提前触发以便回退到下面的慢路径。
+                rows = list(rows) if rows is not None else None
             except Exception as _rows_exc:
                 rows = None
                 logging.getLogger("soundmind").warning(

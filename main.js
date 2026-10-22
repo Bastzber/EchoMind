@@ -783,7 +783,14 @@ async function startBackend() {
 
     backendProcess.stderr.on('data', (data) => {
       const text = data.toString().trim();
-      if (text) console.error(`[Backend] ${text}`);
+      if (!text) return;
+      // Python 的进度条、jieba 加载提示都走 stderr；一律记成 ERROR 会让
+      // soundbot-main.log 全是假错误。只有真像异常的才升到 ERROR。
+      if (/(Traceback|\bERROR\b|Exception|Error:|CRITICAL)/.test(text)) {
+        console.error(`[Backend] ${text}`);
+      } else {
+        console.log(`[Backend:stderr] ${text}`);
+      }
     });
 
     backendProcess.on('error', (error) => {

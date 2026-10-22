@@ -21,6 +21,7 @@ import os
 import re
 import time
 import asyncio
+import threading
 import json
 import numpy as np
 import math
@@ -388,7 +389,7 @@ async def lifespan(app: FastAPI):
     # 预热关键词搜索的文件快照：5 万条从 SQLite 重建约 10 秒，放在后台做，
     # 用户第一次搜索就不必等这一下。
     async def _warm_search_snapshot() -> None:
-        await asyncio.sleep(20)
+        await asyncio.sleep(8)
         try:
             project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
             # 先建检索器（首次构造要 7~13 秒），再建文件快照，这样用户第一次
@@ -398,6 +399,18 @@ async def lifespan(app: FastAPI):
             if searcher is not None:
                 await asyncio.to_thread(searcher._get_all_files, None)
                 logger.info("[Warmup] 关键词搜索文件快照已预热")
+                # 再跑一次真实检索：Chroma 的向量是懒加载的，不先查一遍，
+                # 用户的首个搜索仍要等 20 秒以上的冷读。
+                _t = time.time()
+                try:
+                    await searcher.search_async(
+                        query="sound", top_k=5, use_cache=False
+                    )
+                    logger.info(
+                        "[Warmup] 语义检索已预热 %.1fs", time.time() - _t
+                    )
+                except Exception as warm_exc:
+                    logger.debug("[Warmup] 语义预热失败: %s", warm_exc)
         except Exception as exc:
             logger.debug(f"[Warmup] 搜索预热失败: {exc}")
 
@@ -2636,6 +2649,9 @@ async def get_db_stats():
 
 
 _PROJECT_SEARCHER_CACHE: Dict[tuple, Any] = {}
+# 构造检索器要 7~13 秒；启动预热和用户的首个搜索若同时进来会各建一次
+# （实测首次搜索 24 秒）。用锁串行化，让后来者等前者建好直接复用。
+_SEARCHER_BUILD_LOCK = threading.Lock()
 
 
 def _get_project_searcher(project_id: str):
@@ -2661,14 +2677,18 @@ def _get_project_searcher(project_id: str):
     if cached is not None:
         return cached
 
-    searcher = get_optimized_searcher_sync(
-        project_id=project_id,
-        collection_name=audio_collection,
-        text_collection_name=text_collection,
-        index_revision=revision,
-        model_fingerprint=fingerprint,
-    )
-    _PROJECT_SEARCHER_CACHE[cache_key] = searcher
+    with _SEARCHER_BUILD_LOCK:
+        cached = _PROJECT_SEARCHER_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        searcher = get_optimized_searcher_sync(
+            project_id=project_id,
+            collection_name=audio_collection,
+            text_collection_name=text_collection,
+            index_revision=revision,
+            model_fingerprint=fingerprint,
+        )
+        _PROJECT_SEARCHER_CACHE[cache_key] = searcher
     if len(_PROJECT_SEARCHER_CACHE) > 8:
         _PROJECT_SEARCHER_CACHE.pop(next(iter(_PROJECT_SEARCHER_CACHE)), None)
     return searcher

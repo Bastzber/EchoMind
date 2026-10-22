@@ -29,7 +29,7 @@
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| **完整安装包**（3.27 GB） | 解压即用 | [百度网盘](https://pan.baidu.com/s/15Xd2k2od5080t4tGYx0JSw?pwd=pvdt)　提取码：`pvdt` |
+| **完整安装包**（3.27 GB） | 解压即用，**仅含软件本体，不含任何音效素材** | [百度网盘](https://pan.baidu.com/s/1vsO7MXvp0kXS-odz2XAcAA?pwd=gbmi)　提取码：`gbmi` |
 | 一句话描述包 | 已内置在安装包根目录，无需单独下载 | `win-unpacked\EchoMind-描述包.json` |
 
 > 安装包 3.27 GB，超过 GitHub 单附件 2 GB 上限，因此通过网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面只放版本说明。

@@ -26,7 +26,7 @@ Electron provides the desktop UI. A local backend built with FastAPI, SQLite, Py
 
 | Asset | Notes | Where |
 | --- | --- | --- |
-| **Full installer** (3.27 GB) | Unzip and run | [Baidu Netdisk](https://pan.baidu.com/s/15Xd2k2od5080t4tGYx0JSw?pwd=pvdt)　code: `pvdt` |
+| **Full installer** (3.27 GB) | Unzip and run | [Baidu Netdisk](https://pan.baidu.com/s/1vsO7MXvp0kXS-odz2XAcAA?pwd=gbmi)　code: `gbmi` |
 | One-sentence description pack | Bundled in the installer root | `win-unpacked\EchoMind-描述包.json` |
 
 > The installer is 3.27 GB, above GitHub's 2 GB per-asset limit, so it is distributed via Baidu Netdisk; the [Releases](https://github.com/Bastzber/EchoMind/releases) page only carries release notes.

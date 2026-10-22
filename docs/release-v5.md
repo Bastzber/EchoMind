@@ -4,11 +4,13 @@
 
 ## 下载
 
+> 该分享**仅包含软件本体**（3.27 GB），不含任何音效素材，导入你自己的音效库即可使用。
+
 **百度网盘（完整安装包 3.27 GB）**
 
-链接：https://pan.baidu.com/s/15Xd2k2od5080t4tGYx0JSw?pwd=pvdt
+链接：https://pan.baidu.com/s/1vsO7MXvp0kXS-odz2XAcAA?pwd=gbmi
 
-提取码：`pvdt`
+提取码：`gbmi`
 
 下载后解压，双击 `win-unpacked\EchoMind.exe` 运行。
 

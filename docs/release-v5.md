@@ -12,7 +12,17 @@
 
 下载后解压，双击 `win-unpacked\EchoMind.exe` 运行。
 
-> 安装包 3.27 GB，超过 GitHub 单附件 2 GB 上限，因此以网盘方式分发，Release 不再挂附件。
+> 安装包 3.27 GB，超过 GitHub 单附件 2 GB 上限，因此以网盘方式分发，Release 不挂附件。
+
+## 界面
+
+**主界面：目录树 + AI 描述 + 波形试听**
+
+![主界面](https://raw.githubusercontent.com/Bastzber/EchoMind/main/assets/screenshots/main.png)
+
+**库里有就找出来，库里没有就当场生成**
+
+![创造音效](https://raw.githubusercontent.com/Bastzber/EchoMind/main/assets/screenshots/generate.png)
 
 ## 这个版本做了什么
 
@@ -32,7 +42,7 @@
 ### 描述
 
 - 48,649 条一句话描述 100% 生成并校验（0 条异常）
-- 新增可移植描述包：换盘换机后导入即可复用，不用重新生成（已内置在安装包根目录）
+- 新增可移植描述包：换盘换机后导入即可复用（已内置在安装包根目录）
 
 ### 界面
 

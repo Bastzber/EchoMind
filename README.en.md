@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
-[中文](README.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/Huckrick/SoundBot/releases) · [GPL-3.0-or-later](LICENSE)
+[中文](README.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/Bastzber/EchoMind/releases) · [GPL-3.0-or-later](LICENSE)
 
 > ## Find it, or make it.
 >

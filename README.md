@@ -36,7 +36,21 @@ SoundBot 使用 Electron 提供桌面界面，以 FastAPI、SQLite、PyAV 和 Ch
 
 ### 界面预览
 
-![回声 EchoMind 主界面](assets/screenshots/home.png)
+**主界面：目录树 + AI 描述 + 波形试听**
+
+![回声 EchoMind 主界面](assets/screenshots/main.png)
+
+**用一句话描述生成新音效**
+
+![创造音效](assets/screenshots/generate.png)
+
+**批量生成一句话描述，并可导出描述包跨机器复用**
+
+![一句话描述](assets/screenshots/description-pack.png)
+
+**LLM 可接 DeepSeek / Kimi / OpenAI / 本地模型**
+
+![AI 设置](assets/screenshots/settings-llm.png)
 
 ***
 

@@ -29,7 +29,21 @@ The current source version is **v0.2.1-beta.3 (prerelease)**. This release fixes
 
 ### Interface preview
 
-![EchoMind main interface](assets/screenshots/home.png)
+**Main window: folder tree + AI descriptions + waveform**
+
+![EchoMind main interface](assets/screenshots/main.png)
+
+**Generate a new sound effect from a sentence**
+
+![Sound generation](assets/screenshots/generate.png)
+
+**Batch AI descriptions with a portable description pack**
+
+![Description pack](assets/screenshots/description-pack.png)
+
+**Works with DeepSeek / Kimi / OpenAI / local models**
+
+![AI settings](assets/screenshots/settings-llm.png)
 
 ***
 

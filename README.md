@@ -1,4 +1,4 @@
-# 🎵 SoundBot - AI 音效管理器 / AI Sound Effect Manager
+# 🎵 回声 EchoMind - AI 音效管理器
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
@@ -36,9 +36,7 @@ SoundBot 使用 Electron 提供桌面界面，以 FastAPI、SQLite、PyAV 和 Ch
 
 ### 界面预览
 
-![SoundBot 主界面](Home1.png)
-
-![SoundBot 波形与检索界面](Home2.png)
+![回声 EchoMind 主界面](assets/screenshots/home.png)
 
 ***
 

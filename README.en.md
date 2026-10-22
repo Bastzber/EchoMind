@@ -152,9 +152,22 @@ python -m pytest                       # tests: testpaths configured in pytest.i
 
 ***
 
+## ⚖️ Sound assets
+
+**Neither this repository nor the installer contains any audio files.** The repo has 0 audio files; the 3.27 GB installer has 0 as well — only the app, models and UI.
+
+- The software only manages and indexes your library; **copyright in the audio belongs to its respective owners** and is unrelated to this project's GPL-3.0 license.
+- Imported sounds stay on your own disk; the app indexes them locally and never uploads them.
+- One-sentence descriptions are produced by the LLM you configure; the description pack contains text only, never audio.
+- Sounds produced by "sound creation" are subject to the terms of the text-to-audio service you use.
+
+> ⚠️ If you redistribute audio together with the app (for example a "software + library" bundle), make sure you hold the **redistribution rights** for those assets. Commercial SFX licenses usually forbid redistribution; a disclaimer does not grant you a license.
+
+See [docs/disclaimer.md](docs/disclaimer.md).
+
 ## 📄 License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+GPL-3.0-or-later. See [LICENSE](LICENSE). The license covers **source code only** — not sound assets and not third-party models.
 
 ## 🙏 Credits
 

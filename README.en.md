@@ -29,9 +29,7 @@ The current source version is **v0.2.1-beta.3 (prerelease)**. This release fixes
 
 ### Interface preview
 
-![SoundBot main interface](Home1.png)
-
-![SoundBot waveform and search interface](Home2.png)
+![EchoMind main interface](assets/screenshots/home.png)
 
 ***
 

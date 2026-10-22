@@ -25,11 +25,10 @@ SoundBot 使用 Electron 提供桌面界面，以 FastAPI、SQLite、PyAV 和 Ch
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| **完整安装包**（3.27 GB） | 解压即用，推荐 | [百度网盘](https://pan.baidu.com/s/15Xd2k2od5080t4tGYx0JSw?pwd=pvdt)　提取码：`pvdt` |
-| 分卷安装包（part01 + part02） | GitHub 附件单文件上限 2 GB，需合并 | [Releases](https://github.com/Bastzber/EchoMind/releases) |
-| 一句话描述包 | 已内置在安装包根目录 | `win-unpacked\EchoMind-描述包.json` |
+| **完整安装包**（3.27 GB） | 解压即用 | [百度网盘](https://pan.baidu.com/s/15Xd2k2od5080t4tGYx0JSw?pwd=pvdt)　提取码：`pvdt` |
+| 一句话描述包 | 已内置在安装包根目录，无需单独下载 | `win-unpacked\EchoMind-描述包.json` |
 
-> 安装包 3.27 GB，超过 GitHub 单附件 2 GB 上限，所以 Release 里只能放分卷（两个都下完，双击 `合并分卷.bat` 合成完整 zip，校验值见 Release 说明）。普通用户直接用网盘那一份更省事。
+> 安装包 3.27 GB，超过 GitHub 单附件 2 GB 上限，因此通过网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面只放版本说明。
 >
 > 解压后双击 `win-unpacked\EchoMind.exe` 即可运行。首次启动会加载 CLAP 模型（30~60 秒）并索引音效库。
 

@@ -1,13 +1,17 @@
-# 🎵 SoundBot - AI 音效管理器 / AI Sound Effect Manager
+# 🎵 回声 EchoMind - AI 音效管理器 / AI Sound Effect Manager
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.2.1--beta.3-orange.svg)](https://github.com/Huckrick/SoundBot/releases/tag/v0.2.1-beta.3)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
 [中文](README.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/Huckrick/SoundBot/releases) · [GPL-3.0-or-later](LICENSE)
 
-> Find the sound you want using natural language—a local-first, AI-powered desktop sound-effects manager.
+> ## Find it, or make it.
+>
+> Describe the sound you want: **if it's in your library, it shows up in 0.3 s; if it isn't, generate it on the spot.**
+>
+> A local-first, AI-powered desktop sound-effects manager.
 
 Electron provides the desktop UI, while a local backend built with FastAPI, SQLite, PyAV, and Chroma is frozen and shipped with the application. SoundBot supports sound import, real waveforms, playback, tags, isolated projects, dual-index search, and an optional AI assistant.
 

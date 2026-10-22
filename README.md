@@ -7,7 +7,11 @@
 
 [English](README.en.md) · [更新日志](CHANGELOG.md) · [版本发布](https://github.com/Huckrick/SoundBot/releases) · [GPL-3.0-or-later](LICENSE)
 
-> 用自然语言找到你想要的声音——本地优先、AI 驱动的桌面音效管理器。
+> ## 能找，也能造
+>
+> 一句话描述你要的声音：**库里有，0.3 秒找出来；库里没有，当场生成一个。**
+>
+> 本地优先、AI 驱动的桌面音效管理器。
 
 **本仓库当前版本：`v0.3.0-beta.5`（测试版 V5）** · [发布页](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
 

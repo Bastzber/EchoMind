@@ -1,0 +1,137 @@
+{
+  "name": "echomind",
+  "version": "0.2.1-beta.3",
+  "description": "回声 EchoMind - 个人专属 AI 音效管理器（语义搜索 + AI 生成）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "python scripts/build.py",
+    "build:mac": "python scripts/build.py --platform macos",
+    "build:win": "python scripts/build.py --platform windows",
+    "pack": "python scripts/build.py",
+    "postinstall": "electron-builder install-app-deps",
+    "clean": "python scripts/build.py --clean"
+  },
+  "keywords": [
+    "electron",
+    "audio",
+    "sound",
+    "manager",
+    "ai",
+    "semantic-search",
+    "clap",
+    "pyinstaller"
+  ],
+  "author": "Nagisa_Huckrick (胡杨)",
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "electron": "28.3.3",
+    "electron-builder": "26.8.1"
+  },
+  "build": {
+    "appId": "com.echomind.app",
+    "productName": "EchoMind",
+    "copyright": "Copyright © 2026 回声 EchoMind",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "build"
+    },
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "splash.html",
+      "tailwindcss.js",
+      "lucide.min.js",
+      "assets/**/*",
+      "config/**/*",
+      "!backend/**",
+      "!scripts/**",
+      "!**/*.pyc",
+      "!**/__pycache__",
+      "!**/*.spec",
+      "!**/.DS_Store",
+      "!SoundBot.png",
+      "!backend/dist",
+      "!backend/build",
+      "!dist-electron",
+      "!**/venv",
+      "!**/models",
+      "!**/.git"
+    ],
+    "mac": {
+      "minimumSystemVersion": "14.0",
+      "category": "public.app-category.music",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "license": "LICENSE"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "extraResources": [
+      {
+        "from": "dist/backend/soundbot-backend",
+        "to": "backend/soundbot-backend"
+      },
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "model-manifest.json",
+          "CLAP_MODEL_NOTICE.txt",
+          "clap/**/*"
+        ]
+      }
+    ],
+    "publish": null
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "github_repo": "Huckrick/SoundBot",
+  "resources": {
+    "models": {
+      "filename": "models.zip",
+      "filename_patterns": [
+        "models.zip",
+        "models-*.zip"
+      ],
+      "extract_to": "models",
+      "required": false,
+      "require_checksum": true,
+      "description": "AI 模型文件 (CLAP等)"
+    }
+  }
+}

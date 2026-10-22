@@ -1,0 +1,77 @@
+{
+    "llm": {
+        "provider": "kimi_coding",
+        "lm_studio": {
+            "base_url": "http://localhost:1234/v1",
+            "model": ""
+        },
+        "ollama": {
+            "base_url": "http://localhost:11434/v1",
+            "model": ""
+        },
+        "openai": {
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "",
+            "model": "gpt-4o-mini"
+        },
+        "azure": {
+            "base_url": "https://YOUR_RESOURCE.openai.azure.com",
+            "api_key": "",
+            "model": "",
+            "api_version": "2024-02-01"
+        },
+        "gemini": {
+            "base_url": "https://generativelanguage.googleapis.com",
+            "api_key": "",
+            "model": "gemini-2.0-flash"
+        },
+        "kimi": {
+            "base_url": "https://api.moonshot.cn/v1",
+            "api_key": "",
+            "model": "moonshot-v1-8k"
+        },
+        "kimi_coding": {
+            "base_url": "https://api.kimi.com/coding",
+            "api_key": "",
+            "model": "k2p5",
+            "headers": {
+                "User-Agent": "Kimi Claw Plugin"
+            }
+        },
+        "anthropic": {
+            "base_url": "https://api.anthropic.com/v1",
+            "api_key": "",
+            "model": "claude-3-haiku-20240307"
+        },
+        "deepseek": {
+            "base_url": "https://api.deepseek.com/v1",
+            "api_key": "",
+            "model": "deepseek-chat"
+        },
+        "siliconflow": {
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key": "",
+            "model": "BAAI/bge-m3"
+        },
+        "custom": {
+            "base_url": "https://your-api.com/v1",
+            "api_key": "",
+            "model": ""
+        }
+    },
+    "embedding": {
+        "provider": "default",
+        "default": {},
+        "local": {
+            "type": "lm_studio",
+            "base_url": "http://localhost:1234/v1",
+            "model": ""
+        },
+        "external": {
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "",
+            "model": "text-embedding-3-small",
+            "dimension": 1536
+        }
+    }
+}

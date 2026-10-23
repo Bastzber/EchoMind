@@ -1326,6 +1326,24 @@ class OptimizedAudioSearcher(AudioSearcher):
             except Exception as exc:
                 logging.getLogger("soundmind").warning("[Search] BGE 回退: %r", exc)
 
+        # 短关键词（<=4 字）走 FTS 快通道：命中足够就不必再跑音频/文本语义层
+        # （原来一次短词查询要 13 秒，主要花在 CLAP 音频塔上）
+        if len(query) <= 4:
+            try:
+                # 取全量候选再判断命中数（fetch_k 可能只有 3，会让快通道永远不触发）
+                fts_hits = await asyncio.to_thread(self._fts_keyword_search, query, filters, 200)
+                logging.getLogger("soundmind").info("[Search] fts fast hits=%d q=%s", len(fts_hits), query)
+                if len(fts_hits) >= 5:
+                    return fts_hits[:fetch_k], {
+                        "cache_hit": False,
+                        "query_expansion": False,
+                        "layers": {"exact": 0, "expanded": 0, "semantic": len(fts_hits)},
+                        "elapsed_ms": round((time.time() - start_time) * 1000, 1),
+                        "engine": "fts",
+                    }
+            except Exception as exc:
+                logging.getLogger("soundmind").warning("[Search] FTS 快通道失败: %r", exc)
+
         stats = {
             "cache_hit": False,
             "query_expansion": False,

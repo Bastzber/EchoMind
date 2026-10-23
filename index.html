@@ -2120,16 +2120,28 @@
         let stemsTicker = null;
         let stemsCtx = null;
 
-        function stemsGain(mix, x, y) {
-            const gx = mix.x[0] + (mix.x[1] - mix.x[0]) * x;
-            const gy = mix.y[0] + (mix.y[1] - mix.y[0]) * y;
-            // 主增益 0.45：四条音轨叠加后不至于轰头
-            return Math.max(0, Math.min(1, gx * gy * 0.45));
+        // x = 远近（0 远 / 1 近），y = 强度（0 轻 / 1 重）
+        function stemsGain(stemId, mix, x, y) {
+            const near = x;
+            const far = 1 - x;
+            const intensity = y;
+            const gx = mix.x[0] + (mix.x[1] - mix.x[0]) * intensity;
+            const gy = mix.y[0] + (mix.y[1] - mix.y[0]) * intensity;
+            let gain = gx * gy * 0.45;
+            // 远处更闷更轻：高频层（drops/accent）衰减更多，中低频保留
+            if (stemId === 'drops' || stemId === 'accent' || stemId === 'foam') {
+                gain *= 0.35 + 0.65 * near;
+            } else if (stemId === 'mid' || stemId === 'surge') {
+                gain *= 0.75 + 0.25 * far;
+            } else {
+                gain *= 0.6 + 0.4 * near;
+            }
+            return Math.max(0, Math.min(1, gain));
         }
 
         function applyStemsGains(x, y) {
             if (!stemsState) return;
-            stemsState.targets = stemsState.audios.map((item) => stemsGain(item.mix, x, y));
+            stemsState.targets = stemsState.audios.map((item) => stemsGain(item.id, item.mix, x, y));
             if (stemsTicker) return;
             stemsTicker = setInterval(() => {
                 if (!stemsState) { clearInterval(stemsTicker); stemsTicker = null; return; }
@@ -2172,7 +2184,7 @@
                     el.preload = 'auto';
                     el.volume = 0;
                     el.play().catch(() => {});
-                    return { el, mix: stem.mix };
+                    return { el, mix: stem.mix, id: stem.id };
                 });
                 stemsState = { recipeId: recipeState.current.id, audios, targets: [] };
                 applyStemsGains(x, y);
@@ -2263,15 +2275,19 @@
             renderRecipeLayers();
             const pad = document.getElementById('recipePad');
             if (pad) {
-                const labels = recipe.mode === 'env'
-                    ? ['微风', '强风', '纯净', '丰富']
-                    : ['远处', '近处', '轻', '重'];
+                const fallback = recipe.mode === 'env'
+                    ? ['远处 · 轻', '远处 · 重', '近处 · 轻', '近处 · 重']
+                    : ['远处 · 轻', '远处 · 重', '近处 · 轻', '近处 · 重'];
+                const labels = (Array.isArray(recipe.labels) && recipe.labels.length === 4)
+                    ? recipe.labels
+                    : fallback;
                 const spans = pad.querySelectorAll('span');
                 if (spans.length >= 4) {
-                    spans[0].textContent = `${labels[0]} · ${labels[2]}`;
-                    spans[1].textContent = `${labels[0]} · ${labels[3]}`;
-                    spans[2].textContent = `${labels[1]} · ${labels[2]}`;
-                    spans[3].textContent = `${labels[1]} · ${labels[3]}`;
+                    // 左上 / 右上 / 左下 / 右下
+                    spans[0].textContent = labels[0];
+                    spans[1].textContent = labels[1];
+                    spans[2].textContent = labels[2];
+                    spans[3].textContent = labels[3];
                 }
             }
             document.getElementById('recipePlayBtn').disabled = true;

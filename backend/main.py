@@ -2310,6 +2310,7 @@ _RECIPE_DEFS = [
         "name": "风与气流",
         "category": "环境音",
         "mode": "env",
+        "labels": ["远处 · 微风", "远处 · 强风", "近处 · 微风", "近处 · 强风"],
         "queries": [
             {"layer": "base", "label": "柔风底声", "q": "风", "prob": 1.0, "gain_db": -8.0,
              "trim_seconds": 1.6, "strength_gain": 3.0, "require": ["风"]},
@@ -2330,6 +2331,7 @@ _RECIPE_DEFS = [
         "name": "雨天",
         "category": "环境音",
         "mode": "env",
+        "labels": ["远处 · 细雨", "远处 · 暴雨", "近处 · 细雨", "近处 · 暴雨"],
         "queries": [
             {"layer": "base", "label": "雨声底噪", "q": "雨", "prob": 1.0, "gain_db": -8.0,
              "trim_seconds": 2.0, "strength_gain": 3.0, "require": ["雨"]},
@@ -2360,6 +2362,7 @@ _RECIPE_DEFS = [
         "name": "海边浪潮",
         "category": "环境音",
         "mode": "env",
+        "labels": ["远处 · 平静", "远处 · 巨浪", "近处 · 平静", "近处 · 巨浪"],
         "queries": [
             {"layer": "base", "label": "海浪底声", "q": "海浪", "prob": 1.0, "gain_db": -8.0,
              "trim_seconds": 2.4, "strength_gain": 4.0, "require": ["海浪", "海"]},
@@ -2375,6 +2378,7 @@ _RECIPE_DEFS = [
         "name": "篝火燃烧",
         "category": "环境音",
         "mode": "env",
+        "labels": ["远处 · 小火", "远处 · 大火", "近处 · 小火", "近处 · 大火"],
         "queries": [
             {"layer": "base", "label": "火焰底声", "q": "火", "prob": 1.0, "gain_db": -10.0,
              "trim_seconds": 2.0, "strength_gain": 3.0, "require": ["火"]},
@@ -2449,6 +2453,7 @@ async def list_recipes():
     for spec in _RECIPE_DEFS:
         recipe = _get_recipe(spec["id"])
         info = recipe.to_dict() if recipe else {"id": spec["id"], "name": spec["name"], "category": spec["category"], "layers": []}
+        info["labels"] = spec.get("labels") or []
         info["usable"] = bool(recipe and recipe.layers)
         result.append(info)
     return {"success": True, "recipes": result}

@@ -30,9 +30,10 @@ class Layer:
     prob: float = 1.0
     offset_ms: Tuple[int, int] = (0, 0)
     pitch_span: float = 0.0
+    trim_seconds: float = 1.2
     audio: List[np.ndarray] = field(default_factory=list)
 
-    def ensure_audio(self, max_seconds: float = 2.0) -> None:
+    def ensure_audio(self, max_seconds: float = 1.2) -> None:
         """首次触发时解码并缓存，之后每次触发都是纯内存操作。"""
         if self.audio:
             return
@@ -140,7 +141,7 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
             continue
         if not layer.pool:
             continue
-        layer.ensure_audio()
+        layer.ensure_audio(layer.trim_seconds)
         if not layer.audio:
             continue
         samples = rng.choice(layer.audio)
@@ -156,6 +157,13 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
     for offset, samples in pieces:
         buffer[offset:offset + len(samples)] += samples
     buffer = _lowpass(buffer, cutoff)
+    # 触发结果控制在 1.5 秒内，并做尾部淡出，避免"一步"拖着长长尾巴
+    limit = int(1.5 * TARGET_SR)
+    if len(buffer) > limit:
+        buffer = buffer[:limit]
+    tail = min(int(0.07 * TARGET_SR), len(buffer) // 3)
+    if tail > 1:
+        buffer[-tail:] *= np.linspace(1.0, 0.0, tail, dtype=np.float32)
     peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
     if peak > 0.98:
         buffer = buffer * (0.98 / peak)
@@ -230,6 +238,7 @@ def build_from_library(
                 prob=float(spec.get("prob", 1.0) or 1.0),
                 offset_ms=tuple(spec.get("offset_ms", (0, 0)) or (0, 0)),
                 pitch_span=float(spec.get("pitch_span", 0.0) or 0.0),
+                trim_seconds=float(spec.get("trim_seconds", 1.2) or 1.2),
             )
         )
     return Recipe(id=recipe_id, name=name, category=category, layers=layers)

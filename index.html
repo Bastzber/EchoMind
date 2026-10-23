@@ -168,16 +168,16 @@
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
     
     <!-- ==================== TOP TOOLBAR ==================== -->
-    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 transition-colors duration-300"
+    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 transition-colors duration-300 gap-3 overflow-x-auto"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
         <!-- Left: App Name Only -->
-        <div class="flex items-center">
+        <div class="flex items-center shrink-0">
             <span class="font-semibold text-lg tracking-tight" data-i18n="app.name">回声</span>
         </div>
         
         <!-- Center: Menu -->
-        <nav class="flex items-center gap-1">
+        <nav class="flex items-center gap-1 shrink-0">
             <!-- 文件菜单 -->
             <div class="relative">
                 <button id="fileMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
@@ -220,12 +220,25 @@
             </div>
             <div class="relative">
                 <button id="sfxMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
-                    <i data-lucide="sparkles" class="w-4 h-4"></i><span>创造音效</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <defs><linearGradient id="sfxGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#22d3ee"/>
+                        </linearGradient></defs>
+                        <path d="M12 3l1.9 4.6L18.5 9.5 13.9 11.4 12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" fill="url(#sfxGrad)"/>
+                        <path d="M4 19.5h2.2M8 19.5h1.4M11.4 19.5h1.2M14.6 19.5h2M18.6 19.5h1.4" stroke="url(#sfxGrad)" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg><span>创造音效</span>
                 </button>
             </div>
             <div class="relative">
                 <button id="recipeMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
-                    <i data-lucide="layers" class="w-4 h-4"></i><span>声音配方</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <defs><linearGradient id="recipeGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#8b5cf6"/>
+                        </linearGradient></defs>
+                        <path d="M3 8.5c2.4 0 2.4-2.2 4.8-2.2s2.4 2.2 4.8 2.2 2.4-2.2 4.8-2.2 2.4 2.2 4.8 2.2" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round"/>
+                        <path d="M3 13c2.4 0 2.4 2.2 4.8 2.2s2.4-2.2 4.8-2.2 2.4 2.2 4.8 2.2 2.4-2.2 4.8-2.2" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.75"/>
+                        <path d="M6 18.6h12" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>
+                    </svg><span>声音配方</span>
                 </button>
             </div>
             <div class="relative">
@@ -1558,20 +1571,32 @@
             });
 
             // 点击文件夹筛选
-            div.querySelector('.folder-header').addEventListener('click', (e) => {
+            div.querySelector('.folder-header').addEventListener('click', async (e) => {
                 // 如果点击的是展开按钮，不执行筛选
                 if (e.target.closest('.folder-toggle')) return;
 
                 document.querySelectorAll('#folderTree .sidebar-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
 
-                // 先显示已映射的子目录文件，再把「手动加入」的单个音效追加进来
+                // 映射目录里的文件 + 手动加入的单个音效，合并后一起显示
                 const folderPaths = childFolders.map(f => f.path);
-                const filtered = soundData.filter(s => {
+                const mapped = soundData.filter(s => {
                     return folderPaths.some(fp => isSameOrChildPath(s.folderPath, fp));
                 });
-                renderSoundList('', filtered);
-                loadUserFolderFiles(folder.id, filtered);
+                let members = [];
+                try {
+                    const data = await rendererApi.get(
+                        `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
+                        + `/folders/${encodeURIComponent(folder.id)}/files`
+                    );
+                    members = ((data && data.files) || []).map(mapDbFileToSound);
+                } catch (error) {
+                    console.warn('[Folder] 读取文件夹成员失败:', error);
+                }
+                const seen = new Set(mapped.map(s => s.filePath));
+                const list = mapped.concat(members.filter(s => !seen.has(s.filePath)));
+                allSearchResults = list;
+                renderSoundList('', list);
             });
 
             // 右键菜单

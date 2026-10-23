@@ -11,6 +11,8 @@ Write-Host '[dev] starting electron from source...'
 $env:ELECTRON_ENABLE_LOGGING = '1'
 # 关键：某些环境里 ELECTRON_RUN_AS_NODE=1，会让 electron.exe 退化成 node
 Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+# 强制后端用 .venv python 跑源码，避免加载旧的打包后端（改完 py 立即生效）
+$env:SOUNDBOT_BACKEND_DEV = '1'
 
 # 直接调用 node_modules 里的 electron.exe，避免依赖 PATH 里的 npx
 $electron = Join-Path $root 'node_modules\electron\dist\electron.exe'

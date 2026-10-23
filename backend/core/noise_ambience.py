@@ -61,6 +61,74 @@ def _events(n: int, count: int, decay: float, low_freq: float = 1500.0) -> np.nd
     return out
 
 
+# 每个配方的 4 条独立音轨 + 每条音轨受 x/y 控制的增益范围
+STEM_MIX: dict = {
+    "wind": {
+        "base":   {"x": (0.55, 1.0), "y": (0.8, 1.0)},
+        "gust":   {"x": (0.2, 0.55), "y": (0.0, 0.9)},
+        "strong": {"x": (0.0, 1.0), "y": (0.25, 0.5)},
+        "accent": {"x": (0.1, 0.3), "y": (0.0, 0.7)},
+    },
+    "rain": {
+        "base":   {"x": (0.5, 0.9), "y": (0.45, 1.0)},
+        "mid":    {"x": (0.2, 0.8), "y": (0.2, 0.45)},
+        "drops":  {"x": (0.2, 0.5), "y": (0.1, 0.9)},
+        "accent": {"x": (0.3, 0.6), "y": (0.0, 0.55)},
+    },
+    "sea": {
+        "base":   {"x": (0.45, 1.0), "y": (0.7, 1.0)},
+        "surge":  {"x": (0.2, 0.85), "y": (0.25, 0.6)},
+        "foam":   {"x": (0.1, 0.4), "y": (0.0, 0.8)},
+        "accent": {"x": (0.2, 0.5), "y": (0.0, 0.5)},
+    },
+    "fire": {
+        "base":   {"x": (0.55, 1.0), "y": (0.8, 1.0)},
+        "air":    {"x": (0.2, 0.5), "y": (0.1, 0.55)},
+        "drops":  {"x": (0.25, 0.6), "y": (0.0, 0.9)},
+        "accent": {"x": (0.15, 0.4), "y": (0.0, 0.6)},
+    },
+}
+
+
+def synth_stems(kind: str, seconds: float = 6.0) -> dict:
+    """返回 4 条同长度、同相位起点的循环音轨（播放端只调音量，永不重启）。"""
+    n = int(seconds * SR)
+    if kind == "wind":
+        stems = {
+            "base": _periodic_noise(seconds, lambda f: _band(f, 110, 700) * 0.9),
+            "gust": _periodic_noise(seconds, lambda f: _band(f, 480, 2200)) * _lfo(n, seconds, 0.14, 0.9),
+            "strong": _periodic_noise(seconds, lambda f: _band(f, 700, 3600)) * _lfo(n, seconds, 0.07, 0.6),
+            "accent": _events(n, 12, 0.08, 1800) * 0.7,
+        }
+    elif kind == "rain":
+        stems = {
+            "base": _periodic_noise(seconds, lambda f: _band(f, 2500, 11000) * 0.85),
+            "mid": _periodic_noise(seconds, lambda f: _band(f, 300, 1600) * 0.7),
+            "drops": _events(n, 220, 0.045, 3200),
+            "accent": _events(n, 24, 0.12, 1200),
+        }
+    elif kind == "sea":
+        stems = {
+            "base": _periodic_noise(seconds, lambda f: _band(f, 55, 900) * 0.9) * _lfo(n, seconds, 0.08, 0.85),
+            "surge": _periodic_noise(seconds, lambda f: _band(f, 800, 2600) * 0.7) * _lfo(n, seconds, 0.1, 0.9, 1.7),
+            "foam": _periodic_noise(seconds, lambda f: _band(f, 2400, 9500) * 0.5) * _lfo(n, seconds, 0.13, 0.95, 0.6),
+            "accent": _events(n, 10, 0.2, 1400) * 0.8,
+        }
+    else:
+        stems = {
+            "base": _periodic_noise(seconds, lambda f: _band(f, 55, 520) * 0.9),
+            "air": _periodic_noise(seconds, lambda f: _band(f, 850, 3200) * 0.45),
+            "drops": _events(n, 90, 0.028, 1100),
+            "accent": _events(n, 12, 0.09, 500),
+        }
+    out = {}
+    for key, data in stems.items():
+        data = data.astype(np.float32)
+        peak = float(np.max(np.abs(data))) or 1.0
+        out[key] = (data / peak * 0.9).astype(np.float32)
+    return out
+
+
 _CACHE: dict = {}
 
 

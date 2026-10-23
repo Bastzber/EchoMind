@@ -21,6 +21,7 @@ import os
 import re
 import time
 import uuid
+import tempfile
 import asyncio
 import threading
 import json
@@ -2519,6 +2520,52 @@ async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
         layer_samples,
     )
     return {"success": True, **_serve_recipe_audio(samples)}
+
+
+@app.post("/api/v1/recipes/{recipe_id}/stems")
+async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
+    """返回 4 条独立音轨 + 每条受 x/y 控制的增益范围。
+
+    前端同时循环播放这 4 条，拖动时只改音量 —— 声音永不重启，因此不可能有断层。
+    """
+    from core.noise_ambience import STEM_MIX, synth_stems
+    from core.sound_recipe import to_wav_bytes as _to_wav
+
+    recipe = _get_recipe(recipe_id)
+    if recipe is None or not recipe.synth:
+        raise HTTPException(status_code=404, detail="该配方不是环境音")
+
+    seconds = min(max(float((payload or {}).get("seconds", 6) or 6), 2.0), 12.0)
+    stems = await asyncio.to_thread(synth_stems, recipe.synth, seconds)
+    directory = Path(tempfile.gettempdir()) / "echomind_stems"
+    directory.mkdir(parents=True, exist_ok=True)
+
+    items = []
+    for stem_id, samples in stems.items():
+        wav = _to_wav(samples)
+        name = f"{recipe.synth}_{stem_id}.wav"
+        path = directory / name
+        path.write_bytes(wav)
+        items.append({
+            "id": stem_id,
+            "url": f"/api/v1/temp-audio/stems/{name}",
+            "mix": STEM_MIX.get(recipe.synth, {}).get(stem_id, {"x": (0.3, 0.6), "y": (0.3, 0.6)}),
+        })
+    return {"success": True, "seconds": seconds, "stems": items}
+
+
+@app.get("/api/v1/temp-audio/stems/{name}")
+async def serve_stem_audio(name: str):
+    """回传音轨；带上 CORS 头，方便前端用 WebAudio/audio 标签播放。"""
+    from fastapi.responses import FileResponse
+    import re
+
+    if not re.fullmatch(r"(wind|rain|sea|fire)_[a-z]+\.wav", name):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    path = Path(tempfile.gettempdir()) / "echomind_stems" / name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="音轨不存在")
+    return FileResponse(str(path), media_type="audio/wav", headers={"Access-Control-Allow-Origin": "*"})
 
 
 @app.post("/api/v1/recipes/{recipe_id}/ambience")

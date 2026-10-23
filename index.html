@@ -2089,6 +2089,88 @@
             })();
         }
 
+        // ===== 环境音：4 条音轨常驻循环，拖动只改音量（结构上不可能断层）=====
+        let stemsState = null;
+        let stemsTicker = null;
+
+        function stemsGain(mix, x, y) {
+            const gx = mix.x[0] + (mix.x[1] - mix.x[0]) * x;
+            const gy = mix.y[0] + (mix.y[1] - mix.y[0]) * y;
+            return Math.max(0, Math.min(1, gx * gy));
+        }
+
+        function applyStemsGains(x, y) {
+            if (!stemsState) return;
+            stemsState.targets = stemsState.audios.map((item) => stemsGain(item.mix, x, y));
+            if (stemsTicker) return;
+            stemsTicker = setInterval(() => {
+                if (!stemsState) { clearInterval(stemsTicker); stemsTicker = null; return; }
+                let moving = false;
+                stemsState.audios.forEach((item, i) => {
+                    const target = stemsState.targets[i];
+                    const current = item.el.volume;
+                    const next = current + (target - current) * 0.35;
+                    if (Math.abs(next - target) > 0.004) moving = true;
+                    item.el.volume = Math.max(0, Math.min(1, next));
+                });
+                if (!moving) { clearInterval(stemsTicker); stemsTicker = null; }
+            }, 40);
+        }
+
+        async function startStems(x, y) {
+            if (!recipeState.current) return;
+            recipeState.ambiencePlaying = true;
+            stopRecipeAudio();
+            recordAmbiencePoint(x, y);
+            const btn = document.getElementById('recipeStopAmbience');
+            if (btn) btn.classList.remove('hidden');
+
+            if (stemsState && stemsState.recipeId === recipeState.current.id) {
+                applyStemsGains(x, y);
+                return;
+            }
+            stopStems();
+            try {
+                const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+                const data = await rendererApi.post(
+                    `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/stems`,
+                    { seconds: 6 },
+                    { timeoutMs: 60000 }
+                );
+                const audios = (data.stems || []).map((stem) => {
+                    const el = new Audio(base + stem.url);
+                    el.loop = true;
+                    el.crossOrigin = 'anonymous';
+                    el.volume = 0;
+                    el.play().catch(() => {});
+                    return { el, mix: stem.mix };
+                });
+                stemsState = { recipeId: recipeState.current.id, audios, targets: [] };
+                applyStemsGains(x, y);
+            } catch (error) {
+                showNotification('环境音轨加载失败: ' + error.message, 'error');
+            }
+        }
+
+        function updateStems(x, y) {
+            if (!recipeState.ambiencePlaying) return;
+            recordAmbiencePoint(x, y);
+            applyStemsGains(x, y);
+        }
+
+        function stopStems() {
+            if (stemsTicker) { clearInterval(stemsTicker); stemsTicker = null; }
+            if (stemsState) {
+                stemsState.audios.forEach((item) => {
+                    try { item.el.pause(); item.el.src = ''; } catch (_) { }
+                });
+                stemsState = null;
+            }
+            recipeState.ambiencePlaying = false;
+            const btn = document.getElementById('recipeStopAmbience');
+            if (btn) btn.classList.add('hidden');
+        }
+
         function renderRecipeLayers() {
             const box = document.getElementById('recipeLayerList');
             const recipe = recipeState.current;
@@ -2146,7 +2228,7 @@
             recipeState.sample = null;
             recipeState.layerSamples = {};
             recipeState.enabled = new Set((recipe.layers || []).map((l) => l.id));
-            stopAmbience();
+            stopStems();
             document.getElementById('recipeTitle').textContent = recipe.name;
             document.getElementById('recipeLayers').textContent = (recipe.mode === 'env' ? '环境音' : '拟音') + ` · ${(recipe.layers || []).length} 层`;
             renderRecipeLayers();
@@ -6545,7 +6627,7 @@
                 recipeState.padDragging = true;
                 const params = recipePadParams(e);
                 if (recipeState.current && recipeState.current.mode === 'env') {
-                    startAmbience(params.x, params.y);
+                    startStems(params.x, params.y);
                 } else {
                     triggerRecipeHit(params);
                 }
@@ -6554,12 +6636,12 @@
                 // 必须按住左键才动，松开后光标位置不再影响声音
                 if (!recipeState.padDragging || !recipeState.ambiencePlaying) return;
                 const params = recipePadParams(e);
-                updateAmbience(params.x, params.y);
+                updateStems(params.x, params.y);
             });
             const endDrag = () => { recipeState.padDragging = false; };
             window.addEventListener('mouseup', endDrag);
             padEl?.addEventListener('mouseleave', endDrag);
-            document.getElementById('recipeStopAmbience')?.addEventListener('click', () => stopAmbience());
+            document.getElementById('recipeStopAmbience')?.addEventListener('click', () => stopStems());
             document.getElementById('recipeRecordBtn')?.addEventListener('click', () => {
                 if (recipeState.recording) stopRecipeRecording(); else startRecipeRecording();
             });

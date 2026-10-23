@@ -479,6 +479,11 @@ function registerAudioProtocol() {
  * onedir 模式：resources/backend/soundbot-backend/soundbot-backend
  */
 function getBackendExecutable() {
+  // 开发模式：强制走 .venv 的 python 跑源码，避免用到旧的打包后端
+  if (process.env.SOUNDBOT_BACKEND_DEV === '1') {
+    console.log('[Backend] DEV mode: skipping packaged backend, using source python');
+    return null;
+  }
   const exeName = process.platform === 'win32'
     ? 'soundbot-backend.exe'
     : 'soundbot-backend';

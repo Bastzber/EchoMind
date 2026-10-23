@@ -1285,6 +1285,41 @@ class OptimizedAudioSearcher(AudioSearcher):
             return [], {"cache_hit": False, "total_found": 0, "returned": 0}
 
         start_time = time.time()
+
+        # P3：中文长句走 BGE 文本向量（短关键词仍走 FTS，避免无谓开销）
+        if contains_chinese(query) and len(query) >= 5:
+            try:
+                from core import zh_text_index
+
+                rows = await asyncio.to_thread(zh_text_index.search_rows, query, fetch_k)
+                if len(rows) >= 3:
+                    results = []
+                    for row in rows:
+                        ext = str(row.get("filename") or "").rsplit(".", 1)[-1].lower()
+                        results.append(
+                            SearchResult(
+                                file_path=row["path"],
+                                filename=row["filename"],
+                                similarity=float(row.get("score") or 0.0),
+                                duration=float(row.get("duration") or 0.0),
+                                format=ext,
+                                metadata={
+                                    "file_uuid": row["file_uuid"],
+                                    "tags": row.get("tags"),
+                                    "ai_description": row.get("ai_description"),
+                                },
+                            )
+                        )
+                    return results, {
+                        "cache_hit": False,
+                        "query_expansion": False,
+                        "layers": {"exact": 0, "expanded": 0, "semantic": len(results)},
+                        "elapsed_ms": round((time.time() - start_time) * 1000, 1),
+                        "engine": "bge",
+                    }
+            except Exception as exc:
+                logger.debug("[Search] BGE 语义检索回退: %s", exc)
+
         stats = {
             "cache_hit": False,
             "query_expansion": False,

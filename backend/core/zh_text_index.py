@@ -134,6 +134,73 @@ def rebuild(limit: Optional[int] = None, batch_size: int = 64) -> Dict[str, Any]
         return status()
 
 
+def search(query: str, limit: int = 60, min_score: float = 0.30) -> List[Dict[str, Any]]:
+    """用 BGE 查中文语义；返回 [{file_uuid, score}]，模型/索引缺失返回 []。"""
+    if not query or not query.strip():
+        return []
+    vector = zh_embedder.encode([query])
+    if vector is None:
+        return []
+    try:
+        import os
+        from pathlib import Path
+
+        import chromadb
+
+        persist = Path(os.environ.get("APPDATA", ".")) / "EchoMind" / "chroma_projects" / "default"
+        client = chromadb.PersistentClient(path=str(persist))
+        collection = client.get_collection(COLLECTION)
+        result = collection.query(
+            query_embeddings=[vector[0].tolist()], n_results=limit
+        )
+        ids = (result.get("ids") or [[]])[0]
+        distances = (result.get("distances") or [[]])[0]
+        hits = []
+        for file_uuid, distance in zip(ids, distances):
+            score = 1.0 - float(distance)
+            if score >= min_score:
+                hits.append({"file_uuid": file_uuid, "score": score})
+        return hits
+    except Exception as exc:
+        logger.debug("[Embed] 文本检索失败: %s", exc)
+        return []
+
+
+def search_rows(query: str, limit: int = 60, min_score: float = 0.30) -> List[Dict[str, Any]]:
+    """语义命中后补齐文件信息，供搜索引擎直接构造结果。"""
+    hits = search(query, limit=limit, min_score=min_score)
+    if not hits:
+        return []
+    from core.database import get_db_manager
+
+    scores = {h["file_uuid"]: h["score"] for h in hits}
+    ordered = [h["file_uuid"] for h in hits]
+    db = get_db_manager()
+    rows = []
+    with db.get_cursor() as cursor:
+        for start in range(0, len(ordered), 300):
+            chunk = ordered[start:start + 300]
+            marks = ",".join("?" * len(chunk))
+            fetched = cursor.execute(
+                f"SELECT file_uuid, path, filename, duration, file_size, tags, ai_description "
+                f"FROM files WHERE project_id='default' AND file_uuid IN ({marks})",
+                chunk,
+            ).fetchall()
+            for r in fetched:
+                rows.append({
+                    "file_uuid": r[0],
+                    "path": r[1],
+                    "filename": r[2],
+                    "duration": r[3],
+                    "size": r[4],
+                    "tags": r[5],
+                    "ai_description": r[6],
+                    "score": scores.get(r[0], 0.0),
+                })
+    rows.sort(key=lambda item: item["score"], reverse=True)
+    return rows
+
+
 def start_async(limit: Optional[int] = None) -> Dict[str, Any]:
     if _state["running"]:
         return status()

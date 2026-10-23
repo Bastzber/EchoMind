@@ -59,9 +59,20 @@ tags total: 1  scene: 0  attr: 1   （动物）
 - `POST /api/v1/embed/rebuild`、`GET /api/v1/embed/rebuild/status`
 - 全量重建已在后台启动
 
+### 已完成（第四轮）
+- 全量重建：**48,648 条，0 失败，1.6 分钟**（GPU）
+- `zh_text_index.search / search_rows` 接入 `search_async`：
+  ```
+  engine = 'bge'，layers.semantic = 5，elapsed 2.77s（首次含模型加载）
+  0.861 打碎玻璃声.wav
+  0.832 打碎玻璃声.wav
+  0.828 GLASS1.WAV
+  ```
+  语义质量明显优于 CLAP 文本塔
+
 ### 待办
-- 全量重建完成后校验条数
-- 搜索链路接入：长句走 BGE，短关键词仍走 FTS
+- **HTTP 接口路径未走 BGE**：`POST /api/v1/search` 仍耗时 17.8s（CLAP），直接调 `searcher.search_async` 却是 bge。
+  怀疑接口在调用前对 query 做了英文翻译，导致 `contains_chinese` 判定失效 —— 下一轮排查 `main.py:3401` 附近。
 - 模型选择：网络恢复后可换回 bge-m3（代码已支持按目录自动选择，维度自适应）
 
 ## 旧的 P3 说明（存档）

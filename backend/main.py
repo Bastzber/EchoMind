@@ -2603,6 +2603,10 @@ async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
     max_seconds = min(float(payload.get("max_seconds", 60) or 60), 60.0)
     sample = str(payload.get("sample") or "").strip() or None
     variation = float(payload.get("variation", 1.0) or 0)
+    enabled = payload.get("enabled")
+    layer_samples = payload.get("layer_samples") or {}
+    if not isinstance(layer_samples, dict):
+        layer_samples = {}
     for event in events:
         event.setdefault("sample", sample)
         event.setdefault("variation", variation)

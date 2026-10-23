@@ -2019,6 +2019,7 @@
         }
 
         function recordAmbiencePoint(x, y) {
+            recipeState.lastPoint = { x, y };
             if (!recipeState.recording) return;
             recipeState.events.push({
                 t: (Date.now() - recipeState.startedAt) / 1000,
@@ -2096,7 +2097,8 @@
         function stemsGain(mix, x, y) {
             const gx = mix.x[0] + (mix.x[1] - mix.x[0]) * x;
             const gy = mix.y[0] + (mix.y[1] - mix.y[0]) * y;
-            return Math.max(0, Math.min(1, gx * gy));
+            // 主增益 0.45：四条音轨叠加后不至于轰头
+            return Math.max(0, Math.min(1, gx * gy * 0.45));
         }
 
         function applyStemsGains(x, y) {
@@ -2313,6 +2315,11 @@
             const button = document.getElementById('recipeRecordBtn');
             if (button) { button.textContent = '● 开始录制'; button.style.background = '#ef4444'; }
             const seconds = (Date.now() - recipeState.startedAt) / 1000;
+            if (!recipeState.events.length && recipeState.current && recipeState.current.mode === 'env') {
+                // 环境音：至少把当前位置记成一帧，避免"无法录制"
+                const point = recipeState.lastPoint || { x: 0.5, y: 0.5 };
+                recipeState.events.push({ t: 0, x: point.x, y: point.y });
+            }
             if (!recipeState.events.length) {
                 showNotification('没有演奏任何声音', 'info');
                 return;

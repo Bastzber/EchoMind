@@ -141,7 +141,57 @@ def _trim(samples: np.ndarray, max_seconds: float = 4.0) -> np.ndarray:
     return samples
 
 
-def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -> np.ndarray:
+_SAMPLE_CACHE: Dict[str, np.ndarray] = {}
+
+
+def _load_single(path: str, trim_seconds: float = 0.9) -> Optional[np.ndarray]:
+    cached = _SAMPLE_CACHE.get(path)
+    if cached is not None:
+        return cached
+    samples = _decode(path)
+    if samples is None or samples.size == 0:
+        return None
+    samples = _onset_trim(samples, trim_seconds)
+    _SAMPLE_CACHE[path] = samples
+    return samples
+
+
+def list_recipe_samples(recipe: Recipe, limit: int = 30) -> List[Dict[str, Any]]:
+    """列出配方主层的候选样本（供「选择素材」用）。"""
+    import os as _os
+
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for layer in recipe.layers:
+        for path in layer.pool:
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                size = _os.path.getsize(path)
+            except OSError:
+                size = 0
+            out.append(
+                {
+                    "path": path,
+                    "filename": _os.path.basename(path),
+                    "size": size,
+                    "layer": layer.id,
+                }
+            )
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def render_hit(
+    recipe: Recipe,
+    x: float,
+    y: float,
+    seed: Optional[int] = None,
+    sample: Optional[str] = None,
+    variation: float = 1.0,
+) -> np.ndarray:
     """x=远近(0 近,1 远)  y=轻重(0 轻,1 重)。返回混好的单声道 float32。"""
     rng = random.Random(seed)
     x = min(max(float(x), 0.0), 1.0)
@@ -152,6 +202,24 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
     pitch_semi = 3.0 - 7.0 * y                   # 重步更低沉
 
     pieces: List[Tuple[int, np.ndarray]] = []
+    variation = min(max(float(variation), 0.0), 1.0)
+
+    # 指定了单个素材：只播这一条，不叠任何层（最干净）
+    if sample:
+        single = _load_single(sample, 0.9)
+        if single is not None:
+            jitter_pitch = rng.uniform(-0.25, 0.25) * variation
+            jitter_gain = rng.uniform(-1.5, 1.5) * variation
+            single = _pitch_shift(single, pitch_semi + jitter_pitch)
+            single = single * _db_to_gain(gain_db + jitter_gain)
+            rms = float(np.sqrt(np.mean(np.square(single)))) if single.size else 0.0
+            if rms > 1e-5:
+                single = single * (0.12 / rms)
+            single = _trim_compat(single)
+            pieces.append((0, single))
+            buffer = _finalize(pieces, cutoff)
+            return buffer
+
     for layer in recipe.layers:
         if rng.random() > layer.prob:
             continue
@@ -202,6 +270,34 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
     return buffer
 
 
+def _trim_compat(samples: np.ndarray) -> np.ndarray:
+    tail = min(int(0.07 * TARGET_SR), len(samples) // 3)
+    if tail > 1:
+        samples = samples.copy()
+        samples[-tail:] *= np.linspace(1.0, 0.0, tail, dtype=np.float32)
+    return samples
+
+
+def _finalize(pieces: List[Tuple[int, np.ndarray]], cutoff: float) -> np.ndarray:
+    total = max(offset + len(samples) for offset, samples in pieces)
+    buffer = np.zeros(total, dtype=np.float32)
+    for offset, samples in pieces:
+        buffer[offset:offset + len(samples)] += samples
+    buffer = _lowpass(buffer, cutoff)
+    if buffer.size > 32:
+        spec = np.fft.rfft(buffer)
+        freqs = np.fft.rfftfreq(len(buffer), 1.0 / TARGET_SR)
+        buffer = np.fft.irfft(spec * np.clip(freqs / 90.0, 0.0, 1.0), len(buffer)).astype(np.float32)
+    limit = int(1.0 * TARGET_SR)
+    if len(buffer) > limit:
+        buffer = buffer[:limit]
+    buffer = _trim_compat(buffer)
+    peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+    if peak > 0.98:
+        buffer = buffer * (0.98 / peak)
+    return buffer
+
+
 def render_session(recipe: Recipe, events: Sequence[Dict[str, Any]], max_seconds: float = 60.0) -> np.ndarray:
     """按事件时间戳把多次 hit 拼接成一段音频（用于「完成录制」）。"""
     limit = int(max_seconds * TARGET_SR)
@@ -210,7 +306,14 @@ def render_session(recipe: Recipe, events: Sequence[Dict[str, Any]], max_seconds
         t = float(event.get("t", 0) or 0)
         if t < 0 or t >= max_seconds:
             continue
-        hit = render_hit(recipe, event.get("x", 0.3), event.get("y", 0.5))
+        hit = render_hit(
+            recipe,
+            event.get("x", 0.3),
+            event.get("y", 0.5),
+            None,
+            event.get("sample"),
+            float(event.get("variation", 1.0) or 0),
+        )
         start = int(t * TARGET_SR)
         end = min(limit, start + len(hit))
         if end > start:

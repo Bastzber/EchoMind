@@ -2394,6 +2394,17 @@ async def serve_recipe_audio(name: str):
     return FileResponse(str(path), media_type="audio/wav")
 
 
+@app.get("/api/v1/recipes/{recipe_id}/samples")
+async def recipe_samples(recipe_id: str):
+    """列出配方可选的单个素材（「选择素材」用）。"""
+    from core.sound_recipe import list_recipe_samples
+
+    recipe = _get_recipe(recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="配方不存在")
+    return {"success": True, "samples": list_recipe_samples(recipe)}
+
+
 @app.post("/api/v1/recipes/{recipe_id}/hit")
 async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
     """按 XY 参数渲染一次触发（“走一步”）。"""
@@ -2404,7 +2415,9 @@ async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=404, detail="配方不存在或样本不足")
     x = float(payload.get("x", 0.3) or 0.3)
     y = float(payload.get("y", 0.5) or 0.5)
-    samples = await asyncio.to_thread(render_hit, recipe, x, y)
+    sample = str(payload.get("sample") or "").strip() or None
+    variation = float(payload.get("variation", 1.0) or 0)
+    samples = await asyncio.to_thread(render_hit, recipe, x, y, None, sample, variation)
     return {"success": True, **_serve_recipe_audio(samples)}
 
 
@@ -2418,6 +2431,11 @@ async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=404, detail="配方不存在或样本不足")
     events = payload.get("events") or []
     max_seconds = min(float(payload.get("max_seconds", 60) or 60), 60.0)
+    sample = str(payload.get("sample") or "").strip() or None
+    variation = float(payload.get("variation", 1.0) or 0)
+    for event in events:
+        event.setdefault("sample", sample)
+        event.setdefault("variation", variation)
     samples = await asyncio.to_thread(render_session, recipe, events, max_seconds)
     return {"success": True, **_serve_recipe_audio(samples)}
 

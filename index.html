@@ -1920,6 +1920,9 @@
             events: [],
             lastSession: null,
             timer: null,
+            sample: null,
+            variation: 1,
+            takes: [],
         };
 
         async function openRecipeModal() {
@@ -1991,9 +1994,13 @@
         async function triggerRecipeHit(params) {
             if (!recipeState.current) return;
             try {
+                const body = Object.assign({}, params || { x: 0.3, y: 0.5 }, {
+                    sample: recipeState.sample || undefined,
+                    variation: recipeState.variation,
+                });
                 const data = await rendererApi.post(
                     `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/hit`,
-                    params || { x: 0.3, y: 0.5 }
+                    body
                 );
                 const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
                 if (recipeState.player) {
@@ -2043,15 +2050,106 @@
             try {
                 const data = await rendererApi.post(
                     `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/session`,
-                    { events: recipeState.events, max_seconds: Math.min(60, Math.max(seconds, 1)) },
+                    {
+                        events: recipeState.events,
+                        max_seconds: Math.min(60, Math.max(seconds, 1)),
+                        sample: recipeState.sample || undefined,
+                        variation: recipeState.variation,
+                    },
                     { timeoutMs: 60000 }
                 );
                 recipeState.lastSession = data;
+                recipeState.takes.unshift({
+                    name: `${recipeState.current ? recipeState.current.name : '录音'} ${new Date().toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5)}`,
+                    url: data.url,
+                    file_path: data.file_path,
+                    duration: data.duration,
+                });
+                recipeState.takes = recipeState.takes.slice(0, 10);
+                renderRecipeTakes();
                 document.getElementById('recipePlayBtn').disabled = false;
                 document.getElementById('recipeSaveBtn').disabled = false;
                 showNotification(`录制完成：${data.duration} 秒`, 'success');
             } catch (error) {
                 showNotification('生成录音失败: ' + error.message, 'error');
+            }
+        }
+
+        function renderRecipeTakes() {
+            const box = document.getElementById('recipeTakes');
+            if (!box) return;
+            if (!recipeState.takes.length) {
+                box.classList.add('hidden');
+                box.innerHTML = '';
+                return;
+            }
+            box.classList.remove('hidden');
+            box.innerHTML = '<div class="opacity-50 mb-1">历史录音（本次会话）</div>';
+            recipeState.takes.forEach((take, index) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2 py-1';
+                row.innerHTML = `<span class="opacity-60">${index + 1}.</span>
+                    <span class="flex-1 truncate">${escapeHtml(take.name)}</span>
+                    <span class="opacity-50">${take.duration}s</span>`;
+                const play = document.createElement('button');
+                play.className = 'px-2 py-0.5 rounded';
+                play.style.background = 'var(--bg-tertiary)';
+                play.textContent = '试听';
+                play.addEventListener('click', () => {
+                    const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+                    new Audio(base + take.url).play().catch(() => {});
+                });
+                row.appendChild(play);
+                box.appendChild(row);
+            });
+        }
+
+        async function pickRecipeSample() {
+            if (!recipeState.current) return;
+            try {
+                const data = await rendererApi.get(
+                    `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/samples`
+                );
+                const samples = (data && data.samples) || [];
+                if (!samples.length) {
+                    showNotification('该配方没有可选素材', 'info');
+                    return;
+                }
+                // 用浏览器原生 select 风格的选择器（简单可靠）
+                document.getElementById('recipeSamplePicker')?.remove();
+                const box = document.createElement('div');
+                box.id = 'recipeSamplePicker';
+                box.className = 'fixed z-[260] rounded-lg shadow-xl p-3 w-[360px] max-h-[50vh] overflow-y-auto';
+                box.style.background = 'var(--bg-secondary)';
+                box.style.border = '1px solid var(--border-color)';
+                box.style.left = (window.innerWidth / 2 - 180) + 'px';
+                box.style.top = '140px';
+                box.innerHTML = '<div class="text-xs opacity-60 mb-2">选择主声音素材（只播这一条，不再叠加）</div>';
+                const auto = document.createElement('button');
+                auto.className = 'w-full text-left px-2 py-1.5 rounded text-xs hover:bg-white/5 mb-1';
+                auto.textContent = '↺ 恢复自动挑选';
+                auto.addEventListener('click', () => {
+                    recipeState.sample = null;
+                    document.getElementById('recipeSampleName').textContent = '自动从库里挑选';
+                    box.remove();
+                });
+                box.appendChild(auto);
+                samples.forEach((sample) => {
+                    const item = document.createElement('button');
+                    item.className = 'w-full text-left px-2 py-1.5 rounded text-xs hover:bg-white/5 truncate';
+                    item.textContent = sample.filename;
+                    item.title = sample.path;
+                    item.addEventListener('click', () => {
+                        recipeState.sample = sample.path;
+                        document.getElementById('recipeSampleName').textContent = sample.filename;
+                        box.remove();
+                        triggerRecipeHit({ x: 0.4, y: 0.6 });
+                    });
+                    box.appendChild(item);
+                });
+                document.body.appendChild(box);
+            } catch (error) {
+                showNotification('读取素材失败: ' + error.message, 'error');
             }
         }
 
@@ -6216,6 +6314,10 @@
                 new Audio(base + session.url).play().catch(() => {});
             });
             document.getElementById('recipeSaveBtn')?.addEventListener('click', () => saveRecipeSession());
+            document.getElementById('recipePickSample')?.addEventListener('click', () => pickRecipeSample());
+            document.getElementById('recipeVariation')?.addEventListener('change', (e) => {
+                recipeState.variation = Number(e.target.value) || 0;
+            });
             document.getElementById('viewListBtn')?.addEventListener('click', () => setViewMode('list'));
             document.getElementById('viewCardBtn')?.addEventListener('click', () => setViewMode('card'));
             applyViewMode();
@@ -9202,6 +9304,18 @@
                         <div class="absolute inset-0 flex items-center justify-center pointer-events-none text-xs opacity-40">点击任意位置演奏一步</div>
                     </div>
                 </div>
+                <div class="px-4 py-2 border-t text-xs flex items-center gap-3" style="border-color: var(--border-color);">
+                    <span class="opacity-60">主声音</span>
+                    <span id="recipeSampleName" class="truncate max-w-[220px] opacity-90">自动从库里挑选</span>
+                    <button id="recipePickSample" class="px-2 py-1 rounded-md" style="background: var(--bg-tertiary);">选择素材</button>
+                    <span class="opacity-60 ml-3">声音变化</span>
+                    <select id="recipeVariation" class="px-2 py-1 rounded-md text-xs" style="background: var(--bg-tertiary); color: var(--text-primary);">
+                        <option value="1">自然随机</option>
+                        <option value="0.4">轻微变化</option>
+                        <option value="0">固定不变</option>
+                    </select>
+                </div>
+                <div id="recipeTakes" class="hidden px-4 py-2 border-t max-h-32 overflow-y-auto text-xs" style="border-color: var(--border-color);"></div>
                 <div class="flex items-center gap-2 px-4 py-3 border-t" style="border-color: var(--border-color);">
                     <button id="recipeRecordBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#ef4444;">● 开始录制</button>
                     <span id="recipeTimer" class="text-xs font-mono opacity-70">0.0 / 60 秒</span>

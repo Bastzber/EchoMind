@@ -2515,6 +2515,77 @@ async def folder_stats(path: str = Query(...), project_id: str = Query(default="
     return {"success": True, **stats}
 
 
+def _assert_safe_delete_target(path: str, stats: Dict[str, Any]) -> Path:
+    """删除源文件前的硬性护栏。
+
+    必须挡住：盘符根目录、程序目录、用户数据目录、以及任何"库里没有文件"的
+    目录 —— 后者通常说明前端传错了路径（真实事故：误传库根/安装目录）。
+    """
+    target = Path(path).resolve()
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="目录不存在")
+    if target.parent == target or len(target.parts) < 3:
+        raise HTTPException(status_code=400, detail="不能删除盘符根目录或过浅的目录")
+    if int(stats.get("files") or 0) <= 0:
+        raise HTTPException(status_code=400, detail="该目录下没有已导入的音效，已阻止删除")
+
+    protected: List[Path] = []
+    try:
+        protected.append(Path(sys.executable).resolve().parent)
+    except Exception:
+        pass
+    try:
+        protected.append((Path(os.environ.get("APPDATA", "")) / "EchoMind").resolve())
+    except Exception:
+        pass
+    try:
+        protected.append(Path(config.get_models_dir()).resolve())
+    except Exception:
+        pass
+
+    for guard in protected:
+        if target == guard or target in guard.parents or guard in target.parents:
+            raise HTTPException(
+                status_code=400,
+                detail="该目录包含程序或数据目录，出于安全考虑已阻止删除",
+            )
+    return target
+
+
+def _move_to_recycle_bin(target: Path) -> None:
+    """移入回收站而不是直接 rmtree —— 误删还能恢复。"""
+    import ctypes
+    from ctypes import wintypes
+
+    FO_DELETE = 3
+    FOF_SILENT = 0x0004
+    FOF_NOCONFIRMATION = 0x0010
+    FOF_ALLOWUNDO = 0x0040
+    FOF_NOERRORUI = 0x0400
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", wintypes.HWND),
+            ("wFunc", wintypes.UINT),
+            ("pFrom", wintypes.LPCWSTR),
+            ("pTo", wintypes.LPCWSTR),
+            ("fFlags", wintypes.WORD),
+            ("fAnyOperationsAborted", wintypes.BOOL),
+            ("hNameMappings", wintypes.LPVOID),
+            ("lpszProgressTitle", wintypes.LPCWSTR),
+        ]
+
+    operation = SHFILEOPSTRUCTW()
+    operation.hwnd = None
+    operation.wFunc = FO_DELETE
+    operation.pFrom = str(target) + "\0\0"
+    operation.pTo = None
+    operation.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+    result = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(operation))
+    if result != 0:
+        raise RuntimeError(f"移入回收站失败，错误码 {result}")
+
+
 @app.post("/api/v1/db/folder/delete")
 async def delete_folder_records(payload: Dict[str, Any], project_id: str = Query(default="default")):
     """删除目录下的文件记录。
@@ -2536,10 +2607,10 @@ async def delete_folder_records(payload: Dict[str, Any], project_id: str = Query
     failed: List[str] = []
 
     if delete_source:
+        target = _assert_safe_delete_target(folder, stats)
         try:
-            if Path(folder).exists():
-                shutil.rmtree(folder, ignore_errors=False)
-                deleted_files = stats.get("files", 0)
+            _move_to_recycle_bin(target)
+            deleted_files = stats.get("files", 0)
         except Exception as exc:
             logger.error("删除目录源文件失败 %s: %s", folder, exc)
             raise HTTPException(status_code=500, detail=f"删除源文件失败: {exc}")

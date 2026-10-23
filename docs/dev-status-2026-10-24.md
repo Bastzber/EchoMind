@@ -70,9 +70,28 @@ tags total: 1  scene: 0  attr: 1   （动物）
   ```
   语义质量明显优于 CLAP 文本塔
 
-### 待办
-- **HTTP 接口路径未走 BGE**：`POST /api/v1/search` 仍耗时 17.8s（CLAP），直接调 `searcher.search_async` 却是 bge。
-  怀疑接口在调用前对 query 做了英文翻译，导致 `contains_chinese` 判定失效 —— 下一轮排查 `main.py:3401` 附近。
+### 已解决（第五轮）
+- 接口走 CLAP 的根因有两个：
+  1. `zh_text_index` 自建 `chromadb.PersistentClient` → 与主进程已有实例冲突
+     （`An instance of Chroma already exists ... with different settings`）
+     改为复用 `core.indexer.get_chroma_client(safe_project_chroma_path(...))`
+  2. BGE 结果的 metadata 缺 `file_id`，接口回退分支引用了未定义的 `db_manager` → 500
+     补上 `file_id` 即可
+- 启动预热 `_warm_zh_embedder()`：第一次搜索从 **14.85s → 0.32s**
+- 端到端实测：
+  ```
+  像玻璃被击碎那种清脆的声音 → 3 条 0.14s
+     0.861 打碎玻璃声.wav
+     0.832 打碎玻璃声.wav
+  沉重的脚步声踩在木地板上 → 3 条
+     0.795 鞋声.WAV
+     0.792 木地板上走.WAV
+  ```
+
+### P3 剩余
+- 前端提示：搜索框区分「关键词」与「长句语义」
+- 回归用例：短词 / 长句 / 标签筛选
+- 打包验证
 - 模型选择：网络恢复后可换回 bge-m3（代码已支持按目录自动选择，维度自适应）
 
 ## 旧的 P3 说明（存档）

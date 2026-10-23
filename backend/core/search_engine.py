@@ -1287,11 +1287,15 @@ class OptimizedAudioSearcher(AudioSearcher):
         start_time = time.time()
 
         # P3：中文长句走 BGE 文本向量（短关键词仍走 FTS，避免无谓开销）
+        logging.getLogger("soundmind").info(
+            "[Search] bge-branch query=%s chinese=%s len=%s",
+            query, contains_chinese(query), len(query))
         if contains_chinese(query) and len(query) >= 5:
             try:
                 from core import zh_text_index
 
                 rows = await asyncio.to_thread(zh_text_index.search_rows, query, fetch_k)
+                logging.getLogger("soundmind").info("[Search] bge rows=%d", len(rows))
                 if len(rows) >= 3:
                     results = []
                     for row in rows:
@@ -1304,9 +1308,11 @@ class OptimizedAudioSearcher(AudioSearcher):
                                 duration=float(row.get("duration") or 0.0),
                                 format=ext,
                                 metadata={
+                                    "file_id": row["file_uuid"],
                                     "file_uuid": row["file_uuid"],
                                     "tags": row.get("tags"),
                                     "ai_description": row.get("ai_description"),
+                                    "text_score": float(row.get("score") or 0.0),
                                 },
                             )
                         )
@@ -1318,7 +1324,7 @@ class OptimizedAudioSearcher(AudioSearcher):
                         "engine": "bge",
                     }
             except Exception as exc:
-                logger.debug("[Search] BGE 语义检索回退: %s", exc)
+                logging.getLogger("soundmind").warning("[Search] BGE 回退: %r", exc)
 
         stats = {
             "cache_hit": False,

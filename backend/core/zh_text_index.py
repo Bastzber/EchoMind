@@ -82,18 +82,9 @@ def rebuild(limit: Optional[int] = None, batch_size: int = 64) -> Dict[str, Any]
         with _lock:
             _state["total"] = len(rows)
 
-        try:
-            import config as app_config
+        from core.indexer import get_chroma_client, safe_project_chroma_path
 
-            persist = app_config.get_chroma_persist_dir() if hasattr(app_config, "get_chroma_persist_dir") else None
-        except Exception:
-            persist = None
-        if persist is None:
-            import os
-            from pathlib import Path
-
-            persist = Path(os.environ.get("APPDATA", ".")) / "EchoMind" / "chroma_projects" / "default"
-        client = chromadb.PersistentClient(path=str(persist)) if persist else chromadb.PersistentClient()
+        client = get_chroma_client(safe_project_chroma_path("default"))
         try:
             client.delete_collection(COLLECTION)
         except Exception:
@@ -142,13 +133,9 @@ def search(query: str, limit: int = 60, min_score: float = 0.30) -> List[Dict[st
     if vector is None:
         return []
     try:
-        import os
-        from pathlib import Path
+        from core.indexer import get_chroma_client, safe_project_chroma_path
 
-        import chromadb
-
-        persist = Path(os.environ.get("APPDATA", ".")) / "EchoMind" / "chroma_projects" / "default"
-        client = chromadb.PersistentClient(path=str(persist))
+        client = get_chroma_client(safe_project_chroma_path("default"))
         collection = client.get_collection(COLLECTION)
         result = collection.query(
             query_embeddings=[vector[0].tolist()], n_results=limit
@@ -162,7 +149,7 @@ def search(query: str, limit: int = 60, min_score: float = 0.30) -> List[Dict[st
                 hits.append({"file_uuid": file_uuid, "score": score})
         return hits
     except Exception as exc:
-        logger.debug("[Embed] 文本检索失败: %s", exc)
+        logging.getLogger("soundmind").warning("[Embed] 文本检索失败: %r", exc)
         return []
 
 

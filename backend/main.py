@@ -418,6 +418,20 @@ async def lifespan(app: FastAPI):
 
     # 预热关键词搜索的文件快照：5 万条从 SQLite 重建约 10 秒，放在后台做，
     # 用户第一次搜索就不必等这一下。
+    async def _warm_zh_embedder() -> None:
+        """P3：启动后预热中文文本模型，避免第一次长句搜索等 10 秒以上。"""
+        await asyncio.sleep(8)
+        try:
+            from core import zh_embedder
+
+            if not zh_embedder.available():
+                return
+            started = time.time()
+            await asyncio.to_thread(zh_embedder.encode, ["预热"])
+            logger.info("[Embed] BGE 预热完成 %.1fs", time.time() - started)
+        except Exception as exc:
+            logger.warning("[Embed] 预热失败: %s", exc)
+
     async def _ensure_fts_ready() -> None:
         """后台建/补 FTS5 中文检索索引（不阻塞启动）。"""
         await asyncio.sleep(6)
@@ -496,6 +510,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_ensure_fts_ready())
     asyncio.create_task(_backfill_content_hashes())
     asyncio.create_task(_warm_search_snapshot())
+    asyncio.create_task(_warm_zh_embedder())
 
     yield
 

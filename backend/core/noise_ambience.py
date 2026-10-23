@@ -211,8 +211,8 @@ def _synth_stems_impl(kind: str, seconds: float = 6.0) -> dict:
         stems = {
             "base": _periodic_noise(seconds, lambda f: _band(f, 400, 2400) * 0.35) * _lfo(n, seconds, 0.05, 0.5),
             "mid": _periodic_noise(seconds, lambda f: _band(f, 150, 700) * 0.25),
-            "drops": _bird_events(n, 18, seconds),
-            "accent": _bird_events(n, 5, seconds) * 0.7,
+            "drops": _bird_events(n, 40, seconds) * 2.5,
+            "accent": _bird_events(n, 10, seconds) * 1.6,
         }
     else:
         stems = {

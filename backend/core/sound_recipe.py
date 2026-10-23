@@ -496,7 +496,7 @@ def render_ambience_performance(
             buffer[start:end] += segment[: end - start]
 
     # 与前端播放时的主增益（0.45）对齐，避免"试听比实时听到的响很多"
-    buffer = buffer * 0.225
+    buffer = buffer * 0.11
     peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
     if peak > 0.95:
         buffer = buffer * (0.95 / peak)

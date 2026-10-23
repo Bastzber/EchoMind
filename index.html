@@ -2802,11 +2802,22 @@
                     row.innerHTML = `<i data-lucide="${item.layer === 'scene' ? 'clapperboard' : 'tag'}" class="w-3 h-3 opacity-60"></i>
                         <span class="flex-1 truncate">${escapeHtml(item.name)}</span>
                         <span class="text-[10px] opacity-40">${item.count || 0}</span>`;
-                    row.addEventListener('click', () => {
+                    row.addEventListener('click', async () => {
                         activeCategory = 'mytag:' + item.name;
                         document.querySelectorAll('#categoryTree .sidebar-item').forEach((el) => el.classList.remove('active'));
                         row.classList.add('active');
-                        filterByCategory('mytag:' + item.name);
+                        try {
+                            const page = await rendererApi.get(
+                                '/api/v1/files?limit=500&tag=' + encodeURIComponent(item.name)
+                                + '&project_id=' + encodeURIComponent(currentProject?.id || 'default')
+                            );
+                            const list = (page && page.files) || [];
+                            allSearchResults = list.map(mapDbFileToSound);
+                            renderSoundList('', allSearchResults);
+                            showNotification(`标签「${item.name}」共 ${list.length} 个音效`, 'info');
+                        } catch (error) {
+                            showNotification('按标签筛选失败: ' + error.message, 'error');
+                        }
                     });
                     row.addEventListener('contextmenu', (event) => {
                         event.preventDefault();

@@ -27,10 +27,15 @@ tags total: 1  scene: 0  attr: 1   （动物）
 - 根因：端口 8000 被**打包版 soundbot-backend.exe** 占用（旧代码没有新路由），dev 启动的 python 后端没抢到端口。
 - 解决：先按进程名清掉 soundbot-backend 再启动 dev；`scripts/dev.ps1` 已包含该清理动作。
 
+### 已完成（第二轮）
+- 侧栏按「场景 / 属性」分组渲染，标签右键可改层/删除
+- 音效右键「设置标签…」：场景单选 + 属性多选，支持多选音效批量打
+- 点标签按后端过滤：`GET /api/v1/files?tag=名称`（实测「动物」命中 1 条）
+- `rendererApi.patch` 客户端方法补齐
+
 ### 未做
-- 前端标签面板拆成「场景 / 属性」两段（单选 / 多选）
-- 右键「设为场景标签」「添加属性标签」
-- 搜索筛选：场景=xxx AND 属性⊇(a,b)
+- 新建标签时无法指定层（默认 attr，之后右键提升）
+- 搜索语法里的标签条件（scene:xxx attr:yyy）尚未接入 FTS 查询
 - 自动为已有描述生成 scene/attr（可选增强）
 
 ## P3 中文 embedding（未开始）

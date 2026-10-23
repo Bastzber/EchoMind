@@ -4532,6 +4532,7 @@ async def get_indexed_files(
     limit: int = Query(default=200, ge=1, le=500),
     cursor: Optional[int] = Query(default=None, ge=1),
     folder: Optional[str] = Query(default=None, description="只返回该目录（含子目录）下的文件"),
+    tag: Optional[str] = Query(default=None, description="只返回带该标签的文件（M4 双层标签）"),
 ):
     """获取工程内的分页元数据，波形按可见项另行加载。"""
     try:
@@ -4539,6 +4540,38 @@ async def get_indexed_files(
         db_manager = get_db_manager()
         if not is_safe_project_id(effective_project) or not db_manager.get_project(effective_project):
             raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
+        if tag:
+            # 标签筛选：走 file_tags 连接，分页简单起见一次返回上限
+            with db_manager.get_cursor() as tag_cursor:
+                rows = tag_cursor.execute(
+                    """
+                    SELECT f.file_uuid, f.path, f.filename, f.duration, f.file_size,
+                           f.sample_rate, f.channels, f.channels, f.tags, f.ai_description
+                    FROM file_tags ft
+                    JOIN tags t ON t.id = ft.tag_id AND t.project_id = ft.project_id
+                    JOIN files f ON f.file_uuid = ft.file_uuid AND f.project_id = ft.project_id
+                    WHERE ft.project_id=? AND t.name=?
+                    ORDER BY f.filename
+                    LIMIT ?
+                    """,
+                    (effective_project, tag, limit),
+                ).fetchall()
+            files = [
+                {
+                    "id": r[0],
+                    "path": r[1],
+                    "filename": r[2],
+                    "duration": r[3],
+                    "size": r[4],
+                    "sample_rate": r[5],
+                    "channels": r[6],
+                    "tags": r[8],
+                    "ai_description": r[9],
+                }
+                for r in rows
+            ]
+            return {"project_id": effective_project, "total": len(files), "files": files, "next_cursor": None}
+
         files, next_cursor = db_manager.get_files_cursor_page(
             effective_project, limit=limit, before_id=cursor, folder=folder
         )

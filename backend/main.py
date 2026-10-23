@@ -461,7 +461,38 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.debug(f"[Warmup] 搜索预热失败: {exc}")
 
+    async def _backfill_content_hashes() -> None:
+        """后台补算 sha256（大文件优先，限速避免打满机械盘）。"""
+        await asyncio.sleep(12)
+        try:
+            from core.content_hash import sha256_file
+
+            db = get_db_manager()
+            project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+            while not _shutting_down:
+                batch = await asyncio.to_thread(db.files_needing_hash, project_id, 60)
+                if not batch:
+                    break
+                for item in batch:
+                    digest = await asyncio.to_thread(sha256_file, item["path"])
+                    await asyncio.to_thread(
+                        db.set_file_hash,
+                        item["file_uuid"],
+                        digest,
+                        1 if digest else 2,
+                    )
+                await asyncio.sleep(0.2)
+            progress = await asyncio.to_thread(db.hash_progress, project_id)
+            logger.info(
+                "[Hash] 内容哈希补算完成：%s/%s",
+                progress.get("done"),
+                progress.get("total"),
+            )
+        except Exception as exc:
+            logger.warning("[Hash] 补算失败: %s", exc)
+
     asyncio.create_task(_ensure_fts_ready())
+    asyncio.create_task(_backfill_content_hashes())
     asyncio.create_task(_warm_search_snapshot())
 
     yield
@@ -4059,6 +4090,51 @@ async def export_descriptions(project_id: str = Query(default="default")):
         }
     except Exception as exc:
         logger.error("导出描述包失败: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/v1/metadata/preview")
+async def metadata_preview(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """描述包导入预览：只算匹配，不写库。"""
+    from core.metadata_pack import preview as run_preview
+
+    items = payload.get("items") or []
+    if not isinstance(items, list) or not items:
+        raise SoundBotAPIError("empty_pack", "描述包为空", status_code=400)
+    try:
+        result = await asyncio.to_thread(run_preview, project_id, items)
+        if not payload.get("include_pairs"):
+            # pairs 可能很大，默认只回传样例
+            result.pop("pairs", None)
+        return {"success": True, **result}
+    except Exception as exc:
+        logger.error("描述包预览失败: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/v1/metadata/apply")
+async def metadata_apply(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """按预览结果写库：默认只补空白字段。"""
+    from core.metadata_pack import apply as run_apply
+
+    pairs = payload.get("pairs") or []
+    overwrite = bool(payload.get("overwrite"))
+    if not isinstance(pairs, list) or not pairs:
+        raise SoundBotAPIError("empty_pairs", "没有可应用的结果", status_code=400)
+    try:
+        result = await asyncio.to_thread(run_apply, project_id, pairs, overwrite)
+        if result.get("applied"):
+            try:
+                db_manager = get_db_manager()
+                db_manager.mark_project_artifacts(project_id, ["text_vector"], "stale")
+                db_manager.upsert_index_manifest(
+                    project_id, "text_vector", state="stale", revision_increment=1
+                )
+            except Exception as exc:
+                logger.debug("标记文本索引失败: %s", exc)
+        return {"success": True, **result}
+    except Exception as exc:
+        logger.error("描述包应用失败: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

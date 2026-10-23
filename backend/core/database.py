@@ -488,9 +488,75 @@ class DatabaseManager:
         finally:
             self._migration_backup_in_progress = None
 
+    def _ensure_content_hash_columns(self, cursor) -> None:
+        """幂等添加 sha256 / hash_state 列（加列不触发整库备份）。"""
+        try:
+            columns = {
+                row[1] for row in cursor.execute("PRAGMA table_info(files)").fetchall()
+            }
+            if "sha256" not in columns:
+                cursor.execute("ALTER TABLE files ADD COLUMN sha256 TEXT")
+            if "hash_state" not in columns:
+                cursor.execute("ALTER TABLE files ADD COLUMN hash_state INTEGER DEFAULT 0")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files(sha256)"
+            )
+        except Exception as exc:
+            _get_logger().warning("添加内容哈希列失败: %s", exc)
+
+    def files_needing_hash(self, project_id: str, limit: int = 200) -> List[Dict[str, str]]:
+        """取还没算哈希的文件（大文件优先）。"""
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT file_uuid, path FROM files "
+                "WHERE project_id=? AND COALESCE(hash_state,0)=0 "
+                "ORDER BY file_size DESC LIMIT ?",
+                (str(project_id), int(limit)),
+            ).fetchall()
+        return [{"file_uuid": r[0], "path": r[1]} for r in rows]
+
+    def set_file_hash(self, file_uuid: str, sha256: str | None, state: int = 1) -> None:
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET sha256=?, hash_state=? WHERE file_uuid=?",
+                (sha256, state, file_uuid),
+            )
+            cursor.connection.commit()
+
+    def hash_progress(self, project_id: str) -> Dict[str, int]:
+        with self.get_cursor() as cursor:
+            total = cursor.execute(
+                "SELECT COUNT(*) FROM files WHERE project_id=?", (str(project_id),)
+            ).fetchone()[0]
+            done = cursor.execute(
+                "SELECT COUNT(*) FROM files WHERE project_id=? AND COALESCE(hash_state,0)>0",
+                (str(project_id),),
+            ).fetchone()[0]
+        return {"total": int(total), "done": int(done)}
+
+    def find_by_hash(self, project_id: str, sha256: str) -> Optional[Dict[str, Any]]:
+        if not sha256:
+            return None
+        with self.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT file_uuid, path, filename, ai_description, tags FROM files "
+                "WHERE project_id=? AND sha256=? LIMIT 1",
+                (str(project_id), sha256),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "file_uuid": row[0],
+            "path": row[1],
+            "filename": row[2],
+            "ai_description": row[3],
+            "tags": row[4],
+        }
+
     def _init_db_once(self):
         """初始化数据库，并且每个 schema 版本只迁移一次。"""
         with self.get_cursor() as cursor:
+            self._ensure_content_hash_columns(cursor)
             schema_version_pending = False
             # 检查 files 表是否存在
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")

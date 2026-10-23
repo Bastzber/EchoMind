@@ -6845,14 +6845,35 @@
                         if (!picked?.canceled && statusEl) statusEl.textContent = '读取失败: ' + (picked?.error || '');
                         return;
                     }
-                    if (statusEl) statusEl.textContent = '正在导入…';
                     const projectId = currentProject?.id || 'default';
-                    const res = await rendererApi.post(
-                        '/api/v1/descriptions/import?project_id=' + encodeURIComponent(projectId),
-                        picked.data
+                    if (statusEl) statusEl.textContent = '正在匹配…';
+
+                    // 先预览：按 sha256 → 全路径 → 反向路径 → 唯一文件名 四级匹配
+                    const preview = await rendererApi.post(
+                        '/api/v1/metadata/preview?project_id=' + encodeURIComponent(projectId),
+                        { items: picked.data.items || [], include_pairs: true }
                     );
-                    const text = '已应用 ' + (res?.applied ?? 0) + ' 条（匹配 ' + (res?.matched ?? 0)
-                        + ' / 包内 ' + (res?.pack ?? 0) + '）';
+                    const kinds = preview?.by_kind || {};
+                    const summary = `匹配 ${preview.matched} / ${preview.pack} 条`
+                        + `（哈希 ${kinds.sha256 || 0}｜路径 ${kinds.path || 0}｜`
+                        + `反向路径 ${kinds.reverse_path || 0}｜文件名 ${kinds.filename || 0}）`
+                        + `，多义 ${preview.ambiguous}，未匹配 ${preview.unmatched}`;
+                    if (!preview || !preview.matched) {
+                        if (statusEl) statusEl.textContent = summary;
+                        showNotification('没有匹配到任何音效，请确认音效库已导入', 'error');
+                        return;
+                    }
+                    if (!confirm(summary + '\n\n是否应用？（默认只补空白描述，不覆盖已有内容）')) {
+                        if (statusEl) statusEl.textContent = '已取消';
+                        return;
+                    }
+
+                    if (statusEl) statusEl.textContent = '正在写入…';
+                    const res = await rendererApi.post(
+                        '/api/v1/metadata/apply?project_id=' + encodeURIComponent(projectId),
+                        { pairs: preview.pairs || [], overwrite: false }
+                    );
+                    const text = `已应用 ${res?.applied ?? 0} 条，跳过 ${res?.skipped ?? 0} 条（已有描述）`;
                     if (statusEl) statusEl.textContent = text;
                     showNotification(text, 'success');
                 } catch (error) {

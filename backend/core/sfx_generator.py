@@ -52,7 +52,13 @@ def load_config() -> None:
             _voice_api_key = key
         save_dir = str(data.get("save_dir") or "").strip()
         if save_dir:
-            _save_dir = Path(save_dir)
+            recovered = _recover_path(save_dir)
+            if recovered is not None:
+                _save_dir = recovered
+            else:
+                logger.warning(
+                    "SFX 保存目录不存在或路径乱码，改用默认目录: %s", save_dir
+                )
         logger.info("已从磁盘加载 SFX 配置（key=%s）", "有" if key else "无")
     except Exception as exc:
         logger.warning("加载 SFX 配置文件失败: %s", exc)
@@ -90,11 +96,31 @@ def configure_save_dir(path: str) -> None:
             _save_dir = None
 
 
+def _recover_path(raw: str) -> Path | None:
+    """修复历史遗留的乱码路径（GBK 字节被当 UTF-8 读入）。"""
+    candidates = [raw]
+    for enc in ("gbk", "utf-8"):
+        try:
+            candidates.append(raw.encode("latin-1").decode(enc))
+        except Exception:
+            continue
+    for candidate in candidates:
+        try:
+            path = Path(candidate)
+            if path.exists():
+                return path
+        except Exception:
+            continue
+    return None
+
+
 def get_save_dir() -> Path:
     """生成音效的保存目录（自动创建）。"""
     global _save_dir
     if not _save_dir:
-        _save_dir = Path(r"E:\音效库管理软件\AI生成音效")
+        # 默认放到用户数据目录，避免写死开发机路径
+        base = Path(os.environ.get("APPDATA", "") or ".") / "EchoMind"
+        _save_dir = base / "AI生成音效"
     try:
         _save_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
@@ -135,7 +161,9 @@ def generate_sfx(
     req.add_header("X-Api-Request-Id", str(uuid.uuid4()))
 
     t0 = time.time()
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    # 这是国内服务，强制直连：用户开着系统代理时，走代理反而会连不上
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=timeout) as resp:
         raw = resp.read()
     logger.info("豆包语音响应 %d 字节，耗时 %.1fs", len(raw), time.time() - t0)
 

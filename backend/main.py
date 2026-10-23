@@ -302,26 +302,52 @@ def _inject_ark_config() -> None:
                 embed_model,
                 values.get("ARK_EMBED_ENDPOINT", "/embeddings/multimodal"),
             )
-        # 豆包语音 API Key（音效生成，openspeech 通道，独立于方舟 ark key）
-        voice_key = values.get("DOUBAO_VOICE_API_KEY", "")
-        from core.sfx_generator import configure_voice_api_key, configure_save_dir
+    except Exception as exc:
+        logger.error("豆包配置注入失败: %s", exc)
 
+
+def _load_sfx_config() -> None:
+    """加载「创造音效」配置。
+
+    这条链路必须独立于 LLM 注入：用户把 LLM 改成 DeepSeek 后，上面的注入会
+    提前 return，导致界面里保存的语音 Key 永远加载不到（表现为「未配置」）。
+    优先级：磁盘上的界面配置 > .env.ark 默认值。
+    """
+    values: dict = {}
+    try:
+        env_path = Path(__file__).resolve().parent.parent / ".env.ark"
+        if env_path.exists():
+            for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip()
+    except Exception as exc:
+        logger.debug("读取 .env.ark 失败: %s", exc)
+
+    try:
+        from core.sfx_generator import (
+            configure_voice_api_key,
+            configure_save_dir,
+            load_config,
+        )
+
+        voice_key = values.get("DOUBAO_VOICE_API_KEY", "")
+        configure_voice_api_key(voice_key)
         if voice_key:
-            configure_voice_api_key(voice_key)
-            logger.info("豆包语音 API Key 已注入（音效生成可用）")
-        else:
-            configure_voice_api_key("")
-            logger.warning(".env.ark 缺少 DOUBAO_VOICE_API_KEY，创造音效功能不可用")
+            logger.info("豆包语音 API Key 已从 .env.ark 注入")
         save_dir = values.get("SFX_SAVE_DIR", "")
         if save_dir:
             configure_save_dir(save_dir)
-            logger.info("AI 生成音效保存目录: %s", save_dir)
-        # 磁盘上保存的 SFX 配置（AI 设置界面写入）优先级最高，覆盖 .env.ark 默认
-        from core.sfx_generator import load_config
-
         load_config()
+        from core.sfx_generator import is_configured
+
+        logger.info(
+            "创造音效配置: %s", "已配置" if is_configured() else "未配置语音 Key"
+        )
     except Exception as exc:
-        logger.error("豆包配置注入失败: %s", exc)
+        logger.warning("加载创造音效配置失败: %s", exc)
 
 
 @asynccontextmanager
@@ -347,6 +373,8 @@ async def lifespan(app: FastAPI):
 
     # 注入豆包 LLM/Embedding 配置（密钥仅进内存，不落盘）
     _inject_ark_config()
+    # 创造音效的语音 Key 独立加载：LLM 换成 DeepSeek 时也必须恢复
+    _load_sfx_config()
 
     # 初始化 SQLite 数据库
     db_manager = get_db_manager()

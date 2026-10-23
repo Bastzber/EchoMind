@@ -41,7 +41,7 @@ class Layer:
             samples = _decode(path)
             if samples is None or samples.size == 0:
                 continue
-            self.audio.append(_trim(samples, max_seconds))
+            self.audio.append(_onset_trim(samples, max_seconds))
             if len(self.audio) >= 12:
                 break
 
@@ -112,6 +112,22 @@ def _lowpass(samples: np.ndarray, cutoff_hz: float) -> np.ndarray:
     return np.fft.irfft(spectrum, len(samples)).astype(np.float32)
 
 
+def _onset_trim(samples: np.ndarray, max_seconds: float = 0.45) -> np.ndarray:
+    """只保留第一个起音后的短片段：保证一次触发 = 一步，而不是一串脚步。"""
+    if samples.size == 0:
+        return samples
+    peak = float(np.max(np.abs(samples)))
+    if peak <= 0:
+        return samples
+    threshold = peak * 0.15
+    voiced = np.where(np.abs(samples) > threshold)[0]
+    start = int(voiced[0]) if voiced.size else 0
+    # 起音前留 10ms，避免削掉瞬态头
+    start = max(0, start - int(0.01 * TARGET_SR))
+    end = min(len(samples), start + int(max_seconds * TARGET_SR))
+    return _trim(samples[start:end], max_seconds)
+
+
 def _trim(samples: np.ndarray, max_seconds: float = 4.0) -> np.ndarray:
     """单个样本截断 + 淡入淡出，避免长素材把一次触发拉成几十秒。"""
     limit = int(max_seconds * TARGET_SR)
@@ -141,7 +157,12 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
             continue
         if not layer.pool:
             continue
-        layer.ensure_audio(layer.trim_seconds)
+        if not layer.audio:
+            layer.ensure_audio(layer.trim_seconds)
+            # 干净优先：只保留最短的一批样本（长样本往往是一串脚步/带环境）
+            if layer.audio:
+                layer.audio.sort(key=lambda arr: len(arr))
+                layer.audio = layer.audio[: max(3, len(layer.audio) // 2)]
         if not layer.audio:
             continue
         samples = rng.choice(layer.audio)

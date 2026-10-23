@@ -1593,37 +1593,51 @@
                 document.querySelectorAll('#folderTree .sidebar-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
 
-                // 映射目录里的文件 + 手动加入的单个音效，合并后一起显示
-                const folderPaths = childFolders.map(f => f.path);
-                const mapped = soundData.filter(s => {
-                    return folderPaths.some(fp => isSameOrChildPath(s.folderPath, fp));
-                });
-                let members = [];
+                // 统一走「后端按路径取文件」的成熟通道：
+                // 映射目录用 /files?folder=，手动加入的用 /folders/{id}/files
+                const projectId = currentProject?.id || 'default';
+                const seen = new Set();
+                const list = [];
+                const pushAll = (files) => {
+                    (files || []).forEach((file, index) => {
+                        try {
+                            const mappedSound = mapDbFileToSound(
+                                { ...file, path: file.path || file.file_path },
+                                index
+                            );
+                            if (!mappedSound.filePath || seen.has(mappedSound.filePath)) return;
+                            seen.add(mappedSound.filePath);
+                            list.push(mappedSound);
+                        } catch (error) {
+                            console.warn('[Folder] 成员映射失败:', error);
+                        }
+                    });
+                };
+
+                for (const child of childFolders) {
+                    try {
+                        const page = await rendererApi.get(
+                            '/api/v1/files?project_id=' + encodeURIComponent(projectId)
+                            + '&limit=300&folder=' + encodeURIComponent(child.path)
+                        );
+                        pushAll((page && page.files) || []);
+                    } catch (error) {
+                        console.warn('[Folder] 读取映射目录失败:', error);
+                    }
+                }
                 try {
                     const data = await rendererApi.get(
-                        `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
+                        `/api/v1/projects/${encodeURIComponent(projectId)}`
                         + `/folders/${encodeURIComponent(folder.id)}/files`
                     );
-                    members = ((data && data.files) || [])
-                        .map((file, index) => {
-                            try {
-                                return mapDbFileToSound({
-                                    ...file,
-                                    path: file.path || file.file_path,
-                                }, index);
-                            } catch (error) {
-                                console.warn('[Folder] 成员映射失败:', file, error);
-                                return null;
-                            }
-                        })
-                        .filter(Boolean);
+                    pushAll((data && data.files) || []);
                 } catch (error) {
                     console.warn('[Folder] 读取文件夹成员失败:', error);
                 }
-                const seen = new Set(mapped.map(s => s.filePath));
-                const list = mapped.concat(members.filter(s => !seen.has(s.filePath)));
+
                 allSearchResults = list;
                 renderSoundList('', list);
+                showNotification(`「${folder.name}」共 ${list.length} 个音效`, list.length ? 'success' : 'info');
             });
 
             // 右键菜单

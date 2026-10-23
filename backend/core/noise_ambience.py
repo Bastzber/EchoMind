@@ -64,7 +64,7 @@ def _events(n: int, count: int, decay: float, low_freq: float = 1500.0) -> np.nd
 # 每个配方的 4 条独立音轨 + 每条音轨受 x/y 控制的增益范围
 STEM_MIX: dict = {
     "wind": {
-        "base":   {"x": (0.08, 0.75), "y": (0.6, 1.0)},
+        "base":   {"x": (0.02, 0.5), "y": (0.4, 1.0)},
         "gust":   {"x": (0.2, 0.55), "y": (0.0, 0.9)},
         "strong": {"x": (0.0, 1.0), "y": (0.25, 0.5)},
         "accent": {"x": (0.1, 0.3), "y": (0.0, 0.7)},
@@ -80,6 +80,12 @@ STEM_MIX: dict = {
         "surge":  {"x": (0.2, 0.85), "y": (0.25, 0.6)},
         "foam":   {"x": (0.1, 0.4), "y": (0.0, 0.8)},
         "accent": {"x": (0.2, 0.5), "y": (0.0, 0.5)},
+    },
+    "forest": {
+        "base":   {"x": (0.03, 0.5), "y": (0.5, 1.0)},
+        "mid":    {"x": (0.15, 0.5), "y": (0.1, 0.6)},
+        "drops":  {"x": (0.1, 0.5), "y": (0.0, 0.9)},
+        "accent": {"x": (0.1, 0.4), "y": (0.0, 0.5)},
     },
     "fire": {
         "base":   {"x": (0.08, 0.7), "y": (0.6, 1.0)},
@@ -145,6 +151,29 @@ def load_user_stems(kind: str, seconds: float = 6.0):
 _STEM_CACHE: dict = {}
 
 
+def _bird_events(n: int, count: int, seconds: float) -> np.ndarray:
+    """鸟鸣：短促的频率扫动（啾啾），首尾环绕保证周期。"""
+    out = np.zeros(n, dtype=np.float32)
+    for _ in range(count):
+        length = int(np.random.uniform(0.05, 0.18) * SR)
+        if length < 32:
+            continue
+        t = np.arange(length) / SR
+        base = np.random.uniform(1800, 4200)
+        sweep = base * (1.0 + np.random.uniform(-0.25, 0.35) * t / (t[-1] or 1))
+        phase = 2 * np.pi * np.cumsum(sweep) / SR
+        tone = np.sin(phase) * np.exp(-np.linspace(0, 5, length))
+        start = np.random.randint(0, n)
+        end = start + length
+        if end <= n:
+            out[start:end] += tone
+        else:
+            out[start:] += tone[: n - start]
+            out[: end - n] += tone[n - start:]
+    peak = float(np.max(np.abs(out))) or 1.0
+    return (out / peak).astype(np.float32)
+
+
 def synth_stems(kind: str, seconds: float = 6.0) -> dict:
     cached = _STEM_CACHE.get((kind, round(seconds, 1)))
     if cached is not None:
@@ -177,6 +206,13 @@ def _synth_stems_impl(kind: str, seconds: float = 6.0) -> dict:
             "surge": _periodic_noise(seconds, lambda f: _band(f, 800, 2600) * 0.7) * _lfo(n, seconds, 0.1, 0.9, 1.7),
             "foam": _periodic_noise(seconds, lambda f: _band(f, 2400, 9500) * 0.5) * _lfo(n, seconds, 0.13, 0.95, 0.6),
             "accent": _events(n, 10, 0.2, 1400) * 0.8,
+        }
+    elif kind == "forest":
+        stems = {
+            "base": _periodic_noise(seconds, lambda f: _band(f, 400, 2400) * 0.35) * _lfo(n, seconds, 0.05, 0.5),
+            "mid": _periodic_noise(seconds, lambda f: _band(f, 150, 700) * 0.25),
+            "drops": _bird_events(n, 18, seconds),
+            "accent": _bird_events(n, 5, seconds) * 0.7,
         }
     else:
         stems = {

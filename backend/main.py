@@ -2344,6 +2344,7 @@ _RECIPE_DEFS = [
     },
     {
         "id": "amb_forest",
+        "synth": "forest",
         "name": "林间鸟鸣",
         "category": "环境音",
         "mode": "env",

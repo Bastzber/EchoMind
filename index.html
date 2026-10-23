@@ -2003,11 +2003,7 @@
                     body
                 );
                 const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
-                if (recipeState.player) {
-                    recipeState.player.pause();
-                }
-                recipeState.player = new Audio(base + data.url);
-                recipeState.player.play().catch(() => {});
+                playRecipeAudio(data.url, 'hit');
                 if (recipeState.recording) {
                     recipeState.events.push({
                         t: (Date.now() - recipeState.startedAt) / 1000,
@@ -2075,6 +2071,54 @@
             }
         }
 
+        // 试听共用一条音频通道：新的播放会先停掉旧的，避免两条叠在一起
+        let recipeAudio = null;
+        let recipeAudioOwner = null;
+
+        function stopRecipeAudio() {
+            if (recipeAudio) {
+                try {
+                    recipeAudio.pause();
+                    recipeAudio.currentTime = 0;
+                } catch (_) { }
+            }
+            recipeAudio = null;
+            recipeAudioOwner = null;
+            document.querySelectorAll('[data-audition]').forEach((btn) => {
+                btn.textContent = '试听';
+                btn.dataset.playing = '0';
+            });
+            const playBtn = document.getElementById('recipePlayBtn');
+            if (playBtn) playBtn.textContent = '试听录制';
+        }
+
+        function playRecipeAudio(url, owner) {
+            const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+            stopRecipeAudio();
+            const audio = new Audio(base + url);
+            recipeAudio = audio;
+            recipeAudioOwner = owner;
+            audio.addEventListener('ended', () => {
+                if (recipeAudio === audio) stopRecipeAudio();
+            });
+            audio.play().catch(() => {});
+            return audio;
+        }
+
+        function toggleRecipeAudio(url, owner, button) {
+            if (recipeAudioOwner === owner && recipeAudio && !recipeAudio.paused) {
+                stopRecipeAudio();
+                return;
+            }
+            playRecipeAudio(url, owner);
+            if (button) {
+                button.textContent = '暂停';
+                button.dataset.playing = '1';
+            }
+            const playBtn = document.getElementById('recipePlayBtn');
+            if (playBtn) playBtn.textContent = (owner === 'session') ? '暂停试听' : '试听录制';
+        }
+
         function renderRecipeTakes() {
             const box = document.getElementById('recipeTakes');
             if (!box) return;
@@ -2092,12 +2136,13 @@
                     <span class="flex-1 truncate">${escapeHtml(take.name)}</span>
                     <span class="opacity-50">${take.duration}s</span>`;
                 const play = document.createElement('button');
-                play.className = 'px-2 py-0.5 rounded';
+                play.className = 'px-2 py-0.5 rounded w-14';
                 play.style.background = 'var(--bg-tertiary)';
                 play.textContent = '试听';
+                play.dataset.audition = 'take';
+                play.dataset.playing = '0';
                 play.addEventListener('click', () => {
-                    const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
-                    new Audio(base + take.url).play().catch(() => {});
+                    toggleRecipeAudio(take.url, 'take-' + index, play);
                 });
                 row.appendChild(play);
                 box.appendChild(row);
@@ -6310,9 +6355,11 @@
             document.getElementById('recipePlayBtn')?.addEventListener('click', () => {
                 const session = recipeState.lastSession;
                 if (!session) return;
-                const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
-                new Audio(base + session.url).play().catch(() => {});
+                const button = document.getElementById('recipePlayBtn');
+                toggleRecipeAudio(session.url, 'session', null);
+                button.textContent = (recipeAudioOwner === 'session') ? '暂停试听' : '试听录制';
             });
+            document.getElementById('recipeCloseBtn')?.addEventListener('click', () => stopRecipeAudio());
             document.getElementById('recipeSaveBtn')?.addEventListener('click', () => saveRecipeSession());
             document.getElementById('recipePickSample')?.addEventListener('click', () => pickRecipeSample());
             document.getElementById('recipeVariation')?.addEventListener('change', (e) => {

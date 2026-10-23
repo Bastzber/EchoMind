@@ -2121,22 +2121,22 @@
         let stemsCtx = null;
 
         // x = 远近（0 远 / 1 近），y = 强度（0 轻 / 1 重）
+        // 每条音轨在混音里的"角色权重"：底噪刻意压低，细节层才是主导
+        const STEM_ROLE = {
+            base: 0.16, mid: 0.30, drops: 0.60, accent: 0.38,
+            gust: 0.45, strong: 0.62, surge: 0.50, foam: 0.40, air: 0.32,
+        };
+        const STEM_HIGH = new Set(['drops', 'accent', 'foam', 'air']);
+
         function stemsGain(stemId, mix, x, y) {
-            const near = x;
-            const far = 1 - x;
-            const intensity = y;
-            const gx = mix.x[0] + (mix.x[1] - mix.x[0]) * intensity;
-            const gy = mix.y[0] + (mix.y[1] - mix.y[0]) * intensity;
-            let gain = gx * gy * 0.45;
-            // 远处更闷更轻：高频层（drops/accent）衰减更多，中低频保留
-            if (stemId === 'drops' || stemId === 'accent' || stemId === 'foam') {
-                gain *= 0.35 + 0.65 * near;
-            } else if (stemId === 'mid' || stemId === 'surge') {
-                gain *= 0.75 + 0.25 * far;
-            } else {
-                gain *= 0.6 + 0.4 * near;
-            }
-            return Math.max(0, Math.min(1, gain));
+            const near = x;          // 0 远 / 1 近
+            const intensity = y;     // 0 轻 / 1 重
+            const role = STEM_ROLE[stemId] ?? 0.35;
+            // 强度决定层次：轻时只有底噪，重时细节全部打开
+            let gain = role * (0.18 + 0.82 * intensity);
+            // 距离：远处整体变轻，高频衰减更多
+            gain *= STEM_HIGH.has(stemId) ? (0.30 + 0.70 * near) : (0.72 + 0.28 * near);
+            return Math.max(0, Math.min(1, gain * 0.55));
         }
 
         function applyStemsGains(x, y) {
@@ -2478,9 +2478,47 @@
                 play.addEventListener('click', () => {
                     toggleRecipeAudio(take.url, 'take-' + index, play);
                 });
-                row.appendChild(play);
+
+                const save = document.createElement('button');
+                save.className = 'px-2 py-0.5 rounded';
+                save.style.background = '#8b5cf6';
+                save.style.color = '#fff';
+                save.textContent = '保存';
+                save.addEventListener('click', () => saveTakeToLibrary(take));
+
+                const copy = document.createElement('button');
+                copy.className = 'px-2 py-0.5 rounded';
+                copy.style.background = 'var(--bg-tertiary)';
+                copy.textContent = '复制路径';
+                copy.addEventListener('click', () => copyTakePath(take));
+
+                row.append(play, save, copy);
                 box.appendChild(row);
             });
+        }
+
+        async function saveTakeToLibrary(take) {
+            try {
+                const name = take.name.replace(/\s+/g, '-');
+                await rendererApi.post('/api/v1/sfx/save', {
+                    audio_path: take.file_path,
+                    name,
+                    tags: ['环境音', recipeState.current ? recipeState.current.category : '拟音'],
+                }, { timeoutMs: 120000 });
+                showNotification('已保存到音效库：' + name, 'success');
+                await loadFilesFromDatabase({ reset: true });
+            } catch (error) {
+                showNotification('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        async function copyTakePath(take) {
+            try {
+                await navigator.clipboard.writeText(take.file_path);
+                showNotification('路径已复制，可粘贴到任意文件夹', 'success');
+            } catch (_) {
+                showNotification(take.file_path, 'info');
+            }
         }
 
         async function pickRecipeSample(layer, onPick) {

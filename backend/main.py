@@ -2535,7 +2535,7 @@ async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
     if recipe is None or not recipe.synth:
         raise HTTPException(status_code=404, detail="该配方不是环境音")
 
-    seconds = min(max(float((payload or {}).get("seconds", 6) or 6), 2.0), 12.0)
+    seconds = min(max(float((payload or {}).get("seconds", 30) or 30), 5.0), 60.0)
     stems = await asyncio.to_thread(load_user_stems, recipe.synth, seconds)
     source = "user" if stems else "synth"
     if not stems:

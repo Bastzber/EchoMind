@@ -142,7 +142,19 @@ def load_user_stems(kind: str, seconds: float = 6.0):
         return None
 
 
+_STEM_CACHE: dict = {}
+
+
 def synth_stems(kind: str, seconds: float = 6.0) -> dict:
+    cached = _STEM_CACHE.get((kind, round(seconds, 1)))
+    if cached is not None:
+        return cached
+    result = _synth_stems_impl(kind, seconds)
+    _STEM_CACHE[(kind, round(seconds, 1))] = result
+    return result
+
+
+def _synth_stems_impl(kind: str, seconds: float = 6.0) -> dict:
     """返回 4 条同长度、同相位起点的循环音轨（播放端只调音量，永不重启）。"""
     n = int(seconds * SR)
     if kind == "wind":

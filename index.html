@@ -2162,7 +2162,7 @@
                 const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
                 const data = await rendererApi.post(
                     `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/stems`,
-                    { seconds: 6 },
+                    { seconds: 30 },
                     { timeoutMs: 60000 }
                 );
                 // 用多个 <audio> 元素循环播放（WebAudio 在部分机器上会导致渲染进程崩溃）

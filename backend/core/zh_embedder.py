@@ -14,12 +14,27 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(__file__).resolve().parents[2] / "models" / "bge-m3"
-_state = {"model": None, "tokenizer": None, "device": None, "failed": False}
+_ROOT = Path(__file__).resolve().parents[2]
+# 优先 BGE-M3（更强），缺失时回退 bge-small-zh（体积小、下载可行）
+CANDIDATES = [_ROOT / "models" / "bge-m3", _ROOT / "models" / "bge-small-zh"]
+
+
+def _complete(path: Path) -> bool:
+    """目录里要有 config 和权重才算可用（避免只有配置的半成品）。"""
+    if not (path / "config.json").exists():
+        return False
+    return any(
+        (path / name).exists() for name in ("model.safetensors", "pytorch_model.bin")
+    )
+
+
+MODEL_DIR = next((p for p in CANDIDATES if _complete(p)), CANDIDATES[-1])
+DIM = 1024
+_state = {"model": None, "tokenizer": None, "device": None, "failed": False, "dim": DIM}
 
 
 def available() -> bool:
-    return (MODEL_DIR / "config.json").exists()
+    return _complete(MODEL_DIR)
 
 
 def _device() -> str:
@@ -50,6 +65,7 @@ def load() -> bool:
         model.to(device)
         _state["model"] = model
         _state["device"] = device
+        _state["dim"] = int(model.config.hidden_size)
         logger.info("[Embed] BGE-M3 加载完成，device=%s", device)
         return True
     except Exception as exc:
@@ -61,7 +77,7 @@ def load() -> bool:
 def encode(texts: List[str], batch_size: int = 16, max_length: int = 256) -> Optional[np.ndarray]:
     """返回 L2 归一化后的向量矩阵 (n, 1024)；模型不可用返回 None。"""
     if not texts:
-        return np.zeros((0, 1024), dtype=np.float32)
+        return np.zeros((0, _state.get("dim") or DIM), dtype=np.float32)
     if not load():
         return None
     import torch
@@ -95,4 +111,6 @@ def status() -> dict:
         "failed": _state["failed"],
         "device": _state["device"],
         "path": str(MODEL_DIR),
+        "model": MODEL_DIR.name,
+        "dim": _state.get("dim"),
     }

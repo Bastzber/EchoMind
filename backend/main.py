@@ -2848,6 +2848,24 @@ async def embed_status():
     return {"success": True, **zh_embedder.status()}
 
 
+@app.post("/api/v1/embed/rebuild")
+async def embed_rebuild(payload: Dict[str, Any] = None):
+    """后台重建中文文本向量索引（可传 limit 先小规模验证）。"""
+    from core import zh_text_index
+
+    limit = (payload or {}).get("limit")
+    limit = int(limit) if limit else None
+    state = zh_text_index.start_async(limit=limit)
+    return {"success": True, **state}
+
+
+@app.get("/api/v1/embed/rebuild/status")
+async def embed_rebuild_status():
+    from core import zh_text_index
+
+    return {"success": True, **zh_text_index.status()}
+
+
 @app.post("/api/v1/embed/preview")
 async def embed_preview(payload: Dict[str, Any]):
     """调试用：给几段文本，返回向量维度与两两相似度（验证模型可用）。"""

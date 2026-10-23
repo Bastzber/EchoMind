@@ -45,10 +45,24 @@ tags total: 1  scene: 0  attr: 1   （动物）
 - API：`GET /api/v1/embed/status`、`POST /api/v1/embed/preview`（返回维度与两两相似度）
 - 模型下载到 `models/bge-m3`（走 hf-mirror + 代理）
 
+### 进展（第三轮）
+- BGE-M3（2.2GB）下载卡在 46MB 不动（hf-mirror 大文件被限速/中断）
+- 改用 **bge-small-zh-v1.5（92MB，512 维）** 并成功加载：
+  ```
+  encode 3 条耗时 3.9s，shape (3, 512)
+  sim(玻璃破碎声, 茶杯摔碎的脆响) = 0.586
+  sim(玻璃破碎声, 沉重的脚步声) = 0.400
+  ```
+  语义区分度正常，中文场景够用
+- `backend/core/zh_text_index.py`：Chroma 集合 `text_zh`，批量编码入库
+- 小规模验证：200 条 5.9 秒，0 失败 → 全量约 24 分钟
+- `POST /api/v1/embed/rebuild`、`GET /api/v1/embed/rebuild/status`
+- 全量重建已在后台启动
+
 ### 待办
-- 等待权重下载完成（首次只拿到 42MB 配置与分词器）
-- 文本向量重建（48,649 条）并切到独立 Chroma 集合
-- 搜索链路：长句查询切 BGE-M3，短关键词仍走 FTS
+- 全量重建完成后校验条数
+- 搜索链路接入：长句走 BGE，短关键词仍走 FTS
+- 模型选择：网络恢复后可换回 bge-m3（代码已支持按目录自动选择，维度自适应）
 
 ## 旧的 P3 说明（存档）
 - 候选模型：BGE-M3（2.2GB，效果好）或 bge-small-zh（95MB）

@@ -806,6 +806,50 @@ class OptimizedAudioSearcher(AudioSearcher):
         results.sort(key=lambda x: x.similarity, reverse=True)
         return results
 
+    def _fts_keyword_search(
+        self,
+        query: str,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 200,
+    ) -> List[SearchResult]:
+        """FTS5 + BM25：中文短查询的主通道。"""
+        from core.database import get_db_manager
+
+        rows = get_db_manager().fts_search(self.project_id, query, limit=limit)
+        if not rows:
+            return []
+        results: List[SearchResult] = []
+        for index, row in enumerate(rows):
+            filename = str(row.get("filename") or "")
+            score = max(0.35, 0.95 - index * 0.01)
+            metadata = {
+                "file_id": row.get("file_id"),
+                "file_path": row.get("file_path"),
+                "filename": filename,
+                "duration": row.get("duration") or 0.0,
+                "size": row.get("size") or 0,
+                "sample_rate": row.get("sample_rate"),
+                "channels": row.get("channels"),
+                "tags": row.get("tags"),
+                "ai_description": row.get("ai_description") or "",
+                "format": filename.rsplit(".", 1)[-1].lower() if "." in filename else "",
+                "match_level": "fts",
+                "keyword_score": score,
+                "semantic_score": 0.0,
+                "search_layer": 0,
+            }
+            results.append(
+                SearchResult(
+                    file_path=str(row.get("file_path") or ""),
+                    filename=filename,
+                    similarity=score,
+                    duration=float(row.get("duration") or 0.0),
+                    format=metadata["format"],
+                    metadata=metadata,
+                )
+            )
+        return results
+
     def _keyword_search_from_snapshot(
         self,
         query: str,
@@ -827,10 +871,24 @@ class OptimizedAudioSearcher(AudioSearcher):
             q for q in expanded_queries
             if q == query or (q.strip() and q.strip().lower() not in _generic)
         ]
+        # 第一优先：FTS5 二元组检索（中文短查询又快又准）
+        try:
+            fts_results = self._fts_keyword_search(query, filters)
+        except Exception as exc:
+            logger.debug("FTS 检索不可用，回退旧通道: %s", exc)
+            fts_results = []
+        if len(fts_results) >= 5:
+            return expanded_queries, fts_results, []
+
         files_snapshot = self._get_all_files(filters)
         exact_results = self._exact_keyword_search(
             query, filters, files_snapshot=files_snapshot
         )
+        if fts_results:
+            seen = {r.file_path for r in fts_results}
+            exact_results = fts_results + [
+                r for r in exact_results if r.file_path not in seen
+            ]
         # 精确层已经够用时就跳过扩展层：扩展要对 5 万条再扫一遍，
         # 是关键词阶段的主要开销之一。
         if len(exact_results) >= 50:

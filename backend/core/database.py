@@ -1335,6 +1335,168 @@ class DatabaseManager:
                 )
             return [self._row_to_record(row) for row in cursor.fetchall()]
 
+    # ==================== FTS5 中文检索 ====================
+    # 中文短查询走二元组 FTS，比 CLAP 文本塔可靠得多，也比全表 sub 串扫描快。
+
+    def ensure_fts(self, project_id: str) -> int:
+        """建表并在缺失时灌数据，返回灌入行数。"""
+        from core.zh_tokenizer import tokenize
+
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
+                    file_uuid UNINDEXED,
+                    project_id UNINDEXED,
+                    filename,
+                    title,
+                    description,
+                    tags,
+                    tokenize = 'unicode61 remove_diacritics 2'
+                )
+                """
+            )
+        with self.get_cursor() as cursor:
+            total = cursor.execute(
+                "SELECT COUNT(*) FROM files WHERE project_id=?", (project_id,)
+            ).fetchone()[0]
+            indexed = cursor.execute(
+                "SELECT COUNT(*) FROM files_fts WHERE project_id=?", (project_id,)
+            ).fetchone()[0]
+        if total == indexed:
+            return 0
+
+        inserted = 0
+        batch: List[tuple] = []
+        with self.get_cursor() as cursor:
+            cursor.execute("DELETE FROM files_fts WHERE project_id=?", (project_id,))
+            rows = cursor.execute(
+                "SELECT file_uuid, filename, path, ai_description, tags "
+                "FROM files WHERE project_id=?",
+                (project_id,),
+            ).fetchall()
+        for row in rows:
+            file_uuid, filename, path, description, tags = row
+            name = str(filename or "")
+            stem = name.rsplit(".", 1)[0] if "." in name else name
+            import json as _json
+
+            try:
+                tag_list = _json.loads(tags or "[]")
+                tag_text = " ".join(str(t) for t in tag_list if t)
+            except Exception:
+                tag_text = str(tags or "")
+            batch.append(
+                (
+                    str(file_uuid),
+                    str(project_id),
+                    tokenize(name),
+                    tokenize(stem),
+                    tokenize(description or ""),
+                    tokenize(tag_text),
+                )
+            )
+            if len(batch) >= 400:
+                with self.get_cursor() as cursor:
+                    cursor.executemany(
+                        "INSERT INTO files_fts "
+                        "(file_uuid, project_id, filename, title, description, tags) "
+                        "VALUES (?,?,?,?,?,?)",
+                        batch,
+                    )
+                    cursor.connection.commit()
+                inserted += len(batch)
+                batch = []
+        if batch:
+            with self.get_cursor() as cursor:
+                cursor.executemany(
+                    "INSERT INTO files_fts "
+                    "(file_uuid, project_id, filename, title, description, tags) "
+                    "VALUES (?,?,?,?,?,?)",
+                    batch,
+                )
+                cursor.connection.commit()
+            inserted += len(batch)
+        return inserted
+
+    def fts_search(self, project_id: str, query: str, limit: int = 200) -> List[Dict[str, Any]]:
+        """FTS5 + BM25 检索，按相关度返回文件元数据。"""
+        from core.zh_tokenizer import build_match
+
+        match = build_match(query)
+        if not match:
+            return []
+        sql = """
+            SELECT f.file_uuid, f.path, f.filename, f.duration, f.file_size,
+                   f.sample_rate, f.channels, f.tags, f.ai_description,
+                   bm25(files_fts, 0.0, 0.0, 1.0, 1.5, 2.0, 4.0) AS rank
+            FROM files_fts
+            JOIN files f ON f.file_uuid = files_fts.file_uuid
+            WHERE files_fts MATCH ? AND files_fts.project_id = ?
+            ORDER BY rank
+            LIMIT ?
+        """
+        try:
+            with self.get_cursor() as cursor:
+                rows = cursor.execute(sql, (match, str(project_id), int(limit))).fetchall()
+        except Exception as exc:
+            logger.warning("FTS 查询失败: %s", exc)
+            return []
+        return [
+            {
+                "file_id": row["file_uuid"],
+                "file_path": row["path"],
+                "filename": row["filename"],
+                "duration": row["duration"],
+                "size": row["file_size"],
+                "sample_rate": row["sample_rate"],
+                "channels": row["channels"],
+                "tags": row["tags"],
+                "ai_description": row["ai_description"],
+                "rank": row["rank"],
+            }
+            for row in rows
+        ]
+
+    def update_fts_row(self, project_id: str, file_uuid: str) -> None:
+        """描述/标签改动后同步 FTS 行（失败不影响主流程）。"""
+        from core.zh_tokenizer import tokenize
+
+        try:
+            with self.get_cursor() as cursor:
+                row = cursor.execute(
+                    "SELECT filename, ai_description, tags FROM files WHERE file_uuid=?",
+                    (file_uuid,),
+                ).fetchone()
+                if not row:
+                    return
+                name = str(row["filename"] or "")
+                stem = name.rsplit(".", 1)[0] if "." in name else name
+                try:
+                    tag_list = json.loads(row["tags"] or "[]")
+                    tag_text = " ".join(str(t) for t in tag_list if t)
+                except Exception:
+                    tag_text = str(row["tags"] or "")
+                cursor.execute(
+                    "DELETE FROM files_fts WHERE file_uuid=?", (file_uuid,)
+                )
+                cursor.execute(
+                    "INSERT INTO files_fts "
+                    "(file_uuid, project_id, filename, title, description, tags) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (
+                        file_uuid,
+                        str(project_id),
+                        tokenize(name),
+                        tokenize(stem),
+                        tokenize(row["ai_description"] or ""),
+                        tokenize(tag_text),
+                    ),
+                )
+                cursor.connection.commit()
+        except Exception as exc:
+            logger.debug("同步 FTS 行失败 %s: %s", file_uuid, exc)
+
     def count_files_in_folder(self, project_id: str, folder: str) -> int:
         """统计某目录（含子目录）下的文件数。"""
         prefix = str(folder).rstrip('\\/') + '\\'
@@ -1592,10 +1754,25 @@ class DatabaseManager:
                             WHERE canonical_path=? AND (? IS NULL OR project_id=?)
                         )
                     """, (now, canonical_path, project_id, project_id))
+            if changed:
+                self._sync_fts_for_path(canonical_path, project_id)
             return changed
         except Exception as e:
             _get_logger().error(f"更新标签失败 {path}: {e}")
             return False
+
+    def _sync_fts_for_path(self, canonical_path: str, project_id: Optional[str] = None) -> None:
+        """按路径把 FTS 行更新到最新（描述/标签变更后调用）。"""
+        try:
+            with self.get_cursor() as cursor:
+                row = cursor.execute(
+                    "SELECT file_uuid, project_id FROM files WHERE canonical_path=? LIMIT 1",
+                    (canonical_path,),
+                ).fetchone()
+            if row:
+                self.update_fts_row(row["project_id"] or project_id or "default", row["file_uuid"])
+        except Exception as exc:
+            _get_logger().debug(f"同步 FTS 失败 {canonical_path}: {exc}")
 
     def list_all_tags(self, project_id: str = None) -> List[Dict[str, Any]]:
         """统计工程内所有标签及使用次数，按次数降序返回。
@@ -1664,6 +1841,8 @@ class DatabaseManager:
                             WHERE canonical_path=? AND (? IS NULL OR project_id=?)
                         )
                     """, (now, canonical_path, project_id, project_id))
+            if changed:
+                self._sync_fts_for_path(canonical_path, project_id)
             return changed
         except Exception as e:
             _get_logger().error(f"更新 AI 描述失败 {path}: {e}")

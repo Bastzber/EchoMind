@@ -416,6 +416,22 @@ async def lifespan(app: FastAPI):
 
     # 预热关键词搜索的文件快照：5 万条从 SQLite 重建约 10 秒，放在后台做，
     # 用户第一次搜索就不必等这一下。
+    async def _ensure_fts_ready() -> None:
+        """后台建/补 FTS5 中文检索索引（不阻塞启动）。"""
+        await asyncio.sleep(6)
+        try:
+            project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+            db = get_db_manager()
+            started = time.time()
+            inserted = await asyncio.to_thread(db.ensure_fts, project_id)
+            logger.info(
+                "[FTS] 中文检索索引就绪：灌入 %s 行，耗时 %.1fs",
+                inserted,
+                time.time() - started,
+            )
+        except Exception as exc:
+            logger.warning("[FTS] 构建失败（检索会回退旧通道）: %s", exc)
+
     async def _warm_search_snapshot() -> None:
         await asyncio.sleep(8)
         try:
@@ -445,6 +461,7 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.debug(f"[Warmup] 搜索预热失败: {exc}")
 
+    asyncio.create_task(_ensure_fts_ready())
     asyncio.create_task(_warm_search_snapshot())
 
     yield

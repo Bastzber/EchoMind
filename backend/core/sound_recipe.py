@@ -145,6 +145,10 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
         if not layer.audio:
             continue
         samples = rng.choice(layer.audio)
+        # 响度归一：避免某条样本特别轻/特别响把整体搞脏
+        rms = float(np.sqrt(np.mean(np.square(samples)))) if samples.size else 0.0
+        if rms > 1e-5:
+            samples = samples * (0.12 / rms)
         samples = _pitch_shift(samples, pitch_semi + rng.uniform(-layer.pitch_span, layer.pitch_span))
         offset_ms = rng.randint(*layer.offset_ms)
         pieces.append((int(offset_ms * TARGET_SR / 1000), samples * _db_to_gain(layer.gain_db + gain_db)))
@@ -218,14 +222,26 @@ def build_from_library(
     db = get_db_manager()
     layers: List[Layer] = []
     for spec in queries:
-        rows = db.fts_search("default", spec["q"], limit=limit * 3)
-        # 只取短素材（脚步声不该是 60 秒的环境录音）
-        pool = [
-            row["file_path"]
-            for row in rows
-            if row.get("file_path")
-            and 0 < float(row.get("duration") or 0) <= max_sample_seconds
-        ][:limit]
+        rows = db.fts_search("default", spec["q"], limit=limit * 4)
+        required = [str(k).lower() for k in (spec.get("require") or []) if str(k).strip()]
+
+        def _ok(row: Dict[str, Any]) -> bool:
+            duration = float(row.get("duration") or 0)
+            if not (0.15 <= duration <= max_sample_seconds):
+                return False
+            if not required:
+                return True
+            text = (str(row.get("filename") or "") + " " + str(row.get("ai_description") or "")).lower()
+            return any(k in text for k in required)
+
+        pool = [row["file_path"] for row in rows if row.get("file_path") and _ok(row)][:limit]
+        if not pool:
+            # 放宽：只要时长合适
+            pool = [
+                row["file_path"]
+                for row in rows
+                if row.get("file_path") and 0.15 <= float(row.get("duration") or 0) <= max_sample_seconds
+            ][:limit]
         if not pool:
             pool = [row["file_path"] for row in rows if row.get("file_path")][:limit]
         if not pool:

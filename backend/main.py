@@ -2308,9 +2308,10 @@ _RECIPE_DEFS = [
         "name": "木板脚步",
         "category": "脚步",
         "queries": [
-            {"layer": "step", "q": "脚步", "prob": 1.0, "gain_db": 0.0, "pitch_span": 0.08, "trim_seconds": 0.9},
-            {"layer": "creak", "q": "木 吱呀", "prob": 0.18, "gain_db": -10.0, "offset_ms": [0, 30], "trim_seconds": 0.8},
-            {"layer": "cloth", "q": "衣物 摩擦", "prob": 0.22, "gain_db": -16.0, "offset_ms": [0, 18], "trim_seconds": 0.7},
+            {"layer": "step", "q": "脚步", "prob": 1.0, "gain_db": 0.0, "pitch_span": 0.05,
+             "trim_seconds": 1.0, "require": ["脚步", "步", "footstep"]},
+            {"layer": "creak", "q": "吱呀", "prob": 0.12, "gain_db": -14.0, "offset_ms": [0, 30],
+             "trim_seconds": 0.6, "require": ["吱呀", "木"]},
         ],
     },
     {
@@ -2318,8 +2319,8 @@ _RECIPE_DEFS = [
         "name": "水泥脚步",
         "category": "脚步",
         "queries": [
-            {"layer": "step", "q": "脚步", "prob": 1.0, "pitch_span": 0.08, "trim_seconds": 0.9},
-            {"layer": "grit", "q": "沙 摩擦", "prob": 0.22, "gain_db": -14.0, "offset_ms": [0, 20], "trim_seconds": 0.7},
+            {"layer": "step", "q": "脚步", "prob": 1.0, "pitch_span": 0.05,
+             "trim_seconds": 1.0, "require": ["脚步", "步", "footstep"]},
         ],
     },
     {
@@ -2327,8 +2328,10 @@ _RECIPE_DEFS = [
         "name": "木门开关",
         "category": "门与开关",
         "queries": [
-            {"layer": "open", "q": "开门 木门", "prob": 1.0, "pitch_span": 0.06, "trim_seconds": 2.2},
-            {"layer": "latch", "q": "门锁 咔哒", "prob": 0.3, "gain_db": -12.0, "offset_ms": [120, 320], "trim_seconds": 0.6},
+            {"layer": "open", "q": "开门", "prob": 1.0, "pitch_span": 0.04, "trim_seconds": 2.2,
+             "require": ["开门", "门"]},
+            {"layer": "latch", "q": "咔哒", "prob": 0.25, "gain_db": -14.0, "offset_ms": [120, 320],
+             "trim_seconds": 0.5, "require": ["咔哒", "锁"]},
         ],
     },
 ]

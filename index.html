@@ -168,7 +168,7 @@
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
     
     <!-- ==================== TOP TOOLBAR ==================== -->
-    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 transition-colors duration-300 gap-3 overflow-x-auto"
+    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 transition-colors duration-300 gap-3"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
         <!-- Left: App Name Only -->
@@ -219,8 +219,9 @@
                 </div>
             </div>
             <div class="relative">
-                <button id="sfxMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <button id="sfxMenuBtn" class="menu-btn px-3.5 py-1.5 rounded-xl text-sm font-semibold border flex items-center gap-2 transition-all hover:opacity-95"
+                        style="background: linear-gradient(135deg, rgba(139,92,246,.18), rgba(34,211,238,.10)); border-color: rgba(139,92,246,.45); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgba(255,255,255,.04) inset, 0 4px 14px rgba(139,92,246,.18);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                         <defs><linearGradient id="sfxGrad" x1="0" y1="0" x2="1" y2="1">
                             <stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#22d3ee"/>
                         </linearGradient></defs>
@@ -230,15 +231,16 @@
                 </button>
             </div>
             <div class="relative">
-                <button id="recipeMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <button id="recipeMenuBtn" class="menu-btn px-3.5 py-1.5 rounded-xl text-sm font-semibold border flex items-center gap-2 transition-all hover:opacity-95"
+                        style="background: linear-gradient(135deg, rgba(34,211,238,.16), rgba(139,92,246,.10)); border-color: rgba(34,211,238,.45); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgba(255,255,255,.04) inset, 0 4px 14px rgba(34,211,238,.16);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                         <defs><linearGradient id="recipeGrad" x1="0" y1="0" x2="1" y2="1">
                             <stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#8b5cf6"/>
                         </linearGradient></defs>
                         <path d="M3 8.5c2.4 0 2.4-2.2 4.8-2.2s2.4 2.2 4.8 2.2 2.4-2.2 4.8-2.2 2.4 2.2 4.8 2.2" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round"/>
                         <path d="M3 13c2.4 0 2.4 2.2 4.8 2.2s2.4-2.2 4.8-2.2 2.4 2.2 4.8 2.2 2.4-2.2 4.8-2.2" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.75"/>
                         <path d="M6 18.6h12" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>
-                    </svg><span>声音配方</span>
+                    </svg><span>拟音工坊</span>
                 </button>
             </div>
             <div class="relative">
@@ -337,7 +339,7 @@
             </div>
 
             <!-- 磁盘空间显示 -->
-            <div id="diskSpaceDisplay" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity cursor-help"
+            <div id="diskSpaceDisplay" class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity cursor-help"
                  style="background-color: var(--bg-tertiary); border-color: var(--border-color);"
                  data-i18n-title="disk.space.tooltip">
                 <i data-lucide="hard-drive" class="w-3.5 h-3.5"></i>
@@ -1556,9 +1558,22 @@
                     </span>
                     <i data-lucide="folder" class="w-4 h-4 opacity-70" style="color: ${folderColor};"></i>
                     <span class="text-sm flex-1 truncate">${escapeHtml(folder.name)}</span>
-                    <span class="text-xs opacity-50">${folder.total_file_count || 0}</span>
+                    <span class="text-xs opacity-50" data-folder-count="${folder.id}">${folder.total_file_count || 0}</span>
                 </div>
             `;
+
+            // 手动加入的文件也算进数量
+            (async () => {
+                try {
+                    const data = await rendererApi.get(
+                        `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
+                        + `/folders/${encodeURIComponent(folder.id)}/files`
+                    );
+                    const extra = ((data && data.files) || []).length;
+                    const badge = div.querySelector('[data-folder-count]');
+                    if (badge) badge.textContent = String((Number(folder.total_file_count) || 0) + extra);
+                } catch (_) { }
+            })();
 
             // 展开/折叠
             const toggleBtn = div.querySelector('.folder-toggle');
@@ -9141,7 +9156,7 @@
         <div class="flex items-center justify-between px-5 py-3 border-b" style="border-color: var(--border-color);">
             <div class="flex items-center gap-2">
                 <i data-lucide="layers" class="w-4 h-4"></i>
-                <h3 class="text-base font-semibold">声音配方</h3>
+                <h3 class="text-base font-semibold">拟音工坊</h3>
                 <span class="text-xs opacity-50">按参数演奏，不需要等模型</span>
             </div>
             <button id="recipeCloseBtn" class="p-1 rounded hover:bg-white/10"><i data-lucide="x" class="w-4 h-4"></i></button>
@@ -9181,7 +9196,6 @@
             <div class="flex items-center justify-between px-6 py-3 border-b shrink-0" style="border-color: var(--border-color);">
                 <div class="flex items-center gap-3">
                     <h3 class="text-lg font-semibold">创造音效</h3>
-                    <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa;">人机操控 BETA</span>
                 </div>
                 <button id="closeSfxModal" class="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                     <i data-lucide="x" class="w-5 h-5"></i>

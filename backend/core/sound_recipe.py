@@ -466,6 +466,15 @@ def render_ambience_performance(
         key=lambda item: item["t"],
     )
 
+    # 合并过密的轨迹点：拖动时每 450ms 一个点，逐点拼接会产生很多接缝
+    merged = []
+    for point in points:
+        if merged and point["t"] - merged[-1]["t"] < 1.0:
+            merged[-1] = point
+        else:
+            merged.append(point)
+    points = merged
+
     fade = int(0.4 * TARGET_SR)
     for index, point in enumerate(points):
         start = int(max(0.0, point["t"]) * TARGET_SR)
@@ -486,6 +495,8 @@ def render_ambience_performance(
         if end > start:
             buffer[start:end] += segment[: end - start]
 
+    # 与前端播放时的主增益（0.45）对齐，避免"试听比实时听到的响很多"
+    buffer = buffer * 0.45
     peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
     if peak > 0.95:
         buffer = buffer * (0.95 / peak)

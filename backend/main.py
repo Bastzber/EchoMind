@@ -2304,6 +2304,25 @@ async def rename_db_file(
 _RECIPE_CACHE: Dict[str, Any] = {}
 _RECIPE_DEFS = [
     {
+        "id": "amb_wind",
+        "name": "风与气流",
+        "category": "环境音",
+        "mode": "env",
+        "queries": [
+            {"layer": "base", "label": "柔风底声", "q": "风", "prob": 1.0, "gain_db": -8.0,
+             "trim_seconds": 1.6, "strength_gain": 3.0, "require": ["风"]},
+            {"layer": "gust", "label": "阵风细节", "q": "阵风", "prob": 0.25, "gain_db": -12.0,
+             "trim_seconds": 1.2, "strength_gain": 4.0, "prob_min": 0.15, "prob_max": 0.8,
+             "require": ["阵风", "风"]},
+            {"layer": "strong", "label": "强风气流", "q": "大风", "prob": 0.2, "gain_db": -10.0,
+             "trim_seconds": 1.4, "strength_gain": 9.0, "prob_min": 0.08, "prob_max": 0.9,
+             "require": ["大风", "呼啸", "风"]},
+            {"layer": "accent", "label": "点缀音", "q": "树叶", "prob": 0.08, "gain_db": -16.0,
+             "trim_seconds": 0.6, "prob_min": 0.03, "prob_max": 0.35,
+             "require": ["树叶", "沙沙"]},
+        ],
+    },
+    {
         "id": "footstep_wood",
         "name": "木板脚步",
         "category": "脚步",
@@ -2343,7 +2362,10 @@ def _get_recipe(recipe_id: str):
     spec = next((d for d in _RECIPE_DEFS if d["id"] == recipe_id), None)
     if not spec:
         return None
-    recipe = build_from_library(spec["id"], spec["name"], spec["category"], spec["queries"])
+    recipe = build_from_library(
+        spec["id"], spec["name"], spec["category"], spec["queries"],
+        mode=spec.get("mode", "step"),
+    )
     _RECIPE_CACHE[recipe_id] = recipe
     return recipe
 
@@ -2417,7 +2439,15 @@ async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
     y = float(payload.get("y", 0.5) or 0.5)
     sample = str(payload.get("sample") or "").strip() or None
     variation = float(payload.get("variation", 1.0) or 0)
-    samples = await asyncio.to_thread(render_hit, recipe, x, y, None, sample, variation)
+    enabled = payload.get("enabled")
+    layer_samples = payload.get("layer_samples") or {}
+    if not isinstance(layer_samples, dict):
+        layer_samples = {}
+    samples = await asyncio.to_thread(
+        render_hit, recipe, x, y, None, sample, variation,
+        enabled if isinstance(enabled, list) else None,
+        layer_samples,
+    )
     return {"success": True, **_serve_recipe_audio(samples)}
 
 

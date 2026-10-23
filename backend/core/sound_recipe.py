@@ -31,6 +31,10 @@ class Layer:
     offset_ms: Tuple[int, int] = (0, 0)
     pitch_span: float = 0.0
     trim_seconds: float = 1.2
+    label: str = ""
+    strength_gain: float = 0.0      # x=1（最强）时额外增益
+    prob_min: float = -1.0          # y=0（纯净）时的触发概率
+    prob_max: float = -1.0          # y=1（丰富）时的触发概率
     audio: List[np.ndarray] = field(default_factory=list)
 
     def ensure_audio(self, max_seconds: float = 1.2) -> None:
@@ -52,14 +56,24 @@ class Recipe:
     name: str
     category: str
     layers: List[Layer] = field(default_factory=list)
+    mode: str = "step"   # step: X=远近 Y=轻重；env: X=强弱 Y=细节
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
             "category": self.category,
+            "mode": self.mode,
             "layers": [
-                {"id": l.id, "pool": len(l.pool), "prob": l.prob, "gain_db": l.gain_db}
+                {
+                    "id": l.id,
+                    "label": l.label or l.id,
+                    "pool": len(l.pool),
+                    "prob": l.prob,
+                    "gain_db": l.gain_db,
+                    "strength_gain": l.strength_gain,
+                    "samples": [p for p in l.pool[:20]],
+                }
                 for l in self.layers
             ],
         }
@@ -191,6 +205,8 @@ def render_hit(
     seed: Optional[int] = None,
     sample: Optional[str] = None,
     variation: float = 1.0,
+    enabled: Optional[Sequence[str]] = None,
+    layer_samples: Optional[Dict[str, str]] = None,
 ) -> np.ndarray:
     """x=远近(0 近,1 远)  y=轻重(0 轻,1 重)。返回混好的单声道 float32。"""
     rng = random.Random(seed)
@@ -220,11 +236,28 @@ def render_hit(
             buffer = _finalize(pieces, cutoff)
             return buffer
 
+    enabled_set = set(enabled) if enabled else None
     for layer in recipe.layers:
-        if rng.random() > layer.prob:
+        if enabled_set is not None and layer.id not in enabled_set:
+            continue
+        # env 模式：y 控制细节层概率，x 控制强度层增益
+        if recipe.mode == "env" and layer.prob_max >= 0:
+            layer_prob = layer.prob_min + (layer.prob_max - layer.prob_min) * y
+        else:
+            layer_prob = layer.prob
+        if rng.random() > layer_prob:
             continue
         if not layer.pool:
             continue
+        # 单层指定素材：优先用用户选的那条
+        override_path = (layer_samples or {}).get(layer.id)
+        if override_path:
+            single = _load_single(override_path, layer.trim_seconds)
+            if single is not None:
+                extra_gain = layer.strength_gain * x if recipe.mode == "env" else 0.0
+                pieces.append((0, single * _db_to_gain(layer.gain_db + gain_db + extra_gain)))
+                continue
+
         if not layer.audio:
             layer.ensure_audio(layer.trim_seconds)
             # 干净优先：只保留最短的一批样本（长样本往往是一串脚步/带环境）
@@ -240,7 +273,10 @@ def render_hit(
             samples = samples * (0.12 / rms)
         samples = _pitch_shift(samples, pitch_semi + rng.uniform(-layer.pitch_span, layer.pitch_span))
         offset_ms = rng.randint(*layer.offset_ms)
-        pieces.append((int(offset_ms * TARGET_SR / 1000), samples * _db_to_gain(layer.gain_db + gain_db)))
+        extra_gain = layer.strength_gain * x if recipe.mode == "env" else 0.0
+        pieces.append(
+            (int(offset_ms * TARGET_SR / 1000), samples * _db_to_gain(layer.gain_db + gain_db + extra_gain))
+        )
 
     if not pieces:
         return np.zeros(int(0.2 * TARGET_SR), dtype=np.float32)
@@ -343,6 +379,7 @@ def build_from_library(
     queries: List[Dict[str, Any]],
     limit: int = 12,
     max_sample_seconds: float = 3.0,
+    mode: str = "step",
 ) -> Recipe:
     """用库内检索结果自动组装一个配方。
 
@@ -386,6 +423,10 @@ def build_from_library(
                 offset_ms=tuple(spec.get("offset_ms", (0, 0)) or (0, 0)),
                 pitch_span=float(spec.get("pitch_span", 0.0) or 0.0),
                 trim_seconds=float(spec.get("trim_seconds", 1.2) or 1.2),
+                label=str(spec.get("label") or spec.get("layer") or ""),
+                strength_gain=float(spec.get("strength_gain", 0.0) or 0.0),
+                prob_min=float(spec.get("prob_min", -1.0)),
+                prob_max=float(spec.get("prob_max", -1.0)),
             )
         )
-    return Recipe(id=recipe_id, name=name, category=category, layers=layers)
+    return Recipe(id=recipe_id, name=name, category=category, layers=layers, mode=mode)

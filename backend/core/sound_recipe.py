@@ -161,8 +161,15 @@ def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -
     for offset, samples in pieces:
         buffer[offset:offset + len(samples)] += samples
     buffer = _lowpass(buffer, cutoff)
-    # 触发结果控制在 1.5 秒内，并做尾部淡出，避免"一步"拖着长长尾巴
-    limit = int(1.5 * TARGET_SR)
+    # 高通掉 90Hz 以下的低频轰鸣（房间噪声常在这里）
+    if buffer.size > 32:
+        spec = np.fft.rfft(buffer)
+        freqs = np.fft.rfftfreq(len(buffer), 1.0 / TARGET_SR)
+        spec = spec * np.clip(freqs / 90.0, 0.0, 1.0)
+        buffer = np.fft.irfft(spec, len(buffer)).astype(np.float32)
+
+    # 触发结果控制在 1.0 秒内，并做尾部淡出，避免"一步"拖着长长尾巴
+    limit = int(1.0 * TARGET_SR)
     if len(buffer) > limit:
         buffer = buffer[:limit]
     tail = min(int(0.07 * TARGET_SR), len(buffer) // 3)

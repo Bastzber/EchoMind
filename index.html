@@ -1604,7 +1604,19 @@
                         `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
                         + `/folders/${encodeURIComponent(folder.id)}/files`
                     );
-                    members = ((data && data.files) || []).map(mapDbFileToSound);
+                    members = ((data && data.files) || [])
+                        .map((file, index) => {
+                            try {
+                                return mapDbFileToSound({
+                                    ...file,
+                                    path: file.path || file.file_path,
+                                }, index);
+                            } catch (error) {
+                                console.warn('[Folder] 成员映射失败:', file, error);
+                                return null;
+                            }
+                        })
+                        .filter(Boolean);
                 } catch (error) {
                     console.warn('[Folder] 读取文件夹成员失败:', error);
                 }

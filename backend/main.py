@@ -2308,10 +2308,8 @@ _RECIPE_DEFS = [
         "name": "木板脚步",
         "category": "脚步",
         "queries": [
-            {"layer": "step", "q": "脚步", "prob": 1.0, "gain_db": 0.0, "pitch_span": 0.05,
-             "trim_seconds": 1.0, "require": ["脚步", "步", "footstep"]},
-            {"layer": "creak", "q": "吱呀", "prob": 0.12, "gain_db": -14.0, "offset_ms": [0, 30],
-             "trim_seconds": 0.6, "require": ["吱呀", "木"]},
+            {"layer": "step", "q": "脚步", "prob": 1.0, "gain_db": 0.0, "pitch_span": 0.02,
+             "trim_seconds": 0.55, "require": ["脚步", "步", "footstep"]},
         ],
     },
     {
@@ -2319,8 +2317,8 @@ _RECIPE_DEFS = [
         "name": "水泥脚步",
         "category": "脚步",
         "queries": [
-            {"layer": "step", "q": "脚步", "prob": 1.0, "pitch_span": 0.05,
-             "trim_seconds": 1.0, "require": ["脚步", "步", "footstep"]},
+            {"layer": "step", "q": "脚步", "prob": 1.0, "pitch_span": 0.02,
+             "trim_seconds": 0.55, "require": ["脚步", "步", "footstep"]},
         ],
     },
     {

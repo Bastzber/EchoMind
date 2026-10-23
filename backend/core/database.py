@@ -556,15 +556,20 @@ class DatabaseManager:
             ).fetchall()
         return [
             {
+                "id": r[0],
+                "file_uuid": r[0],
                 "file_id": r[0],
+                "path": r[1],
                 "file_path": r[1],
                 "filename": r[2],
                 "duration": r[3],
                 "size": r[4],
+                "file_size": r[4],
                 "sample_rate": r[5],
                 "channels": r[6],
                 "tags": r[7],
                 "ai_description": r[8],
+                "format": (r[2].rsplit(".", 1)[-1].lower() if r[2] and "." in r[2] else ""),
             }
             for r in rows
         ]

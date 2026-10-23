@@ -617,6 +617,10 @@
         
         <!-- Volume Control -->
         <div class="flex items-center gap-3">
+            <button id="loopBtn" class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5 opacity-50"
+                    title="循环播放（当前音效重复播放）">
+                <i data-lucide="repeat" class="w-4 h-4"></i>
+            </button>
             <button id="muteBtn" class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                 <i data-lucide="volume-2" class="w-4 h-4" id="volumeIcon"></i>
             </button>
@@ -2381,7 +2385,8 @@
                     } else if (e.target.closest('.play-sound-btn')) {
                         playSound(sound);
                     } else {
-                        selectSound(sound);
+                        // 单击直接播放（原来只选中，需要再按空格）
+                        selectAndPlaySound(sound);
                     }
                 });
 
@@ -3453,7 +3458,7 @@
                     } else if (e.target.closest('input[type="checkbox"]')) {
                         // 复选框点击不触发选择
                     } else {
-                        // 选中音效
+                        // 单击直接播放
                         const soundObj = {
                             id: sd.id,
                             fileId: sd.fileId,
@@ -3463,7 +3468,7 @@
                             duration: sd.duration,
                             filePath: filePath
                         };
-                        selectSound(soundObj);
+                        selectAndPlaySound(soundObj);
                     }
                 });
 
@@ -6168,8 +6173,11 @@
             
             document.getElementById('loopBtn').addEventListener('click', () => {
                 isLooping = !isLooping;
-                document.getElementById('loopBtn').classList.toggle('opacity-50', !isLooping);
-                document.getElementById('loopBtn').classList.toggle('text-primary-500', isLooping);
+                const btn = document.getElementById('loopBtn');
+                btn.classList.toggle('opacity-50', !isLooping);
+                btn.style.color = isLooping ? '#8b5cf6' : '';
+                if (audioPlayer) audioPlayer.loop = isLooping;
+                showNotification(isLooping ? '已开启循环播放' : '已关闭循环播放', 'info');
             });
             
             document.getElementById('prevBtn').addEventListener('click', () => {

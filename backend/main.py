@@ -2506,6 +2506,61 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
     return {"success": True, "message": "已提交重新分析", "job_id": job_id}
 
 
+@app.get("/api/v1/db/folder/stats")
+async def folder_stats(path: str = Query(...), project_id: str = Query(default="default")):
+    """目录统计：文件数 / 有描述数 / 有标签数 / 总大小。"""
+    db_manager = get_db_manager()
+    stats = db_manager.folder_stats(project_id, path)
+    stats["path"] = path
+    return {"success": True, **stats}
+
+
+@app.post("/api/v1/db/folder/delete")
+async def delete_folder_records(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """删除目录下的文件记录。
+
+    默认只删库内记录（描述、标签、索引一起删），保留磁盘源文件；
+    delete_source=true 时同时删除磁盘文件（不可恢复，前端需二次确认）。
+    """
+    import shutil
+
+    folder = str(payload.get("path") or "").strip()
+    delete_source = bool(payload.get("delete_source"))
+    if not folder:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+
+    db_manager = get_db_manager()
+    stats = db_manager.folder_stats(project_id, folder)
+    removed = 0
+    deleted_files = 0
+    failed: List[str] = []
+
+    if delete_source:
+        try:
+            if Path(folder).exists():
+                shutil.rmtree(folder, ignore_errors=False)
+                deleted_files = stats.get("files", 0)
+        except Exception as exc:
+            logger.error("删除目录源文件失败 %s: %s", folder, exc)
+            raise HTTPException(status_code=500, detail=f"删除源文件失败: {exc}")
+
+    records = db_manager.delete_files_in_folder(project_id, folder)
+    removed = len(records)
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception as exc:
+        logger.debug("清理搜索缓存失败: %s", exc)
+
+    return {
+        "success": True,
+        "removed": removed,
+        "deleted_source": delete_source,
+        "deleted_files": deleted_files,
+        "failed": failed,
+        "stats": stats,
+    }
+
+
 @app.delete("/api/v1/db/file/{path:path}")
 async def delete_db_file(path: str):
     """

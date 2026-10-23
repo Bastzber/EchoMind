@@ -342,7 +342,7 @@
                 <button id="aiSearchBtn" type="button" title="AI 搜索：用一句话描述你想找的声音"
                         class="ml-2 h-9 px-2.5 rounded-lg text-xs flex items-center gap-1 transition-opacity hover:opacity-90"
                         style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff;">
-                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>AI</span>
+                    <span>AI</span>
                 </button>
             </div>
         </div>
@@ -1486,6 +1486,11 @@
             div.className = 'sidebar-item rounded-md cursor-pointer mb-1';
             div.dataset.id = folder.id;
             div.dataset.userFolderId = folder.id;
+            div.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showFolderContextMenu(e, folder, 'user');
+            });
             // 接收从左侧目录树拖过来的文件夹
             div.addEventListener('dragover', (e) => {
                 const types = Array.from(e.dataTransfer?.types || []);
@@ -1646,6 +1651,12 @@
             div.className = 'sidebar-item rounded-md cursor-pointer';
             div.style.paddingLeft = `${level * 8 + 4}px`;
             div.dataset.path = folder.fullPath;
+            // 右键：从库中移除 / 删除源文件
+            div.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showFolderContextMenu(e, folder, 'imported');
+            });
             // 拖动文件夹 → 放到「我的文件夹」上完成归类
             div.draggable = true;
             div.addEventListener('dragstart', (e) => {
@@ -1815,6 +1826,178 @@
             }, 100);
 
             document.body.appendChild(menu);
+        }
+
+        // ==================== 文件夹右键管理 ====================
+        function formatBytes(bytes) {
+            const value = Number(bytes) || 0;
+            if (value >= 1024 ** 3) return (value / 1024 ** 3).toFixed(2) + ' GB';
+            if (value >= 1024 ** 2) return (value / 1024 ** 2).toFixed(1) + ' MB';
+            if (value >= 1024) return (value / 1024).toFixed(0) + ' KB';
+            return value + ' B';
+        }
+
+        function showFolderContextMenu(event, folder, kind) {
+            document.getElementById('folderContextMenu')?.remove();
+            const menu = document.createElement('div');
+            menu.id = 'folderContextMenu';
+            menu.className = 'fixed z-[200] rounded-lg shadow-xl py-1 w-56';
+            menu.style.backgroundColor = 'var(--bg-secondary)';
+            menu.style.border = '1px solid var(--border-color)';
+            menu.style.left = Math.min(event.clientX, window.innerWidth - 240) + 'px';
+            menu.style.top = Math.min(event.clientY, window.innerHeight - 180) + 'px';
+
+            const title = document.createElement('div');
+            title.className = 'px-3 py-2 text-xs opacity-60 border-b truncate';
+            title.style.borderColor = 'var(--border-color)';
+            title.textContent = folder.name || folder.fullPath || '文件夹';
+            menu.appendChild(title);
+
+            if (kind === 'user') {
+                const remove = document.createElement('button');
+                remove.className = 'w-full px-3 py-2 text-sm text-left hover:bg-white/5 text-red-400';
+                remove.textContent = '删除分类（不删文件）';
+                remove.addEventListener('click', async () => {
+                    menu.remove();
+                    if (!confirm(`删除分类「${folder.name}」？\n\n只解除归类，音效文件与描述都不会被删除。`)) return;
+                    try {
+                        await rendererApi.delete(
+                            `/api/v1/projects/${encodeURIComponent(currentProject.id)}/folders/${encodeURIComponent(folder.id)}`
+                        );
+                        showNotification('分类已删除', 'success');
+                        await loadUserFolders();
+                        renderFolderTree();
+                    } catch (error) {
+                        showNotification('删除分类失败: ' + error.message, 'error');
+                    }
+                });
+                menu.appendChild(remove);
+            } else {
+                const remove = document.createElement('button');
+                remove.className = 'w-full px-3 py-2 text-sm text-left hover:bg-white/5 text-red-400';
+                remove.textContent = '删除文件夹…';
+                remove.addEventListener('click', () => {
+                    menu.remove();
+                    openFolderDeleteModal(folder);
+                });
+                menu.appendChild(remove);
+            }
+
+            document.body.appendChild(menu);
+            const close = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', close);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', close), 100);
+        }
+
+        // 删除文件夹：先弹窗让用户明确选择「只删库内记录」还是「连源文件一起删」
+        async function openFolderDeleteModal(folder) {
+            const path = folder.fullPath || folder.path;
+            if (!path) return;
+            let stats = { files: 0, with_description: 0, with_tags: 0, size_bytes: 0 };
+            try {
+                const data = await rendererApi.get(
+                    '/api/v1/db/folder/stats?path=' + encodeURIComponent(path)
+                    + '&project_id=' + encodeURIComponent(currentProject?.id || 'default')
+                );
+                if (data && data.success) stats = data;
+            } catch (error) {
+                console.warn('[Folder] 统计失败:', error);
+            }
+
+            document.getElementById('folderDeleteModal')?.remove();
+            const modal = document.createElement('div');
+            modal.id = 'folderDeleteModal';
+            modal.className = 'fixed inset-0 z-[300] flex items-center justify-center';
+            modal.style.background = 'rgba(0,0,0,0.55)';
+            modal.innerHTML = `
+                <div class="w-[520px] rounded-xl p-5" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                    <div class="text-base font-medium mb-1">删除文件夹「${escapeHtml(folder.name || path)}」</div>
+                    <div class="text-xs opacity-60 mb-3 break-all">${escapeHtml(path)}</div>
+
+                    <div class="rounded-lg p-3 mb-4 text-xs" style="background: var(--bg-tertiary);">
+                        <div class="flex justify-between mb-1"><span>库内文件</span><span>${stats.files} 条</span></div>
+                        <div class="flex justify-between mb-1"><span>一句话描述</span><span>${stats.with_description} 条</span></div>
+                        <div class="flex justify-between mb-1"><span>标签</span><span>${stats.with_tags} 条</span></div>
+                        <div class="flex justify-between"><span>源文件占用</span><span>${formatBytes(stats.size_bytes)}</span></div>
+                    </div>
+
+                    <div class="text-xs font-medium mb-2">请选择删除方式</div>
+                    <label class="flex items-start gap-2 p-2 rounded-md cursor-pointer mb-2" style="border:1px solid var(--border-color);">
+                        <input type="radio" name="folderDeleteMode" value="records" checked class="mt-0.5">
+                        <span class="text-xs">
+                            <span class="block text-sm mb-0.5">仅从软件中移除（保留源文件）</span>
+                            <span class="opacity-60">删除库内记录、描述、标签和索引；磁盘上的音效文件原样保留，之后还能重新导入。</span>
+                        </span>
+                    </label>
+                    <label class="flex items-start gap-2 p-2 rounded-md cursor-pointer" style="border:1px solid var(--border-color);">
+                        <input type="radio" name="folderDeleteMode" value="source" class="mt-0.5">
+                        <span class="text-xs">
+                            <span class="block text-sm mb-0.5 text-red-400">删除源文件并从软件移除</span>
+                            <span class="opacity-60">库内记录、描述、标签、索引 <b>以及磁盘上的 ${stats.files} 个源文件</b>都会被永久删除，无法恢复。</span>
+                        </span>
+                    </label>
+
+                    <label id="folderDeleteRisk" class="hidden items-start gap-2 mt-3 p-2 rounded-md text-xs cursor-pointer" style="background: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35);">
+                        <input type="checkbox" id="folderDeleteRiskCheck" class="mt-0.5">
+                        <span>我明白源文件会被永久删除，且无法从回收站恢复。</span>
+                    </label>
+
+                    <div class="flex justify-end gap-2 mt-5">
+                        <button id="folderDeleteCancel" class="px-4 py-2 rounded-md text-sm" style="background: var(--bg-tertiary); color: var(--text-primary);">取消</button>
+                        <button id="folderDeleteOk" class="px-4 py-2 rounded-md text-sm text-white" style="background: #ef4444;">确认删除</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+
+            const riskRow = modal.querySelector('#folderDeleteRisk');
+            const riskCheck = modal.querySelector('#folderDeleteRiskCheck');
+            modal.querySelectorAll('input[name="folderDeleteMode"]').forEach((radio) => {
+                radio.addEventListener('change', () => {
+                    const isSource = modal.querySelector('input[name="folderDeleteMode"]:checked').value === 'source';
+                    riskRow.classList.toggle('hidden', !isSource);
+                    riskRow.classList.toggle('flex', isSource);
+                    if (!isSource) riskCheck.checked = false;
+                });
+            });
+            modal.querySelector('#folderDeleteCancel').addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+            modal.querySelector('#folderDeleteOk').addEventListener('click', async () => {
+                const mode = modal.querySelector('input[name="folderDeleteMode"]:checked').value;
+                if (mode === 'source' && !riskCheck.checked) {
+                    showNotification('请先勾选「我明白源文件会被永久删除」', 'error');
+                    return;
+                }
+                modal.remove();
+                await deleteFolderRecords(folder, mode === 'source');
+            });
+        }
+
+        async function deleteFolderRecords(folder, deleteSource) {
+            const path = folder.fullPath || folder.path;
+            if (!path) return;
+
+            try {
+                const result = await rendererApi.post(
+                    '/api/v1/db/folder/delete?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
+                    { path, delete_source: deleteSource }
+                );
+                showNotification(
+                    deleteSource
+                        ? `已删除 ${result.removed} 条记录及磁盘文件`
+                        : `已从库中移除 ${result.removed} 条记录（源文件保留）`,
+                    'success'
+                );
+                await loadFilesFromDatabase({ reset: true });
+                await loadFolderStats(true);
+                loadTagStats();
+            } catch (error) {
+                showNotification('删除失败: ' + error.message, 'error');
+            }
         }
 
         // ==================== CATEGORY TREE ====================
@@ -5861,41 +6044,56 @@
             let isLoadingMore = false;
             let hasMoreResults = true;
             
-            document.getElementById('searchInput').addEventListener('input', (e) => {
-                const query = e.target.value.trim();
-                
-                // 防抖处理
-                if (searchTimeout) clearTimeout(searchTimeout);
-                
+            // 搜索不再边打字边出结果：输入框只接收文本，按回车才发起检索。
+            // AI 搜索也不自动触发，必须点右侧「AI」按钮。
+            const searchInputEl = document.getElementById('searchInput');
+            const runKeywordSearch = async () => {
+                const query = searchInputEl.value.trim();
                 if (!query) {
-                    // 空搜索时显示本地数据
                     currentSearchQuery = '';
                     allSearchResults = [];
                     aiResultMode = false;
+                    folderFilter.path = '';
                     renderSoundList('');
                     return;
                 }
-                
-                // 如果是自然语言查询，调用后端语义搜索
-                if (query.length >= 2 && backendReady) {
-                    searchTimeout = setTimeout(async () => {
-                        // 重置分页状态
-                        currentSearchQuery = query;
-                        currentSearchPage = 1;
-                        allSearchResults = [];
-                        aiResultMode = false;
-                        folderFilter.path = '';
-                        hasMoreResults = true;
-                        isLoadingMore = false;
-                        
-                        await loadSearchResults(query, 1, true);
-                    }, 500);
-                } else {
-                    // 本地搜索
+                if (!backendReady) {
+                    renderSoundList(query);
+                    return;
+                }
+                currentSearchQuery = query;
+                currentSearchPage = 1;
+                allSearchResults = [];
+                aiResultMode = false;
+                folderFilter.path = '';
+                hasMoreResults = true;
+                isLoadingMore = false;
+                await loadSearchResults(query, 1, true);
+            };
+
+            searchInputEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (searchTimeout) clearTimeout(searchTimeout);
+                    runKeywordSearch();
+                } else if (e.key === 'Escape') {
+                    searchInputEl.value = '';
                     currentSearchQuery = '';
                     allSearchResults = [];
                     aiResultMode = false;
-                    renderSoundList(query);
+                    folderFilter.path = '';
+                    renderSoundList('');
+                }
+            });
+
+            searchInputEl.addEventListener('input', () => {
+                // 清空输入时恢复完整列表；其余情况等回车
+                if (!searchInputEl.value.trim()) {
+                    currentSearchQuery = '';
+                    allSearchResults = [];
+                    aiResultMode = false;
+                    folderFilter.path = '';
+                    renderSoundList('');
                 }
             });
             

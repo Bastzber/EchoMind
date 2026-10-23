@@ -1563,6 +1563,64 @@ class DatabaseManager:
         except Exception as exc:
             logger.debug("同步 FTS 行失败 %s: %s", file_uuid, exc)
 
+    def folder_stats(self, project_id: str, folder: str) -> Dict[str, int]:
+        """统计某目录（含子目录）的文件数、有描述数、有标签数、总大小。"""
+        prefix = str(folder).rstrip('\\/') + '\\'
+        with self.get_cursor() as cursor:
+            row = cursor.execute(
+                """
+                SELECT COUNT(*),
+                       SUM(CASE WHEN ai_description IS NOT NULL
+                                 AND TRIM(ai_description) != ''
+                                 AND ai_description NOT LIKE '[auto]%' THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN tags IS NOT NULL AND tags != '[]' THEN 1 ELSE 0 END),
+                       COALESCE(SUM(file_size), 0)
+                FROM files
+                WHERE project_id=? AND substr(path,1,length(?))=?
+                """,
+                (str(project_id), prefix, prefix),
+            ).fetchone()
+        return {
+            "files": int(row[0] or 0),
+            "with_description": int(row[1] or 0),
+            "with_tags": int(row[2] or 0),
+            "size_bytes": int(row[3] or 0),
+        }
+
+    def delete_files_in_folder(self, project_id: str, folder: str) -> List[Dict[str, str]]:
+        """删除目录下所有文件记录（含 artifacts / FTS 行），返回被删文件列表。"""
+        prefix = str(folder).rstrip('\\/') + '\\'
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT file_uuid, path FROM files "
+                "WHERE project_id=? AND substr(path,1,length(?))=?",
+                (str(project_id), prefix, prefix),
+            ).fetchall()
+        records = [{"file_uuid": r[0], "path": r[1]} for r in rows]
+        if not records:
+            return []
+        with self.get_cursor() as cursor:
+            for start in range(0, len(records), 400):
+                chunk = records[start:start + 400]
+                marks = ",".join("?" * len(chunk))
+                uuids = [item["file_uuid"] for item in chunk]
+                cursor.execute(
+                    f"DELETE FROM file_artifacts WHERE project_id=? AND file_uuid IN ({marks})",
+                    (str(project_id), *uuids),
+                )
+                cursor.execute(
+                    f"DELETE FROM files WHERE project_id=? AND file_uuid IN ({marks})",
+                    (str(project_id), *uuids),
+                )
+                try:
+                    cursor.execute(
+                        f"DELETE FROM files_fts WHERE file_uuid IN ({marks})", uuids
+                    )
+                except Exception:
+                    pass
+            cursor.connection.commit()
+        return records
+
     def count_files_in_folder(self, project_id: str, folder: str) -> int:
         """统计某目录（含子目录）下的文件数。"""
         prefix = str(folder).rstrip('\\/') + '\\'

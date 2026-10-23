@@ -326,7 +326,8 @@
                 <span id="diskSpaceText" data-i18n="disk.calculating">计算中...</span>
             </div>
             
-            <div class="relative">
+            <div class="relative flex items-center">
+                <div class="relative">
                 <i data-lucide="search" id="searchIcon" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50"></i>
                 <input type="text" id="searchInput" placeholder="搜索音效..." data-i18n-placeholder="search.placeholder"
                        class="w-64 h-9 pl-9 pr-8 rounded-lg text-sm border transition-all focus:outline-none focus:ring-2 focus:ring-gray-500/50"
@@ -337,6 +338,12 @@
                         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
                     </svg>
                 </div>
+                </div>
+                <button id="aiSearchBtn" type="button" title="AI 搜索：用一句话描述你想找的声音"
+                        class="ml-2 h-9 px-2.5 rounded-lg text-xs flex items-center gap-1 transition-opacity hover:opacity-90"
+                        style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff;">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>AI</span>
+                </button>
             </div>
         </div>
     </header>
@@ -427,11 +434,11 @@
             <div class="flex-1 overflow-y-auto" id="soundList" data-panel-body></div>
         </main>
         
-        <!-- 右分隔条（拖拽调整右栏宽度） -->
-        <div class="panel-resizer-v" data-resizer="right" data-target="#rightAside" data-min="200" data-max="720" title="拖拽调整宽度"></div>
+        <!-- 右分隔条（AI 面板已并入搜索框，保留元素以便兼容旧逻辑） -->
+        <div class="panel-resizer-v hidden" data-resizer="right" data-target="#rightAside" data-min="200" data-max="720" title="拖拽调整宽度"></div>
         
         <!-- ==================== RIGHT: AI CHAT ==================== -->
-        <aside id="rightAside" class="w-96 border-l flex flex-col shrink-0 transition-colors duration-300"
+        <aside id="rightAside" class="hidden w-96 border-l flex-col shrink-0 transition-colors duration-300"
                style="border-color: var(--border-color); background-color: var(--bg-secondary);">
             <div data-panel="ai" data-panel-title="AI 助手" data-panel-extra="#chatInputBar" data-panel-hide="#rightAside" class="flex flex-col flex-1 min-h-0">
                 <div class="h-10 flex items-center justify-between px-4 border-b text-xs font-medium uppercase tracking-wider opacity-70"
@@ -3313,6 +3320,79 @@
             showNotification(`AI 搜索完成，找到 ${results.length} 个相关音效`, 'success');
         }
 
+        // AI 搜索：直接从搜索框发起，结果渲染进主列表（不再依赖右侧聊天面板）
+        async function runAiSearch(rawText) {
+            const input = document.getElementById('searchInput');
+            const text = String(rawText || input?.value || '').trim();
+            if (!text) {
+                showNotification('先输入你想找的声音，例如：雨滴打在窗户上的声音', 'info');
+                input?.focus();
+                return;
+            }
+            const container = document.getElementById('soundList');
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-16 opacity-70">
+                    <div class="animate-spin w-8 h-8 mb-3" style="border:2px solid var(--border-color); border-top-color:#8b5cf6; border-radius:50%;"></div>
+                    <p class="text-sm">AI 正在理解「${escapeHtml(text)}」…</p>
+                </div>`;
+            let gotResults = false;
+            try {
+                const response = await rendererApi.fetch('/api/v1/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(rendererSearch.buildChatPayload({
+                        message: text,
+                        projectId: currentProject?.id,
+                        history: [],
+                        topK: 300,
+                        threshold: 0.15
+                    }))
+                });
+                if (!response.ok) throw new Error('AI 搜索请求失败: ' + response.status);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let sseBuffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    sseBuffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+                    const lines = sseBuffer.split('\n');
+                    sseBuffer = done ? '' : (lines.pop() || '');
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const payload = line.slice(6);
+                        if (payload === '[DONE]') continue;
+                        let event;
+                        try { event = JSON.parse(payload); } catch (_) { continue; }
+                        if (event.type === 'results' && Array.isArray(event.results)) {
+                            if (event.results.length) {
+                                displayAiSearchResults(event.results);
+                                gotResults = true;
+                            }
+                        } else if (event.type === 'error') {
+                            showNotification(event.content || 'AI 搜索失败', 'error');
+                        }
+                    }
+                    if (done) break;
+                }
+                if (!gotResults) {
+                    container.innerHTML = `
+                        <div class="flex flex-col items-center justify-center py-16 opacity-60">
+                            <i data-lucide="search-x" class="w-8 h-8 mb-3"></i>
+                            <p class="text-sm">没有找到匹配的音效，换个描述试试</p>
+                        </div>`;
+                    lucide.createIcons();
+                }
+            } catch (error) {
+                console.error('[AI Search] 失败:', error);
+                showNotification('AI 搜索失败: ' + error.message, 'error');
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-16 opacity-60">
+                        <p class="text-sm">AI 搜索失败，请检查 AI 设置中的模型是否可用</p>
+                    </div>`;
+            }
+        }
+
         // 追加渲染 AI 搜索结果 [startIdx, endIdx)
         function appendAiResults(startIdx, endIdx) {
             if (startIdx >= endIdx) return;
@@ -5492,6 +5572,12 @@
             } catch (_) {
                 window.__localTags = [];
             }
+            document.getElementById('aiSearchBtn')?.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                runAiSearch();
+            });
+
             initAudioPlayer();
             bindPlayerContextMenu();
             initializeWaveformResizeObserver();

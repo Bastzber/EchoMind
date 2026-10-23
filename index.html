@@ -3064,9 +3064,22 @@
 
         // 新建标签：有选中音效就直接打上，没选中先登记到本地列表
         function createNewTag() {
-            showInputModal('新建标签', '如：雨天、教堂、打击乐', async (value) => {
+            // 先选层（场景 / 属性），再输入名称
+            const layer = confirm('新建「场景」标签？\n\n确定 = 场景（互斥，一个音效只能有一个）\n取消 = 属性（可多个）')
+                ? 'scene'
+                : 'attr';
+            showInputModal(
+                layer === 'scene' ? '新建场景标签' : '新建属性标签',
+                layer === 'scene' ? '如：枪械、环境、UI' : '如：短促、金属、远距离',
+                async (value) => {
                 const name = String(value || '').trim();
                 if (!name) return;
+                try {
+                    await rendererApi.post('/api/v1/tags', { name, layer });
+                } catch (error) {
+                    showNotification('创建标签失败: ' + error.message, 'error');
+                    return;
+                }
                 const local = new Set(window.__localTags || []);
                 local.add(name);
                 window.__localTags = Array.from(local);
@@ -7253,6 +7266,23 @@
             const searchInputEl = document.getElementById('searchInput');
             const runKeywordSearch = async () => {
                 const query = searchInputEl.value.trim();
+                // M4：tag:标签名 → 直接按标签筛选
+                if (/^tag[:：]/i.test(query)) {
+                    const name = query.replace(/^tag[:：]/i, '').trim();
+                    if (!name) return;
+                    try {
+                        const page = await rendererApi.get(
+                            '/api/v1/files?limit=500&tag=' + encodeURIComponent(name)
+                            + '&project_id=' + encodeURIComponent(currentProject?.id || 'default')
+                        );
+                        allSearchResults = ((page && page.files) || []).map(mapDbFileToSound);
+                        renderSoundList('', allSearchResults);
+                        showNotification(`标签「${name}」共 ${allSearchResults.length} 个音效`, 'info');
+                    } catch (error) {
+                        showNotification('标签筛选失败: ' + error.message, 'error');
+                    }
+                    return;
+                }
                 if (!query) {
                     currentSearchQuery = '';
                     allSearchResults = [];

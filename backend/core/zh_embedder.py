@@ -1,0 +1,98 @@
+# -*- coding: utf-8 -*-
+"""P3：中文文本向量（BGE-M3）。
+
+只做文本侧 embedding，音频侧仍用 CLAP。模型缺失时返回 None，调用方回退 CLAP 文本塔。
+"""
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
+from typing import List, Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+MODEL_DIR = Path(__file__).resolve().parents[2] / "models" / "bge-m3"
+_state = {"model": None, "tokenizer": None, "device": None, "failed": False}
+
+
+def available() -> bool:
+    return (MODEL_DIR / "config.json").exists()
+
+
+def _device() -> str:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
+def load() -> bool:
+    """懒加载模型；成功返回 True。"""
+    if _state["model"] is not None:
+        return True
+    if _state["failed"] or not available():
+        return False
+    try:
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
+        device = _device()
+        _state["tokenizer"] = AutoTokenizer.from_pretrained(str(MODEL_DIR))
+        model = AutoModel.from_pretrained(str(MODEL_DIR))
+        model.eval()
+        model.to(device)
+        _state["model"] = model
+        _state["device"] = device
+        logger.info("[Embed] BGE-M3 加载完成，device=%s", device)
+        return True
+    except Exception as exc:
+        logger.warning("[Embed] BGE-M3 加载失败: %s", exc)
+        _state["failed"] = True
+        return False
+
+
+def encode(texts: List[str], batch_size: int = 16, max_length: int = 256) -> Optional[np.ndarray]:
+    """返回 L2 归一化后的向量矩阵 (n, 1024)；模型不可用返回 None。"""
+    if not texts:
+        return np.zeros((0, 1024), dtype=np.float32)
+    if not load():
+        return None
+    import torch
+
+    model = _state["model"]
+    tokenizer = _state["tokenizer"]
+    device = _state["device"]
+    outputs = []
+    with torch.no_grad():
+        for start in range(0, len(texts), batch_size):
+            chunk = [t or "" for t in texts[start:start + batch_size]]
+            batch = tokenizer(
+                chunk, padding=True, truncation=True, max_length=max_length, return_tensors="pt"
+            ).to(device)
+            hidden = model(**batch).last_hidden_state
+            mask = batch["attention_mask"].unsqueeze(-1).float()
+            summed = (hidden * mask).sum(dim=1)
+            counts = mask.sum(dim=1).clamp(min=1e-6)
+            vectors = (summed / counts).cpu().numpy()
+            outputs.append(vectors)
+    matrix = np.vstack(outputs).astype(np.float32)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return matrix / norms
+
+
+def status() -> dict:
+    return {
+        "available": available(),
+        "loaded": _state["model"] is not None,
+        "failed": _state["failed"],
+        "device": _state["device"],
+        "path": str(MODEL_DIR),
+    }

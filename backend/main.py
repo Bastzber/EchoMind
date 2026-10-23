@@ -2839,6 +2839,36 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
     return {"success": True, "message": "已提交重新分析", "job_id": job_id}
 
 
+# ==================== P3：中文文本向量（BGE-M3） ====================
+
+@app.get("/api/v1/embed/status")
+async def embed_status():
+    from core import zh_embedder
+
+    return {"success": True, **zh_embedder.status()}
+
+
+@app.post("/api/v1/embed/preview")
+async def embed_preview(payload: Dict[str, Any]):
+    """调试用：给几段文本，返回向量维度与两两相似度（验证模型可用）。"""
+    from core import zh_embedder
+
+    texts = [str(t) for t in (payload.get("texts") or [])]
+    if not texts:
+        raise HTTPException(status_code=422, detail="texts 不能为空")
+    vectors = await asyncio.to_thread(zh_embedder.encode, texts)
+    if vectors is None:
+        raise HTTPException(status_code=503, detail="BGE-M3 模型未就绪")
+    matrix = np.asarray(vectors, dtype=np.float32)
+    sims = (matrix @ matrix.T).round(3).tolist()
+    return {
+        "success": True,
+        "dim": int(matrix.shape[1]),
+        "count": int(matrix.shape[0]),
+        "similarity": sims,
+    }
+
+
 # ==================== M4：标签双层（scene / attr） ====================
 
 @app.get("/api/v1/tags")

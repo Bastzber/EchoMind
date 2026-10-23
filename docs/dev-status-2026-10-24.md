@@ -38,7 +38,19 @@ tags total: 1  scene: 0  attr: 1   （动物）
 - 搜索语法里的标签条件（scene:xxx attr:yyy）尚未接入 FTS 查询
 - 自动为已有描述生成 scene/attr（可选增强）
 
-## P3 中文 embedding（未开始）
+## P3 中文 embedding（进行中）
+
+### 已完成
+- `backend/core/zh_embedder.py`：transformers 直接加载 BAAI/bge-m3，mean-pooling + L2 归一化，自动 cuda/cpu，模型缺失返回 None
+- API：`GET /api/v1/embed/status`、`POST /api/v1/embed/preview`（返回维度与两两相似度）
+- 模型下载到 `models/bge-m3`（走 hf-mirror + 代理）
+
+### 待办
+- 等待权重下载完成（首次只拿到 42MB 配置与分词器）
+- 文本向量重建（48,649 条）并切到独立 Chroma 集合
+- 搜索链路：长句查询切 BGE-M3，短关键词仍走 FTS
+
+## 旧的 P3 说明（存档）
 - 候选模型：BGE-M3（2.2GB，效果好）或 bge-small-zh（95MB）
 - 需重建 48,649 条文本向量
 - 切换 search_engine 的 text tower

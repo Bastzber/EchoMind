@@ -22,9 +22,10 @@ tags total: 1  scene: 0  attr: 1   （动物）
 ```
 说明：库内带标签的文件本来就极少（48,649 条里只有 1 条有标签），迁移量小属正常。
 
-### 待排查
-- 通过 API 查询返回 scene=0 / attr=0，与直接查库不一致（probe 能读到 1 条）。
-  疑似 API 进程与 probe 用的不是同一个 DB 路径，需确认 `SOUNDBOT_USER_DATA_DIR` 在两种启动方式下是否一致。
+### 已排查（已解决）
+- 现象：/api/v1/tags 返回 404 且 scene=0。
+- 根因：端口 8000 被**打包版 soundbot-backend.exe** 占用（旧代码没有新路由），dev 启动的 python 后端没抢到端口。
+- 解决：先按进程名清掉 soundbot-backend 再启动 dev；`scripts/dev.ps1` 已包含该清理动作。
 
 ### 未做
 - 前端标签面板拆成「场景 / 属性」两段（单选 / 多选）

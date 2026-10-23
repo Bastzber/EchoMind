@@ -2786,6 +2786,45 @@
             `;
             container.appendChild(tagHeader);
 
+            // ===== M4：场景 / 属性双层 =====
+            const layered = window.__tagLayers || { scene: [], attr: [] };
+            const layeredNames = new Set();
+            const renderLayerGroup = (title, items) => {
+                if (!items || !items.length) return;
+                const head = document.createElement('div');
+                head.className = 'px-2 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wider opacity-40';
+                head.textContent = title;
+                container.appendChild(head);
+                items.forEach((item) => {
+                    layeredNames.add(item.name);
+                    const row = document.createElement('div');
+                    row.className = 'sidebar-item rounded-md cursor-pointer flex items-center gap-1.5 px-2 py-1 text-sm';
+                    row.innerHTML = `<i data-lucide="${item.layer === 'scene' ? 'clapperboard' : 'tag'}" class="w-3 h-3 opacity-60"></i>
+                        <span class="flex-1 truncate">${escapeHtml(item.name)}</span>
+                        <span class="text-[10px] opacity-40">${item.count || 0}</span>`;
+                    row.addEventListener('click', () => {
+                        activeCategory = 'mytag:' + item.name;
+                        document.querySelectorAll('#categoryTree .sidebar-item').forEach((el) => el.classList.remove('active'));
+                        row.classList.add('active');
+                        filterByCategory('mytag:' + item.name);
+                    });
+                    row.addEventListener('contextmenu', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        showTagLayerMenu(event, item);
+                    });
+                    container.appendChild(row);
+                });
+            };
+            renderLayerGroup('场景', layered.scene);
+            renderLayerGroup('属性', layered.attr);
+            if (!layered.scene.length && !layered.attr.length) {
+                const hint = document.createElement('div');
+                hint.className = 'px-2 py-1 text-[10px] opacity-40';
+                hint.textContent = '右键标签可设为场景或属性';
+                container.appendChild(hint);
+            }
+
             const tagCounts = {};
             (window.__tagStats || []).forEach(item => {
                 const name = item && (item.name || item.tag);
@@ -2800,16 +2839,20 @@
             (window.__localTags || []).forEach(name => {
                 if (name && !(name in tagCounts)) tagCounts[name] = 0;
             });
-            const allTagNames = Object.keys(tagCounts).sort((a, b) => (tagCounts[b] - tagCounts[a]) || a.localeCompare(b, 'zh'));
+            const allTagNames = Object.keys(tagCounts)
+                .filter((name) => !layeredNames.has(name))
+                .sort((a, b) => (tagCounts[b] - tagCounts[a]) || a.localeCompare(b, 'zh'));
             const tagQuery = (document.getElementById('tagSearchInput')?.value || '').trim().toLowerCase();
+            const showLegacyList = allTagNames.length > 0;
             const tagNames = tagQuery
                 ? allTagNames.filter(name => name.toLowerCase().includes(tagQuery))
                 : allTagNames;
 
-            if (tagNames.length === 0) {
+            const hasLayered = (layered.scene && layered.scene.length) || (layered.attr && layered.attr.length);
+            if (tagNames.length === 0 && tagQuery) {
                 const emptyTag = document.createElement('div');
                 emptyTag.className = 'px-2 py-1.5 text-xs opacity-40';
-                emptyTag.textContent = tagQuery ? '没有匹配的标签' : '暂无标签';
+                emptyTag.textContent = '没有匹配的标签';
                 container.appendChild(emptyTag);
             }
 
@@ -2860,7 +2903,152 @@
                 console.warn('[Tags] 标签统计加载失败:', error);
                 window.__tagStats = window.__tagStats || [];
             }
+            try {
+                const layered = await rendererApi.get('/api/v1/tags');
+                window.__tagLayers = {
+                    scene: (layered && layered.scene) || [],
+                    attr: (layered && layered.attr) || [],
+                };
+            } catch (error) {
+                console.warn('[Tags] 分层标签加载失败:', error);
+                window.__tagLayers = window.__tagLayers || { scene: [], attr: [] };
+            }
             renderCategoryTree();
+        }
+
+        // 标签右键：切换场景/属性层、删除
+        function showTagLayerMenu(event, tag) {
+            document.getElementById('tagLayerMenu')?.remove();
+            const menu = document.createElement('div');
+            menu.id = 'tagLayerMenu';
+            menu.className = 'fixed z-[210] rounded-lg shadow-xl py-1 w-44';
+            menu.style.backgroundColor = 'var(--bg-secondary)';
+            menu.style.border = '1px solid var(--border-color)';
+            menu.style.left = Math.min(event.clientX, window.innerWidth - 190) + 'px';
+            menu.style.top = Math.min(event.clientY, window.innerHeight - 140) + 'px';
+
+            const item = (label, onClick, danger) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full px-3 py-1.5 text-xs text-left hover:bg-white/5'
+                    + (danger ? ' text-red-400' : '');
+                btn.textContent = label;
+                btn.addEventListener('click', onClick);
+                menu.appendChild(btn);
+            };
+
+            item(tag.layer === 'scene' ? '✓ 已是场景标签' : '设为场景标签', async () => {
+                menu.remove();
+                await patchTag(tag.id, { layer: 'scene' });
+            });
+            item(tag.layer === 'attr' ? '✓ 已是属性标签' : '设为属性标签', async () => {
+                menu.remove();
+                await patchTag(tag.id, { layer: 'attr' });
+            });
+            item('删除标签', async () => {
+                menu.remove();
+                if (!confirm(`删除标签「${tag.name}」？`)) return;
+                await rendererApi.delete(`/api/v1/tags/${encodeURIComponent(tag.id)}`);
+                await loadTagStats();
+            }, true);
+
+            document.body.appendChild(menu);
+            const close = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', close);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', close), 100);
+        }
+
+        // 给音效打标签：场景单选、属性多选
+        async function showTagPicker(sounds) {
+            const layered = window.__tagLayers || { scene: [], attr: [] };
+            const sceneTags = layered.scene || [];
+            const attrTags = layered.attr || [];
+            document.getElementById('tagPicker')?.remove();
+            const box = document.createElement('div');
+            box.id = 'tagPicker';
+            box.className = 'fixed z-[260] rounded-lg shadow-xl p-3 w-[380px] max-h-[60vh] overflow-y-auto';
+            box.style.background = 'var(--bg-secondary)';
+            box.style.border = '1px solid var(--border-color)';
+            box.style.left = Math.round(window.innerWidth / 2 - 190) + 'px';
+            box.style.top = '120px';
+            box.innerHTML = `<div class="text-sm mb-2">给 ${sounds.length} 个音效设置标签</div>`;
+
+            const section = (title, tags, multiple) => {
+                const head = document.createElement('div');
+                head.className = 'text-[11px] uppercase tracking-wider opacity-50 mt-2 mb-1';
+                head.textContent = title;
+                box.appendChild(head);
+                if (!tags.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'text-[11px] opacity-40 px-1';
+                    empty.textContent = '暂无（在左侧标签上右键可设为' + title + '）';
+                    box.appendChild(empty);
+                    return [];
+                }
+                return tags.map((tag) => {
+                    const label = document.createElement('label');
+                    label.className = 'flex items-center gap-2 px-1 py-1 rounded hover:bg-white/5 cursor-pointer text-xs';
+                    const input = document.createElement('input');
+                    input.type = multiple ? 'checkbox' : 'radio';
+                    input.name = multiple ? 'attr-' + tag.id : 'scene-' + Math.random().toString(36).slice(2, 6);
+                    input.value = tag.id;
+                    input.dataset.layer = tag.layer;
+                    const span = document.createElement('span');
+                    span.textContent = tag.name;
+                    label.append(input, span);
+                    box.appendChild(label);
+                    return input;
+                });
+            };
+
+            const sceneInputs = section('场景（单选）', sceneTags, false);
+            const attrInputs = section('属性（可多选）', attrTags, true);
+
+            const actions = document.createElement('div');
+            actions.className = 'flex justify-end gap-2 mt-3';
+            const cancel = document.createElement('button');
+            cancel.className = 'px-3 py-1.5 rounded-md text-xs';
+            cancel.style.background = 'var(--bg-tertiary)';
+            cancel.textContent = '取消';
+            cancel.addEventListener('click', () => box.remove());
+
+            const ok = document.createElement('button');
+            ok.className = 'px-3 py-1.5 rounded-md text-xs text-white';
+            ok.style.background = '#8b5cf6';
+            ok.textContent = '应用';
+            ok.addEventListener('click', async () => {
+                const tagIds = [];
+                sceneInputs.forEach((input) => { if (input.checked) tagIds.push(input.value); });
+                attrInputs.forEach((input) => { if (input.checked) tagIds.push(input.value); });
+                box.remove();
+                try {
+                    for (const sound of sounds) {
+                        await rendererApi.post(
+                            `/api/v1/files/${encodeURIComponent(sound.id)}/tags`,
+                            { tag_ids: tagIds }
+                        );
+                    }
+                    showNotification(`已为 ${sounds.length} 个音效设置标签`, 'success');
+                    await loadTagStats();
+                } catch (error) {
+                    showNotification('设置标签失败: ' + error.message, 'error');
+                }
+            });
+            actions.append(cancel, ok);
+            box.appendChild(actions);
+            document.body.appendChild(box);
+        }
+
+        async function patchTag(tagId, payload) {
+            try {
+                await rendererApi.patch(`/api/v1/tags/${encodeURIComponent(tagId)}`, payload);
+                await loadTagStats();
+            } catch (error) {
+                showNotification('修改标签失败: ' + error.message, 'error');
+            }
         }
 
         // 新建标签：有选中音效就直接打上，没选中先登记到本地列表
@@ -2981,6 +3169,14 @@
             sep.className = 'my-1 border-t';
             sep.style.borderColor = 'var(--border-color)';
             menu.appendChild(sep);
+
+            // 标签：双层设置
+            menu.appendChild(makeMenuItem('设置标签…', 'tags', () => {
+                const targets = (selectedSounds.size > 0 && selectedSounds.has(sound.id))
+                    ? [...selectedSounds]
+                    : [sound];
+                showTagPicker(targets);
+            }));
 
             // 添加到自定义文件夹（常用 / 收藏 等）
             if (Array.isArray(userFolders) && userFolders.length > 0) {

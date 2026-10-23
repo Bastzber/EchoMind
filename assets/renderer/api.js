@@ -119,6 +119,7 @@
         get: (path, options) => request(path, Object.assign({}, options, { method: 'GET' })),
         post: (path, body, options) => request(path, jsonOptions('POST', body, options)),
         put: (path, body, options) => request(path, jsonOptions('PUT', body, options)),
+        patch: (path, body, options) => request(path, jsonOptions('PATCH', body, options)),
         delete: (path, options) => request(path, Object.assign({}, options, { method: 'DELETE' }))
     });
 })(typeof window !== 'undefined' ? window : globalThis);

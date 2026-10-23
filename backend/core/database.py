@@ -488,6 +488,87 @@ class DatabaseManager:
         finally:
             self._migration_backup_in_progress = None
 
+    def _ensure_user_folder_files_table(self, cursor) -> None:
+        """用户文件夹的「单个音效」成员表（区别于整目录映射）。"""
+        try:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_folder_files (
+                    project_id TEXT NOT NULL,
+                    folder_id  TEXT NOT NULL,
+                    file_uuid  TEXT NOT NULL,
+                    created_at TEXT,
+                    PRIMARY KEY (project_id, folder_id, file_uuid)
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_uff_folder ON user_folder_files(project_id, folder_id)"
+            )
+        except Exception as exc:
+            _get_logger().warning("创建 user_folder_files 失败: %s", exc)
+
+    def add_files_to_user_folder(self, project_id: str, folder_id: str, paths: List[str]) -> int:
+        """把若干文件路径加入用户文件夹，返回新增数量。"""
+        if not paths:
+            return 0
+        now = datetime.now().isoformat()
+        added = 0
+        with self.get_cursor() as cursor:
+            for path in paths:
+                row = cursor.execute(
+                    "SELECT file_uuid FROM files WHERE project_id=? AND canonical_path=?",
+                    (str(project_id), canonicalize_path(path)),
+                ).fetchone()
+                if not row:
+                    continue
+                cursor.execute(
+                    "INSERT OR IGNORE INTO user_folder_files "
+                    "(project_id, folder_id, file_uuid, created_at) VALUES (?,?,?,?)",
+                    (str(project_id), str(folder_id), row[0], now),
+                )
+                added += cursor.rowcount
+            cursor.connection.commit()
+        return added
+
+    def remove_file_from_user_folder(self, project_id: str, folder_id: str, file_uuid: str) -> bool:
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM user_folder_files WHERE project_id=? AND folder_id=? AND file_uuid=?",
+                (str(project_id), str(folder_id), str(file_uuid)),
+            )
+            changed = cursor.rowcount > 0
+            cursor.connection.commit()
+        return changed
+
+    def list_files_in_user_folder(self, project_id: str, folder_id: str) -> List[Dict[str, Any]]:
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                """
+                SELECT f.file_uuid, f.path, f.filename, f.duration, f.file_size,
+                       f.sample_rate, f.channels, f.tags, f.ai_description
+                FROM user_folder_files u
+                JOIN files f ON f.file_uuid = u.file_uuid AND f.project_id = u.project_id
+                WHERE u.project_id=? AND u.folder_id=?
+                ORDER BY u.created_at DESC
+                """,
+                (str(project_id), str(folder_id)),
+            ).fetchall()
+        return [
+            {
+                "file_id": r[0],
+                "file_path": r[1],
+                "filename": r[2],
+                "duration": r[3],
+                "size": r[4],
+                "sample_rate": r[5],
+                "channels": r[6],
+                "tags": r[7],
+                "ai_description": r[8],
+            }
+            for r in rows
+        ]
+
     def _ensure_content_hash_columns(self, cursor) -> None:
         """幂等添加 sha256 / hash_state 列（加列不触发整库备份）。"""
         try:
@@ -557,6 +638,7 @@ class DatabaseManager:
         """初始化数据库，并且每个 schema 版本只迁移一次。"""
         with self.get_cursor() as cursor:
             self._ensure_content_hash_columns(cursor)
+            self._ensure_user_folder_files_table(cursor)
             schema_version_pending = False
             # 检查 files 表是否存在
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")

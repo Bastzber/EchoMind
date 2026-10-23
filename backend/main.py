@@ -20,6 +20,7 @@
 import os
 import re
 import time
+import uuid
 import asyncio
 import threading
 import json
@@ -2296,6 +2297,128 @@ async def rename_db_file(
             "reconcile",
         )
     return {"success": True, "message": "文件已重命名", "job_id": job_id}
+
+
+# ==================== 声音配方（本地分层合成） ====================
+
+_RECIPE_CACHE: Dict[str, Any] = {}
+_RECIPE_DEFS = [
+    {
+        "id": "footstep_wood",
+        "name": "木板脚步",
+        "category": "脚步",
+        "queries": [
+            {"layer": "step", "q": "脚步 木板", "prob": 1.0, "gain_db": 0.0, "pitch_span": 0.12},
+            {"layer": "creak", "q": "木 吱呀", "prob": 0.28, "gain_db": -8.0, "offset_ms": [0, 35]},
+            {"layer": "cloth", "q": "衣物 摩擦", "prob": 0.35, "gain_db": -14.0, "offset_ms": [0, 20]},
+        ],
+    },
+    {
+        "id": "footstep_concrete",
+        "name": "水泥脚步",
+        "category": "脚步",
+        "queries": [
+            {"layer": "step", "q": "脚步 水泥", "prob": 1.0, "pitch_span": 0.1},
+            {"layer": "grit", "q": "沙 摩擦", "prob": 0.35, "gain_db": -12.0, "offset_ms": [0, 25]},
+        ],
+    },
+    {
+        "id": "door_wood",
+        "name": "木门开关",
+        "category": "门与开关",
+        "queries": [
+            {"layer": "open", "q": "开门 木门", "prob": 1.0, "pitch_span": 0.08},
+            {"layer": "latch", "q": "门锁 咔哒", "prob": 0.4, "gain_db": -10.0, "offset_ms": [100, 260]},
+        ],
+    },
+]
+
+
+def _get_recipe(recipe_id: str):
+    from core.sound_recipe import build_from_library
+
+    if recipe_id in _RECIPE_CACHE:
+        return _RECIPE_CACHE[recipe_id]
+    spec = next((d for d in _RECIPE_DEFS if d["id"] == recipe_id), None)
+    if not spec:
+        return None
+    recipe = build_from_library(spec["id"], spec["name"], spec["category"], spec["queries"])
+    _RECIPE_CACHE[recipe_id] = recipe
+    return recipe
+
+
+@app.get("/api/v1/recipes")
+async def list_recipes():
+    """列出可用的声音配方（每层样本从用户自己的音效库自动组装）。"""
+    _RECIPE_CACHE.clear()
+    result = []
+    for spec in _RECIPE_DEFS:
+        recipe = _get_recipe(spec["id"])
+        info = recipe.to_dict() if recipe else {"id": spec["id"], "name": spec["name"], "category": spec["category"], "layers": []}
+        info["usable"] = bool(recipe and recipe.layers)
+        result.append(info)
+    return {"success": True, "recipes": result}
+
+
+def _serve_recipe_audio(samples) -> Dict[str, Any]:
+    import tempfile
+    from core.sound_recipe import to_wav_bytes
+
+    wav = to_wav_bytes(samples)
+    directory = Path(tempfile.gettempdir()) / "echomind_recipe"
+    directory.mkdir(parents=True, exist_ok=True)
+    name = f"recipe_{uuid.uuid4().hex[:10]}.wav"
+    path = directory / name
+    path.write_bytes(wav)
+    return {
+        "url": f"/api/v1/temp-audio/recipe/{name}",
+        "file_path": str(path),
+        "duration": round(len(samples) / 48000.0, 3),
+        "bytes": len(wav),
+    }
+
+
+@app.get("/api/v1/temp-audio/recipe/{name}")
+async def serve_recipe_audio(name: str):
+    """把临时生成的配方音频回传给界面试听。"""
+    from fastapi.responses import FileResponse
+    import tempfile
+    import re
+
+    if not re.fullmatch(r"recipe_[0-9a-f]{10}\.wav", name):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    path = Path(tempfile.gettempdir()) / "echomind_recipe" / name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="音频不存在")
+    return FileResponse(str(path), media_type="audio/wav")
+
+
+@app.post("/api/v1/recipes/{recipe_id}/hit")
+async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
+    """按 XY 参数渲染一次触发（“走一步”）。"""
+    from core.sound_recipe import render_hit
+
+    recipe = _get_recipe(recipe_id)
+    if recipe is None or not recipe.layers:
+        raise HTTPException(status_code=404, detail="配方不存在或样本不足")
+    x = float(payload.get("x", 0.3) or 0.3)
+    y = float(payload.get("y", 0.5) or 0.5)
+    samples = await asyncio.to_thread(render_hit, recipe, x, y)
+    return {"success": True, **_serve_recipe_audio(samples)}
+
+
+@app.post("/api/v1/recipes/{recipe_id}/session")
+async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
+    """把一串触发事件渲染成一段录音（最长 60 秒）。"""
+    from core.sound_recipe import render_session
+
+    recipe = _get_recipe(recipe_id)
+    if recipe is None or not recipe.layers:
+        raise HTTPException(status_code=404, detail="配方不存在或样本不足")
+    events = payload.get("events") or []
+    max_seconds = min(float(payload.get("max_seconds", 60) or 60), 60.0)
+    samples = await asyncio.to_thread(render_session, recipe, events, max_seconds)
+    return {"success": True, **_serve_recipe_audio(samples)}
 
 
 @app.post("/api/v1/sfx/generate")
@@ -5234,6 +5357,31 @@ async def update_user_folder(
     except Exception as e:
         logger.error(f"更新用户文件夹失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/projects/{project_id}/folders/{folder_id}/files")
+async def add_files_to_user_folder(project_id: str, folder_id: str, payload: Dict[str, Any]):
+    """把选中的音效（按路径）加入某个用户文件夹。"""
+    paths = payload.get("paths") or []
+    if not isinstance(paths, list) or not paths:
+        raise HTTPException(status_code=422, detail="paths 不能为空")
+    db_manager = get_db_manager()
+    added = db_manager.add_files_to_user_folder(project_id, folder_id, [str(p) for p in paths])
+    return {"success": True, "added": added, "total": len(paths)}
+
+
+@app.get("/api/v1/projects/{project_id}/folders/{folder_id}/files")
+async def list_files_in_user_folder(project_id: str, folder_id: str):
+    db_manager = get_db_manager()
+    files = db_manager.list_files_in_user_folder(project_id, folder_id)
+    return {"success": True, "files": files, "total": len(files)}
+
+
+@app.delete("/api/v1/projects/{project_id}/folders/{folder_id}/files/{file_uuid}")
+async def remove_file_from_user_folder(project_id: str, folder_id: str, file_uuid: str):
+    db_manager = get_db_manager()
+    removed = db_manager.remove_file_from_user_folder(project_id, folder_id, file_uuid)
+    return {"success": removed}
 
 
 @app.delete("/api/v1/projects/{project_id}/folders/{folder_id}")

@@ -1,0 +1,235 @@
+# -*- coding: utf-8 -*-
+"""声音配方：用分层采样 + 参数映射「演奏」出一个音效。
+
+与 AI 文本生成的区别：这里是本地、毫秒级、可实时调节的。
+每个配方 = 若干层样本 + 两个轴（远近 / 轻重），
+轴的值映射到低通、增益、音高与各层的触发概率。
+"""
+from __future__ import annotations
+
+import io
+import logging
+import math
+import random
+import wave
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+TARGET_SR = 48000
+
+
+@dataclass
+class Layer:
+    id: str
+    pool: List[str]
+    gain_db: float = 0.0
+    prob: float = 1.0
+    offset_ms: Tuple[int, int] = (0, 0)
+    pitch_span: float = 0.0
+    audio: List[np.ndarray] = field(default_factory=list)
+
+    def ensure_audio(self, max_seconds: float = 2.0) -> None:
+        """首次触发时解码并缓存，之后每次触发都是纯内存操作。"""
+        if self.audio:
+            return
+        for path in self.pool:
+            samples = _decode(path)
+            if samples is None or samples.size == 0:
+                continue
+            self.audio.append(_trim(samples, max_seconds))
+            if len(self.audio) >= 12:
+                break
+
+
+@dataclass
+class Recipe:
+    id: str
+    name: str
+    category: str
+    layers: List[Layer] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "category": self.category,
+            "layers": [
+                {"id": l.id, "pool": len(l.pool), "prob": l.prob, "gain_db": l.gain_db}
+                for l in self.layers
+            ],
+        }
+
+
+def _db_to_gain(db: float) -> float:
+    return 10 ** (float(db) / 20.0)
+
+
+def _decode(path: str) -> Optional[np.ndarray]:
+    """解码为 48k 单声道 float32；失败返回 None。"""
+    try:
+        from core.audio_service import get_audio_service
+
+        decoded = get_audio_service().decode(path, mono=True)
+        samples = np.asarray(decoded.samples, dtype=np.float32)
+        if samples.ndim > 1:
+            samples = samples.mean(axis=1)
+        sr = int(decoded.sample_rate or TARGET_SR)
+        if sr != TARGET_SR and len(samples):
+            n = int(len(samples) * TARGET_SR / sr)
+            idx = np.linspace(0, len(samples) - 1, max(n, 1))
+            samples = np.interp(idx, np.arange(len(samples)), samples).astype(np.float32)
+        peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+        if peak > 1.0:
+            samples = samples / peak
+        return samples
+    except Exception as exc:
+        logger.debug("解码样本失败 %s: %s", path, exc)
+        return None
+
+
+def _pitch_shift(samples: np.ndarray, semitones: float) -> np.ndarray:
+    """用线性重采样做粗糙移调（够用且快）。"""
+    if abs(semitones) < 0.05 or samples.size == 0:
+        return samples
+    ratio = 2 ** (float(semitones) / 12.0)
+    new_len = max(1, int(len(samples) / ratio))
+    idx = np.linspace(0, len(samples) - 1, new_len)
+    return np.interp(idx, np.arange(len(samples)), samples).astype(np.float32)
+
+
+def _lowpass(samples: np.ndarray, cutoff_hz: float) -> np.ndarray:
+    """一阶低通（频域实现，避免 Python 逐样本循环拖慢触发）。"""
+    if samples.size < 16 or cutoff_hz >= TARGET_SR / 2.2:
+        return samples
+    spectrum = np.fft.rfft(samples)
+    freqs = np.fft.rfftfreq(len(samples), 1.0 / TARGET_SR)
+    spectrum = spectrum / np.sqrt(1.0 + (freqs / max(cutoff_hz, 60.0)) ** 2)
+    return np.fft.irfft(spectrum, len(samples)).astype(np.float32)
+
+
+def _trim(samples: np.ndarray, max_seconds: float = 4.0) -> np.ndarray:
+    """单个样本截断 + 淡入淡出，避免长素材把一次触发拉成几十秒。"""
+    limit = int(max_seconds * TARGET_SR)
+    if len(samples) > limit:
+        samples = samples[:limit]
+    fade = min(int(0.008 * TARGET_SR), len(samples) // 4)
+    if fade > 1:
+        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+        samples[:fade] *= ramp
+        samples[-fade:] *= ramp[::-1]
+    return samples
+
+
+def render_hit(recipe: Recipe, x: float, y: float, seed: Optional[int] = None) -> np.ndarray:
+    """x=远近(0 近,1 远)  y=轻重(0 轻,1 重)。返回混好的单声道 float32。"""
+    rng = random.Random(seed)
+    x = min(max(float(x), 0.0), 1.0)
+    y = min(max(float(y), 0.0), 1.0)
+
+    cutoff = 18000 * (2500 / 18000) ** x        # 远处更闷
+    gain_db = -9.0 * x                           # 远处更轻
+    pitch_semi = 3.0 - 7.0 * y                   # 重步更低沉
+
+    pieces: List[Tuple[int, np.ndarray]] = []
+    for layer in recipe.layers:
+        if rng.random() > layer.prob:
+            continue
+        if not layer.pool:
+            continue
+        layer.ensure_audio()
+        if not layer.audio:
+            continue
+        samples = rng.choice(layer.audio)
+        samples = _pitch_shift(samples, pitch_semi + rng.uniform(-layer.pitch_span, layer.pitch_span))
+        offset_ms = rng.randint(*layer.offset_ms)
+        pieces.append((int(offset_ms * TARGET_SR / 1000), samples * _db_to_gain(layer.gain_db + gain_db)))
+
+    if not pieces:
+        return np.zeros(int(0.2 * TARGET_SR), dtype=np.float32)
+
+    total = max(offset + len(samples) for offset, samples in pieces)
+    buffer = np.zeros(total, dtype=np.float32)
+    for offset, samples in pieces:
+        buffer[offset:offset + len(samples)] += samples
+    buffer = _lowpass(buffer, cutoff)
+    peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+    if peak > 0.98:
+        buffer = buffer * (0.98 / peak)
+    return buffer
+
+
+def render_session(recipe: Recipe, events: Sequence[Dict[str, Any]], max_seconds: float = 60.0) -> np.ndarray:
+    """按事件时间戳把多次 hit 拼接成一段音频（用于「完成录制」）。"""
+    limit = int(max_seconds * TARGET_SR)
+    buffer = np.zeros(limit, dtype=np.float32)
+    for event in events:
+        t = float(event.get("t", 0) or 0)
+        if t < 0 or t >= max_seconds:
+            continue
+        hit = render_hit(recipe, event.get("x", 0.3), event.get("y", 0.5))
+        start = int(t * TARGET_SR)
+        end = min(limit, start + len(hit))
+        if end > start:
+            buffer[start:end] += hit[: end - start]
+    peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+    if peak > 0.98:
+        buffer = buffer * (0.98 / peak)
+    return buffer
+
+
+def to_wav_bytes(samples: np.ndarray, sample_rate: int = TARGET_SR) -> bytes:
+    pcm = np.clip(samples, -1.0, 1.0)
+    pcm16 = (pcm * 32767).astype("<i2")
+    out = io.BytesIO()
+    with wave.open(out, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(pcm16.tobytes())
+    return out.getvalue()
+
+
+def build_from_library(
+    recipe_id: str,
+    name: str,
+    category: str,
+    queries: List[Dict[str, Any]],
+    limit: int = 12,
+    max_sample_seconds: float = 3.0,
+) -> Recipe:
+    """用库内检索结果自动组装一个配方。
+
+    queries: [{"layer": "step", "q": "脚步 木板", "prob": 1.0, "gain_db": 0}]
+    """
+    from core.database import get_db_manager
+
+    db = get_db_manager()
+    layers: List[Layer] = []
+    for spec in queries:
+        rows = db.fts_search("default", spec["q"], limit=limit * 3)
+        # 只取短素材（脚步声不该是 60 秒的环境录音）
+        pool = [
+            row["file_path"]
+            for row in rows
+            if row.get("file_path")
+            and 0 < float(row.get("duration") or 0) <= max_sample_seconds
+        ][:limit]
+        if not pool:
+            pool = [row["file_path"] for row in rows if row.get("file_path")][:limit]
+        if not pool:
+            continue
+        layers.append(
+            Layer(
+                id=str(spec.get("layer") or "layer"),
+                pool=pool,
+                gain_db=float(spec.get("gain_db", 0) or 0),
+                prob=float(spec.get("prob", 1.0) or 1.0),
+                offset_ms=tuple(spec.get("offset_ms", (0, 0)) or (0, 0)),
+                pitch_span=float(spec.get("pitch_span", 0.0) or 0.0),
+            )
+        )
+    return Recipe(id=recipe_id, name=name, category=category, layers=layers)

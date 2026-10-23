@@ -224,6 +224,11 @@
                 </button>
             </div>
             <div class="relative">
+                <button id="recipeMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
+                    <i data-lucide="layers" class="w-4 h-4"></i><span>声音配方</span>
+                </button>
+            </div>
+            <div class="relative">
                 <button id="settingsBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
                     <i data-lucide="settings" class="w-4 h-4"></i><span data-i18n="settings">设置</span>
                 </button>
@@ -1560,12 +1565,13 @@
                 document.querySelectorAll('#folderTree .sidebar-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
 
-                // 筛选该用户文件夹下的所有文件
+                // 先显示已映射的子目录文件，再把「手动加入」的单个音效追加进来
                 const folderPaths = childFolders.map(f => f.path);
                 const filtered = soundData.filter(s => {
                     return folderPaths.some(fp => isSameOrChildPath(s.folderPath, fp));
                 });
                 renderSoundList('', filtered);
+                loadUserFolderFiles(folder.id, filtered);
             });
 
             // 右键菜单
@@ -1836,6 +1842,168 @@
             }, 100);
 
             document.body.appendChild(menu);
+        }
+
+        // ==================== 声音配方 ====================
+        const recipeState = {
+            recipes: [],
+            current: null,
+            player: null,
+            recording: false,
+            startedAt: 0,
+            events: [],
+            lastSession: null,
+            timer: null,
+        };
+
+        async function openRecipeModal() {
+            const modal = document.getElementById('recipeModal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (!recipeState.recipes.length) {
+                try {
+                    const data = await rendererApi.get('/api/v1/recipes');
+                    recipeState.recipes = (data && data.recipes) || [];
+                } catch (error) {
+                    showNotification('读取配方失败: ' + error.message, 'error');
+                }
+            }
+            renderRecipeList();
+        }
+
+        function renderRecipeList() {
+            const list = document.getElementById('recipeList');
+            if (!list) return;
+            list.innerHTML = '';
+            const groups = {};
+            recipeState.recipes.forEach((recipe) => {
+                (groups[recipe.category] = groups[recipe.category] || []).push(recipe);
+            });
+            Object.keys(groups).forEach((category) => {
+                const head = document.createElement('div');
+                head.className = 'px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider opacity-50';
+                head.textContent = category;
+                list.appendChild(head);
+                groups[category].forEach((recipe) => {
+                    const item = document.createElement('button');
+                    item.className = 'w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-white/5'
+                        + (recipe.usable ? '' : ' opacity-40 cursor-not-allowed');
+                    item.textContent = recipe.name;
+                    item.disabled = !recipe.usable;
+                    item.addEventListener('click', () => selectRecipe(recipe));
+                    list.appendChild(item);
+                });
+            });
+        }
+
+        function selectRecipe(recipe) {
+            recipeState.current = recipe;
+            recipeState.events = [];
+            recipeState.lastSession = null;
+            document.getElementById('recipeTitle').textContent = recipe.name;
+            const layers = (recipe.layers || []).map((l) => `${l.id}×${l.pool}(p=${l.prob})`).join('  ');
+            document.getElementById('recipeLayers').textContent = layers ? ('层：' + layers) : '样本不足，无法演奏';
+            document.getElementById('recipePlayBtn').disabled = true;
+            document.getElementById('recipeSaveBtn').disabled = true;
+            if (recipeState.recording) stopRecipeRecording();
+        }
+
+        function recipePadParams(event) {
+            const pad = document.getElementById('recipePad');
+            const rect = pad.getBoundingClientRect();
+            const x = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+            const y = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1);
+            const dot = document.getElementById('recipeDot');
+            if (dot) {
+                dot.style.left = (x * 100) + '%';
+                dot.style.top = (y * 100) + '%';
+            }
+            return { x, y };
+        }
+
+        async function triggerRecipeHit(params) {
+            if (!recipeState.current) return;
+            try {
+                const data = await rendererApi.post(
+                    `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/hit`,
+                    params || { x: 0.3, y: 0.5 }
+                );
+                const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+                if (recipeState.player) {
+                    recipeState.player.pause();
+                }
+                recipeState.player = new Audio(base + data.url);
+                recipeState.player.play().catch(() => {});
+                if (recipeState.recording) {
+                    recipeState.events.push({
+                        t: (Date.now() - recipeState.startedAt) / 1000,
+                        x: (params || {}).x ?? 0.3,
+                        y: (params || {}).y ?? 0.5,
+                    });
+                }
+                return data;
+            } catch (error) {
+                showNotification('演奏失败: ' + error.message, 'error');
+            }
+        }
+
+        function startRecipeRecording() {
+            if (!recipeState.current) return;
+            recipeState.recording = true;
+            recipeState.startedAt = Date.now();
+            recipeState.events = [];
+            const timer = document.getElementById('recipeTimer');
+            const button = document.getElementById('recipeRecordBtn');
+            if (button) { button.textContent = '■ 完成录制'; button.style.background = '#334155'; }
+            recipeState.timer = setInterval(() => {
+                const seconds = (Date.now() - recipeState.startedAt) / 1000;
+                if (timer) timer.textContent = seconds.toFixed(1) + ' / 60 秒';
+                if (seconds >= 60) stopRecipeRecording();
+            }, 100);
+        }
+
+        async function stopRecipeRecording() {
+            if (!recipeState.recording) return;
+            recipeState.recording = false;
+            if (recipeState.timer) { clearInterval(recipeState.timer); recipeState.timer = null; }
+            const button = document.getElementById('recipeRecordBtn');
+            if (button) { button.textContent = '● 开始录制'; button.style.background = '#ef4444'; }
+            const seconds = (Date.now() - recipeState.startedAt) / 1000;
+            if (!recipeState.events.length) {
+                showNotification('没有演奏任何声音', 'info');
+                return;
+            }
+            try {
+                const data = await rendererApi.post(
+                    `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/session`,
+                    { events: recipeState.events, max_seconds: Math.min(60, Math.max(seconds, 1)) },
+                    { timeoutMs: 60000 }
+                );
+                recipeState.lastSession = data;
+                document.getElementById('recipePlayBtn').disabled = false;
+                document.getElementById('recipeSaveBtn').disabled = false;
+                showNotification(`录制完成：${data.duration} 秒`, 'success');
+            } catch (error) {
+                showNotification('生成录音失败: ' + error.message, 'error');
+            }
+        }
+
+        async function saveRecipeSession() {
+            const session = recipeState.lastSession;
+            if (!session || !recipeState.current) return;
+            try {
+                const name = `${recipeState.current.name}-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`;
+                await rendererApi.post('/api/v1/sfx/save', {
+                    audio_path: session.file_path,
+                    name,
+                    tags: ['声音配方', recipeState.current.category],
+                }, { timeoutMs: 120000 });
+                showNotification('已保存到音效库：' + name, 'success');
+                await loadFilesFromDatabase({ reset: true });
+            } catch (error) {
+                showNotification('保存失败: ' + error.message, 'error');
+            }
         }
 
         // ==================== 文件夹右键管理 ====================
@@ -2235,6 +2403,20 @@
             sep.style.borderColor = 'var(--border-color)';
             menu.appendChild(sep);
 
+            // 添加到自定义文件夹（常用 / 收藏 等）
+            if (Array.isArray(userFolders) && userFolders.length > 0) {
+                const sepFolder = document.createElement('div');
+                sepFolder.className = 'my-1 border-t';
+                sepFolder.style.borderColor = 'var(--border-color)';
+                menu.appendChild(sepFolder);
+                menu.appendChild(makeMenuItem('添加到文件夹…', 'folder-plus', () => {
+                    const targets = (selectedSounds.size > 0 && selectedSounds.has(sound.id))
+                        ? [...selectedSounds]
+                        : [sound];
+                    showAddToUserFolderMenu(targets);
+                }));
+            }
+
             // 文件操作组（Billfish 式）
             menu.appendChild(makeMenuItem('在资源管理器中打开', 'folder-open', () => openInExplorer(sound)));
             menu.appendChild(makeMenuItem('重命名', 'edit-3', () => renameSoundFile(sound)));
@@ -2250,6 +2432,68 @@
             setTimeout(() => document.addEventListener('click', closeMenu), 100);
             document.body.appendChild(menu);
             lucide.createIcons();
+        }
+
+        // 把选中的音效加入某个用户文件夹（常用/收藏等）
+        function showAddToUserFolderMenu(sounds) {
+            closeSoundContextMenu();
+            document.getElementById('addToFolderMenu')?.remove();
+            const menu = document.createElement('div');
+            menu.id = 'addToFolderMenu';
+            menu.className = 'fixed z-[210] rounded-lg shadow-xl py-1 w-52 max-h-80 overflow-y-auto';
+            menu.style.backgroundColor = 'var(--bg-secondary)';
+            menu.style.border = '1px solid var(--border-color)';
+            menu.style.left = Math.round(window.innerWidth / 2 - 110) + 'px';
+            menu.style.top = '160px';
+
+            const head = document.createElement('div');
+            head.className = 'px-3 py-2 text-xs opacity-60 border-b';
+            head.style.borderColor = 'var(--border-color)';
+            head.textContent = `添加 ${sounds.length} 个音效到…`;
+            menu.appendChild(head);
+
+            userFolders.forEach((folder) => {
+                const item = document.createElement('button');
+                item.className = 'w-full px-3 py-2 text-sm text-left hover:bg-white/5 flex items-center gap-2';
+                item.innerHTML = `<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${folder.color || '#3b82f6'}"></span>
+                    <span class="truncate">${escapeHtml(folder.name)}</span>`;
+                item.addEventListener('click', async () => {
+                    menu.remove();
+                    try {
+                        const paths = sounds.map(s => s.filePath || s.path).filter(Boolean);
+                        const result = await rendererApi.post(
+                            `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
+                            + `/folders/${encodeURIComponent(folder.id)}/files`,
+                            { paths }
+                        );
+                        showNotification(
+                            `已添加 ${result?.added ?? 0} 个到「${folder.name}」`,
+                            (result?.added ?? 0) > 0 ? 'success' : 'info'
+                        );
+                        await loadUserFolders();
+                        renderFolderTree();
+                    } catch (error) {
+                        showNotification('添加失败: ' + error.message, 'error');
+                    }
+                });
+                menu.appendChild(item);
+            });
+
+            const cancel = document.createElement('button');
+            cancel.className = 'w-full px-3 py-2 text-sm text-left hover:bg-white/5 opacity-70 border-t mt-1';
+            cancel.style.borderColor = 'var(--border-color)';
+            cancel.textContent = '取消';
+            cancel.addEventListener('click', () => menu.remove());
+            menu.appendChild(cancel);
+
+            document.body.appendChild(menu);
+            const close = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', close);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', close), 100);
         }
 
         // ---- 标签操作 ----
@@ -5496,6 +5740,26 @@
 
         // 用后端返回的「全库目录统计」建树：只靠分页加载的 soundData 反推，
         // 得到的目录既不全也不稳定（实测只显示出 7/8/9 三个子目录）。
+        // 用户文件夹里手动加入的单个音效
+        async function loadUserFolderFiles(folderId, baseList) {
+            try {
+                const data = await rendererApi.get(
+                    `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
+                    + `/folders/${encodeURIComponent(folderId)}/files`
+                );
+                const files = (data && data.files) || [];
+                if (!files.length) return;
+                const mapped = files.map(mapDbFileToSound);
+                const seen = new Set((baseList || []).map(s => s.filePath));
+                const extra = mapped.filter(s => !seen.has(s.filePath));
+                if (!extra.length) return;
+                allSearchResults = (baseList || []).concat(extra);
+                renderSoundList('', allSearchResults);
+            } catch (error) {
+                console.warn('[Folder] 读取文件夹成员失败:', error);
+            }
+        }
+
         async function loadFolderStats(force = false) {
             if (!force && importedFolderData.length > 0
                 && (Date.now() - folderTreeBuiltAt) < 60000) {
@@ -5552,8 +5816,14 @@
             entries.forEach(entry => {
                 const inMain = common.length > 0 && entry.parts.length >= common.length
                     && common.every((seg, i) => (entry.parts[i] || '').toLowerCase() === seg.toLowerCase());
-                const relative = inMain ? entry.parts.slice(common.length) : entry.parts;
-                let acc = inMain ? common.join('\\') : '';
+                // 库外目录只显示「最后一级目录名」作为根，避免出现 E: 这种盘符节点
+                // （盘符节点一旦允许删除，就会把整盘当作目标）
+                const relative = inMain
+                    ? entry.parts.slice(common.length)
+                    : [entry.parts[entry.parts.length - 1]];
+                let acc = inMain
+                    ? common.join('\\')
+                    : entry.parts.slice(0, -1).join('\\');
                 let siblings = roots;
                 relative.forEach(part => {
                     acc = acc ? acc + '\\' + part : part;
@@ -5860,6 +6130,26 @@
                 e.stopPropagation();
                 runAiSearch();
             });
+            document.getElementById('recipeMenuBtn')?.addEventListener('click', () => openRecipeModal());
+            document.getElementById('recipeCloseBtn')?.addEventListener('click', () => {
+                if (recipeState.recording) stopRecipeRecording();
+                document.getElementById('recipeModal').classList.add('hidden');
+                document.getElementById('recipeModal').classList.remove('flex');
+            });
+            document.getElementById('recipePad')?.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                triggerRecipeHit(recipePadParams(e));
+            });
+            document.getElementById('recipeRecordBtn')?.addEventListener('click', () => {
+                if (recipeState.recording) stopRecipeRecording(); else startRecipeRecording();
+            });
+            document.getElementById('recipePlayBtn')?.addEventListener('click', () => {
+                const session = recipeState.lastSession;
+                if (!session) return;
+                const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+                new Audio(base + session.url).play().catch(() => {});
+            });
+            document.getElementById('recipeSaveBtn')?.addEventListener('click', () => saveRecipeSession());
             document.getElementById('viewListBtn')?.addEventListener('click', () => setViewMode('list'));
             document.getElementById('viewCardBtn')?.addEventListener('click', () => setViewMode('card'));
             applyViewMode();
@@ -8820,7 +9110,45 @@
         </div>
     </div>
 
-    <!-- 创造音效面板 -->
+    <!-- 声音配方：本地分层合成（毫秒级触发 + 录制） -->
+<div id="recipeModal" class="fixed inset-0 z-[200] hidden items-center justify-center" style="background-color: rgba(0,0,0,0.55);">
+    <div class="w-[880px] max-h-[86vh] flex flex-col rounded-xl overflow-hidden" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+        <div class="flex items-center justify-between px-5 py-3 border-b" style="border-color: var(--border-color);">
+            <div class="flex items-center gap-2">
+                <i data-lucide="layers" class="w-4 h-4"></i>
+                <h3 class="text-base font-semibold">声音配方</h3>
+                <span class="text-xs opacity-50">按参数演奏，不需要等模型</span>
+            </div>
+            <button id="recipeCloseBtn" class="p-1 rounded hover:bg-white/10"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="flex flex-1 min-h-0">
+            <div class="w-52 border-r overflow-y-auto p-2" style="border-color: var(--border-color);" id="recipeList"></div>
+            <div class="flex-1 flex flex-col min-w-0">
+                <div class="px-4 pt-3 text-sm font-medium" id="recipeTitle">选择左侧的配方</div>
+                <div class="px-4 pb-2 text-xs opacity-50" id="recipeLayers"></div>
+                <div class="flex-1 flex items-center justify-center p-4">
+                    <div id="recipePad" class="relative rounded-xl border select-none" style="width:460px;height:300px;border-color:var(--border-color);background:var(--bg-tertiary);cursor:crosshair;">
+                        <span class="absolute left-2 top-2 text-[10px] opacity-50">远处 · 轻步</span>
+                        <span class="absolute right-2 top-2 text-[10px] opacity-50">远处 · 重步</span>
+                        <span class="absolute left-2 bottom-2 text-[10px] opacity-50">近身 · 轻步</span>
+                        <span class="absolute right-2 bottom-2 text-[10px] opacity-50">近身 · 重步</span>
+                        <div id="recipeDot" class="absolute w-3 h-3 rounded-full" style="background:#8b5cf6;transform:translate(-50%,-50%);left:30%;top:50%;pointer-events:none;"></div>
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none text-xs opacity-40">点击任意位置演奏一步</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 px-4 py-3 border-t" style="border-color: var(--border-color);">
+                    <button id="recipeRecordBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#ef4444;">● 开始录制</button>
+                    <span id="recipeTimer" class="text-xs font-mono opacity-70">0.0 / 60 秒</span>
+                    <div class="flex-1"></div>
+                    <button id="recipePlayBtn" class="px-3 py-1.5 rounded-md text-xs" style="background:var(--bg-tertiary);" disabled>试听录制</button>
+                    <button id="recipeSaveBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#8b5cf6;" disabled>保存到音效库</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 创造音效面板 -->
     <div id="sfxModal" class="fixed inset-0 z-[200] hidden flex-col" style="background-color: rgba(0, 0, 0, 0.5);">
         <div class="flex-1 flex flex-col m-4 rounded-xl shadow-2xl overflow-hidden"
              style="background-color: var(--bg-secondary); border: 1px solid var(--border-color); max-height: calc(100vh - 32px);">

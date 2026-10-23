@@ -1474,6 +1474,27 @@
             const div = document.createElement('div');
             div.className = 'sidebar-item rounded-md cursor-pointer mb-1';
             div.dataset.id = folder.id;
+            div.dataset.userFolderId = folder.id;
+            // 接收从左侧目录树拖过来的文件夹
+            div.addEventListener('dragover', (e) => {
+                const types = Array.from(e.dataTransfer?.types || []);
+                if (!types.includes('application/x-echomind-folder')) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                div.style.outline = '2px solid #3b82f6';
+                div.style.outlineOffset = '-2px';
+            });
+            div.addEventListener('dragleave', () => { div.style.outline = ''; });
+            div.addEventListener('drop', async (e) => {
+                const srcPath = e.dataTransfer?.getData('application/x-echomind-folder');
+                div.style.outline = '';
+                if (!srcPath) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const leaf = srcPath.split('\\').filter(Boolean).pop() || srcPath;
+                if (!confirm(`把「${leaf}」及其子目录移动到「${folder.name}」？`)) return;
+                await updateFolderMapping(srcPath, folder.id);
+            });
 
             // 获取该文件夹下的导入文件夹
             const childFolders = importedFolderData.filter(f => folderMappings[f.fullPath] === folder.id);
@@ -1614,6 +1635,14 @@
             div.className = 'sidebar-item rounded-md cursor-pointer';
             div.style.paddingLeft = `${level * 8 + 4}px`;
             div.dataset.path = folder.fullPath;
+            // 拖动文件夹 → 放到「我的文件夹」上完成归类
+            div.draggable = true;
+            div.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('application/x-echomind-folder', folder.fullPath);
+                e.dataTransfer.effectAllowed = 'move';
+                div.style.opacity = '0.45';
+            });
+            div.addEventListener('dragend', () => { div.style.opacity = ''; });
 
             // 获取该文件夹下的音频文件
             const folderFiles = soundData.filter(s => s.folderPath === folder.path);
@@ -1784,24 +1813,37 @@
             container.innerHTML = '';
 
             // 只渲染用户自定义标签；"全部/其他"这类默认分类已取消。
+            // 计数优先用后端全库统计（soundData 只是分页加载的一部分）
             // ===== 我的标签分组 =====
             const tagHeader = document.createElement('div');
             tagHeader.className = 'px-2 pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider opacity-50 flex items-center justify-between';
             tagHeader.innerHTML = `
                 <span class="flex items-center"><i data-lucide="tags" class="w-3 h-3 mr-1"></i>我的标签</span>
-                <button id="tagManagerBtn" class="p-0.5 rounded hover:bg-white/10 transition-colors" title="标签管理">
-                    <i data-lucide="settings-2" class="w-3 h-3"></i>
-                </button>
+                <span class="flex items-center gap-1">
+                    <button id="createTagBtn" class="p-0.5 rounded hover:bg-white/10 transition-colors" title="新建标签">
+                        <i data-lucide="plus" class="w-3 h-3"></i>
+                    </button>
+                    <button id="tagManagerBtn" class="p-0.5 rounded hover:bg-white/10 transition-colors" title="标签管理">
+                        <i data-lucide="settings-2" class="w-3 h-3"></i>
+                    </button>
+                </span>
             `;
             container.appendChild(tagHeader);
 
             const tagCounts = {};
+            (window.__tagStats || []).forEach(item => {
+                const name = item && (item.name || item.tag);
+                if (name) tagCounts[name] = Number(item.count) || 0;
+            });
             soundData.forEach(s => (s.tags || []).forEach(t => {
                 if (t && typeof t === 'string' && t.trim()) {
                     const name = t.trim();
-                    tagCounts[name] = (tagCounts[name] || 0) + 1;
+                    if (!(name in tagCounts)) tagCounts[name] = 0;
                 }
             }));
+            (window.__localTags || []).forEach(name => {
+                if (name && !(name in tagCounts)) tagCounts[name] = 0;
+            });
             const allTagNames = Object.keys(tagCounts).sort((a, b) => (tagCounts[b] - tagCounts[a]) || a.localeCompare(b, 'zh'));
             const tagQuery = (document.getElementById('tagSearchInput')?.value || '').trim().toLowerCase();
             const tagNames = tagQuery
@@ -1835,6 +1877,14 @@
                 container.appendChild(div);
             });
 
+            const createTagBtn = container.querySelector('#createTagBtn');
+            if (createTagBtn) {
+                createTagBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    createNewTag();
+                });
+            }
+
             const tagManagerBtn = container.querySelector('#tagManagerBtn');
             if (tagManagerBtn) {
                 tagManagerBtn.addEventListener('click', (e) => {
@@ -1843,6 +1893,57 @@
                 });
             }
             lucide.createIcons();
+        }
+
+        // 从后端拿全库标签统计（本地 soundData 只有分页加载的一部分）
+        async function loadTagStats() {
+            try {
+                const data = await rendererApi.get('/api/v1/db/tags');
+                window.__tagStats = (data && data.tags) || [];
+            } catch (error) {
+                console.warn('[Tags] 标签统计加载失败:', error);
+                window.__tagStats = window.__tagStats || [];
+            }
+            renderCategoryTree();
+        }
+
+        // 新建标签：有选中音效就直接打上，没选中先登记到本地列表
+        function createNewTag() {
+            showInputModal('新建标签', '如：雨天、教堂、打击乐', async (value) => {
+                const name = String(value || '').trim();
+                if (!name) return;
+                const local = new Set(window.__localTags || []);
+                local.add(name);
+                window.__localTags = Array.from(local);
+                try {
+                    localStorage.setItem('echomind.localTags', JSON.stringify(window.__localTags));
+                } catch (_) { }
+
+                const targets = Array.from(selectedSounds || []);
+                if (!targets.length) {
+                    showNotification(`标签「${name}」已创建，选中音效后右键即可添加`, 'info');
+                    renderCategoryTree();
+                    return;
+                }
+                let applied = 0;
+                for (const sound of targets) {
+                    const path = sound.filePath || sound.path;
+                    if (!path) continue;
+                    const tags = Array.from(new Set([...(sound.tags || []), name]));
+                    try {
+                        await window.electronAPI.backendAPI.updateFileTags(path, tags);
+                        sound.tags = tags;
+                        applied += 1;
+                    } catch (error) {
+                        console.warn('[Tags] 添加失败:', path, error);
+                    }
+                }
+                showNotification(
+                    applied ? `已为 ${applied} 个音效添加标签「${name}」` : '添加标签失败',
+                    applied ? 'success' : 'error'
+                );
+                await loadTagStats();
+            });
         }
 
         function filterByCategory(categoryId) {
@@ -3286,6 +3387,23 @@
                     }
                 });
 
+                // AI 搜索结果同样支持右键菜单（添加标签 / 打开位置 / 重命名等）
+                soundItem.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showSoundContextMenu(e, {
+                        id: sd.id,
+                        fileId: sd.fileId,
+                        name: sd.name,
+                        filename: sd.name,
+                        path: filePath,
+                        filePath: filePath,
+                        duration: sd.duration,
+                        tags: sd.tags || [],
+                        aiDescription: sd.aiDescription || ''
+                    });
+                });
+
                 container.appendChild(soundItem);
             }
             aiRenderedCount = endIdx;
@@ -3769,13 +3887,22 @@
                 if (!window.electronAPI?.aiConfig) {
                     throw new Error('系统安全存储仅在回声桌面应用中可用');
                 }
-                const data = await window.electronAPI.aiConfig.save({
+                // 保存请求可能因为后端在重建索引而长时间无响应；
+                // 加超时，避免按钮永远停在「保存中...」。
+                const savePromise = window.electronAPI.aiConfig.save({
                     llm_provider: llmProvider,
                     llm_config: llmConfig,
                     embedding_provider: embProvider,
                     embedding_config: embConfig,
                     ...getAiSecretUpdates(llmProvider, embProvider)
                 });
+                const data = await Promise.race([
+                    savePromise,
+                    new Promise((_, reject) => setTimeout(
+                        () => reject(new Error('保存超时（后端可能正在重建索引），请稍后重试')),
+                        25000
+                    ))
+                ]);
 
                 if (data.success) {
                     showNotification('配置已保存', 'success');
@@ -4649,6 +4776,28 @@
             }
         }
 
+        // 播放器区域右键：和列表面板一致的菜单（添加标签、打开位置等）
+        function bindPlayerContextMenu() {
+            const wave = document.getElementById('waveformContainer');
+            if (wave) {
+                wave.addEventListener('contextmenu', (e) => {
+                    if (!currentSound) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showSoundContextMenu(e, currentSound);
+                });
+            }
+            const footers = [document.getElementById('playerFooter')].filter(Boolean);
+            footers.forEach((bar) => {
+                bar.addEventListener('contextmenu', (e) => {
+                    if (!currentSound) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showSoundContextMenu(e, currentSound);
+                });
+            });
+        }
+
         // 处理扫描消息
         function handleScanMessage(message) {
             switch (message.type) {
@@ -4854,7 +5003,13 @@
             }
         }
 
+        let scanCompletionHandled = false;
+
         function handleScanComplete(data) {
+            // WebSocket 与轮询兜底可能同时到达，只提示一次
+            if (scanCompletionHandled) return;
+            scanCompletionHandled = true;
+            setTimeout(() => { scanCompletionHandled = false; }, 5000);
             if (scanProgressModal) {
                 scanProgressModal.remove();
                 scanProgressModal = null;
@@ -4877,6 +5032,7 @@
                 });
                 // 目录树按后端全库统计重建（导入后立刻刷新，不受节流限制）
                 loadFolderStats(true);
+                loadTagStats();
             }
         }
 
@@ -5330,7 +5486,14 @@
                 }
             });
 
+            // 本地登记的标签（没有关联任何音效时也能出现在面板里）
+            try {
+                window.__localTags = JSON.parse(localStorage.getItem('echomind.localTags') || '[]');
+            } catch (_) {
+                window.__localTags = [];
+            }
             initAudioPlayer();
+            bindPlayerContextMenu();
             initializeWaveformResizeObserver();
             document.getElementById('waveformRetryBtn').addEventListener('click', () => {
                 if (!currentSound) return;
@@ -5357,6 +5520,8 @@
                         updateCategoryData();
                         renderSoundList();
                     }
+                    // 标签计数用后端全库统计，避免只统计到已加载的分页
+                    loadTagStats();
                     await refreshProjectIndexStatus();
                 } else {
                     const diskSpaceText = document.getElementById('diskSpaceText');
@@ -7063,7 +7228,7 @@
                             );
                             if (res && res.task_id) {
                                 currentScanTaskId = res.task_id;
-                                if (!wsOk) monitorImportJobWithoutWebSocket(res.task_id);
+                                monitorImportJobWithoutWebSocket(res.task_id);  // 与 WS 并行兜底，handleScanComplete 内部去重
                             }
                         } catch (error) {
                             showNotification('导入文件夹失败: ' + error.message, 'error');
@@ -7193,9 +7358,8 @@
                             if (result && result.task_id) {
                                 currentScanTaskId = result.task_id;
                                 showNotification('正在导入音频文件...', 'info');
-                                if (!websocketConnected) {
-                                    monitorImportJobWithoutWebSocket(currentScanTaskId);
-                                }
+                                // 与 WebSocket 并行兜底：WS 丢消息时也能拿到完成事件
+                                monitorImportJobWithoutWebSocket(currentScanTaskId);
                             } else {
                                 throw new Error('启动导入任务失败：后端未返回任务 ID');
                             }
@@ -7300,9 +7464,8 @@
                     }
 
                     showNotification(i18n.t('import.started', { count: result.total ?? filePaths.length }), 'info');
-                    if (!websocketConnected) {
-                        monitorImportJobWithoutWebSocket(currentScanTaskId);
-                    }
+                    // 与 WebSocket 并行兜底（handleScanComplete 内部去重）
+                    monitorImportJobWithoutWebSocket(currentScanTaskId);
                 } catch (error) {
                     console.error('处理导入文件时出错:', error);
                     if (scanProgressModal) {

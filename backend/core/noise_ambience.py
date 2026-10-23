@@ -90,6 +90,58 @@ STEM_MIX: dict = {
 }
 
 
+STEM_ORDER = ("base", "mid", "drops", "accent")
+
+
+def user_stem_dir(kind: str):
+    """%APPDATA%/EchoMind/ambience/<kind>/ —— 用户自备素材放这里就会优先使用。"""
+    import os
+    from pathlib import Path
+
+    root = Path(os.environ.get("APPDATA", "")) / "EchoMind" / "ambience" / kind
+    return root
+
+
+def load_user_stems(kind: str, seconds: float = 6.0):
+    """读取用户素材并做成可循环音轨；没有素材返回 None。"""
+    try:
+        from core.sound_recipe import _decode
+
+        folder = user_stem_dir(kind)
+        if not folder.exists():
+            return None
+        files = sorted(
+            [p for p in folder.iterdir() if p.suffix.lower() in (".wav", ".mp3", ".flac", ".ogg")]
+        )
+        if not files:
+            return None
+
+        n = int(seconds * SR)
+        fade = int(0.5 * SR)
+        stems = {}
+        for index, path in enumerate(files[:4]):
+            samples = _decode(str(path))
+            if samples is None or samples.size < SR // 2:
+                continue
+            if samples.size < n:
+                reps = int(np.ceil(n / samples.size))
+                samples = np.tile(samples, reps)
+            seed = samples[: n + fade].astype(np.float32).copy()
+            if fade < len(seed):
+                ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+                seed[:fade] = seed[:fade] * ramp + seed[n:n + fade] * (1.0 - ramp)
+            chunk = seed[:n]
+            peak = float(np.max(np.abs(chunk))) or 1.0
+            stems[STEM_ORDER[min(index, 3)]] = (chunk / peak * 0.9).astype(np.float32)
+        if not stems:
+            return None
+        for key in STEM_ORDER:
+            stems.setdefault(key, np.zeros(n, dtype=np.float32))
+        return stems
+    except Exception:
+        return None
+
+
 def synth_stems(kind: str, seconds: float = 6.0) -> dict:
     """返回 4 条同长度、同相位起点的循环音轨（播放端只调音量，永不重启）。"""
     n = int(seconds * SR)

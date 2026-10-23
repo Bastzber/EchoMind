@@ -2528,7 +2528,7 @@ async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
 
     前端同时循环播放这 4 条，拖动时只改音量 —— 声音永不重启，因此不可能有断层。
     """
-    from core.noise_ambience import STEM_MIX, synth_stems
+    from core.noise_ambience import STEM_MIX, load_user_stems, synth_stems
     from core.sound_recipe import to_wav_bytes as _to_wav
 
     recipe = _get_recipe(recipe_id)
@@ -2536,7 +2536,10 @@ async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
         raise HTTPException(status_code=404, detail="该配方不是环境音")
 
     seconds = min(max(float((payload or {}).get("seconds", 6) or 6), 2.0), 12.0)
-    stems = await asyncio.to_thread(synth_stems, recipe.synth, seconds)
+    stems = await asyncio.to_thread(load_user_stems, recipe.synth, seconds)
+    source = "user" if stems else "synth"
+    if not stems:
+        stems = await asyncio.to_thread(synth_stems, recipe.synth, seconds)
     directory = Path(tempfile.gettempdir()) / "echomind_stems"
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -2551,7 +2554,7 @@ async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
             "url": f"/api/v1/temp-audio/stems/{name}",
             "mix": STEM_MIX.get(recipe.synth, {}).get(stem_id, {"x": (0.3, 0.6), "y": (0.3, 0.6)}),
         })
-    return {"success": True, "seconds": seconds, "stems": items}
+    return {"success": True, "seconds": seconds, "source": source, "stems": items}
 
 
 @app.get("/api/v1/temp-audio/stems/{name}")

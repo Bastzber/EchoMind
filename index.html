@@ -2093,6 +2093,7 @@
         // ===== 环境音：4 条音轨常驻循环，拖动只改音量（结构上不可能断层）=====
         let stemsState = null;
         let stemsTicker = null;
+        let stemsCtx = null;
 
         function stemsGain(mix, x, y) {
             const gx = mix.x[0] + (mix.x[1] - mix.x[0]) * x;
@@ -2110,10 +2111,10 @@
                 let moving = false;
                 stemsState.audios.forEach((item, i) => {
                     const target = stemsState.targets[i];
-                    const current = item.el.volume;
-                    const next = current + (target - current) * 0.35;
-                    if (Math.abs(next - target) > 0.004) moving = true;
-                    item.el.volume = Math.max(0, Math.min(1, next));
+                    const current = item.gainNode.gain.value;
+                    if (Math.abs(target - current) > 0.004) moving = true;
+                    // 40ms 时间常数平滑，避免拉链噪声
+                    item.gainNode.gain.setTargetAtTime(target, stemsState.ctx.currentTime, 0.04);
                 });
                 if (!moving) { clearInterval(stemsTicker); stemsTicker = null; }
             }, 40);
@@ -2139,15 +2140,28 @@
                     { seconds: 6 },
                     { timeoutMs: 60000 }
                 );
-                const audios = (data.stems || []).map((stem) => {
-                    const el = new Audio(base + stem.url);
-                    el.loop = true;
-                    el.crossOrigin = 'anonymous';
-                    el.volume = 0;
-                    el.play().catch(() => {});
-                    return { el, mix: stem.mix };
-                });
-                stemsState = { recipeId: recipeState.current.id, audios, targets: [] };
+                // WebAudio 采样级循环：不会像 <audio loop> 那样在循环点漏一小段
+                if (!stemsState || !stemsState.ctx) {
+                    stemsCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    await stemsCtx.resume().catch(() => {});
+                }
+                const ctx = stemsCtx;
+                const nodes = [];
+                for (const stem of data.stems || []) {
+                    const response = await fetch(base + stem.url);
+                    const arrayBuffer = await response.arrayBuffer();
+                    const buffer = await ctx.decodeAudioData(arrayBuffer);
+                    const gainNode = ctx.createGain();
+                    gainNode.gain.value = 0;
+                    gainNode.connect(ctx.destination);
+                    const source = ctx.createBufferSource();
+                    source.buffer = buffer;
+                    source.loop = true;
+                    source.connect(gainNode);
+                    source.start(0);
+                    nodes.push({ source, gainNode, mix: stem.mix });
+                }
+                stemsState = { recipeId: recipeState.current.id, ctx, audios: nodes, targets: [] };
                 applyStemsGains(x, y);
             } catch (error) {
                 showNotification('环境音轨加载失败: ' + error.message, 'error');
@@ -2164,7 +2178,7 @@
             if (stemsTicker) { clearInterval(stemsTicker); stemsTicker = null; }
             if (stemsState) {
                 stemsState.audios.forEach((item) => {
-                    try { item.el.pause(); item.el.src = ''; } catch (_) { }
+                    try { item.source.stop(); item.source.disconnect(); } catch (_) { }
                 });
                 stemsState = null;
             }

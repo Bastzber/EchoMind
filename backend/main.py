@@ -2347,6 +2347,7 @@ _RECIPE_DEFS = [
         "name": "林间鸟鸣",
         "category": "环境音",
         "mode": "env",
+        "labels": ["远处 · 稀疏鸟鸣", "远处 · 密集鸟鸣", "近处 · 稀疏鸟鸣", "近处 · 密集鸟鸣"],
         "queries": [
             {"layer": "base", "label": "林间底噪", "q": "树林", "prob": 1.0, "gain_db": -10.0,
              "trim_seconds": 2.0, "strength_gain": 2.0, "require": ["树林", "森林"]},

@@ -2456,7 +2456,7 @@ async def list_recipes():
         recipe = _get_recipe(spec["id"])
         info = recipe.to_dict() if recipe else {"id": spec["id"], "name": spec["name"], "category": spec["category"], "layers": []}
         info["labels"] = spec.get("labels") or []
-        info["usable"] = bool(recipe and recipe.layers)
+        info["usable"] = bool(recipe and (recipe.layers or recipe.synth))
         result.append(info)
     return {"success": True, "recipes": result}
 

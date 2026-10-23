@@ -1926,6 +1926,7 @@
             enabled: new Set(),
             layerSamples: {},
             ambiencePlaying: false,
+            padDragging: false,
         };
 
         async function openRecipeModal() {
@@ -2017,10 +2018,19 @@
             return base + data.url;
         }
 
+        function recordAmbiencePoint(x, y) {
+            if (!recipeState.recording) return;
+            recipeState.events.push({
+                t: (Date.now() - recipeState.startedAt) / 1000,
+                x, y,
+            });
+        }
+
         async function startAmbience(x, y) {
             if (!recipeState.current) return;
             recipeState.ambiencePlaying = true;
             stopRecipeAudio();
+            recordAmbiencePoint(x, y);
             const btn = document.getElementById('recipeStopAmbience');
             if (btn) btn.classList.remove('hidden');
             try {
@@ -2044,6 +2054,7 @@
             if (now - ambienceLastAt < 450) return;
             ambienceLastAt = now;
             ambiencePending = true;
+            recordAmbiencePoint(x, y);
             (async () => {
                 try {
                     const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
@@ -2062,8 +2073,17 @@
                     await audio.play().catch(() => {});
                     const previous = ambiencePlayer;
                     ambiencePlayer = audio;
-                    fadeAudio(audio, 0, 0.9, 300);
-                    if (previous) fadeAudio(previous, previous.volume, 0, 300, () => { try { previous.pause(); } catch (_) { } });
+                    const swap = () => {
+                        fadeAudio(audio, 0, 0.9, 450);
+                        if (previous) {
+                            fadeAudio(previous, previous.volume, 0, 450, () => {
+                                try { previous.pause(); } catch (_) { }
+                            });
+                        }
+                    };
+                    // 等新的一段真正出声后再交叉淡化，避免中间出现空档
+                    if (audio.readyState >= 2) swap();
+                    else audio.addEventListener('playing', swap, { once: true });
                 } catch (_) { }
                 ambiencePending = false;
             })();
@@ -6520,7 +6540,9 @@
             // 环境音：按住拖动 → 连续合成；拟音：点一下 → 演奏一步
             const padEl = document.getElementById('recipePad');
             padEl?.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
                 e.preventDefault();
+                recipeState.padDragging = true;
                 const params = recipePadParams(e);
                 if (recipeState.current && recipeState.current.mode === 'env') {
                     startAmbience(params.x, params.y);
@@ -6529,10 +6551,14 @@
                 }
             });
             padEl?.addEventListener('mousemove', (e) => {
-                if (!recipeState.ambiencePlaying) return;
+                // 必须按住左键才动，松开后光标位置不再影响声音
+                if (!recipeState.padDragging || !recipeState.ambiencePlaying) return;
                 const params = recipePadParams(e);
                 updateAmbience(params.x, params.y);
             });
+            const endDrag = () => { recipeState.padDragging = false; };
+            window.addEventListener('mouseup', endDrag);
+            padEl?.addEventListener('mouseleave', endDrag);
             document.getElementById('recipeStopAmbience')?.addEventListener('click', () => stopAmbience());
             document.getElementById('recipeRecordBtn')?.addEventListener('click', () => {
                 if (recipeState.recording) stopRecipeRecording(); else startRecipeRecording();

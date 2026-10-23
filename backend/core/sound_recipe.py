@@ -57,6 +57,7 @@ class Recipe:
     category: str
     layers: List[Layer] = field(default_factory=list)
     mode: str = "step"   # step: X=远近 Y=轻重；env: X=强弱 Y=细节
+    synth: str = ""      # wind / rain / sea / fire：程序化合成，不用库内素材
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -369,7 +370,15 @@ def render_ambience(
     enabled: Optional[Sequence[str]] = None,
     layer_samples: Optional[Dict[str, str]] = None,
 ) -> np.ndarray:
-    """渲染一段可无缝循环的环境床（底声铺满，细节层随机点缀）。"""
+    """渲染一段可无缝循环的环境床。
+
+    配方带 synth（wind/rain/sea/fire）时用程序化噪声合成，天然无断层。
+    """
+    if recipe.synth:
+        from core.noise_ambience import synth_ambience
+
+        return synth_ambience(recipe.synth, x, y, seconds)
+
     rng = random.Random()
     x = min(max(float(x), 0.0), 1.0)
     y = min(max(float(y), 0.0), 1.0)
@@ -432,6 +441,57 @@ def render_ambience(
     return out
 
 
+def render_ambience_performance(
+    recipe: Recipe,
+    events: Sequence[Dict[str, Any]],
+    max_seconds: float = 60.0,
+    enabled: Optional[Sequence[str]] = None,
+    layer_samples: Optional[Dict[str, str]] = None,
+) -> np.ndarray:
+    """按用户拖动轨迹，把多段环境床首尾交叉淡化拼成一段录音。"""
+    total = int(max_seconds * TARGET_SR)
+    buffer = np.zeros(total, dtype=np.float32)
+    if not events:
+        return buffer
+
+    points = sorted(
+        (
+            {
+                "t": float(e.get("t", 0) or 0),
+                "x": float(e.get("x", 0.5) or 0.5),
+                "y": float(e.get("y", 0.5) or 0.5),
+            }
+            for e in events
+        ),
+        key=lambda item: item["t"],
+    )
+
+    fade = int(0.4 * TARGET_SR)
+    for index, point in enumerate(points):
+        start = int(max(0.0, point["t"]) * TARGET_SR)
+        if start >= total:
+            break
+        end_t = points[index + 1]["t"] if index + 1 < len(points) else max_seconds
+        segment_seconds = max(0.8, min(end_t - point["t"] + 0.5, 8.0))
+        segment = render_ambience(
+            recipe, point["x"], point["y"], segment_seconds, 1.0, enabled, layer_samples
+        )
+        # 段落首尾淡入淡出，拼接处自然
+        seg_fade = min(fade, len(segment) // 3)
+        if seg_fade > 1:
+            ramp = np.linspace(0.0, 1.0, seg_fade, dtype=np.float32)
+            segment[:seg_fade] *= ramp
+            segment[-seg_fade:] *= ramp[::-1]
+        end = min(total, start + len(segment))
+        if end > start:
+            buffer[start:end] += segment[: end - start]
+
+    peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+    if peak > 0.95:
+        buffer = buffer * (0.95 / peak)
+    return buffer
+
+
 def to_wav_bytes(samples: np.ndarray, sample_rate: int = TARGET_SR) -> bytes:
     pcm = np.clip(samples, -1.0, 1.0)
     pcm16 = (pcm * 32767).astype("<i2")
@@ -452,6 +512,7 @@ def build_from_library(
     limit: int = 12,
     max_sample_seconds: float = 3.0,
     mode: str = "step",
+    synth: str = "",
 ) -> Recipe:
     """用库内检索结果自动组装一个配方。
 
@@ -501,4 +562,4 @@ def build_from_library(
                 prob_max=float(spec.get("prob_max", -1.0)),
             )
         )
-    return Recipe(id=recipe_id, name=name, category=category, layers=layers, mode=mode)
+    return Recipe(id=recipe_id, name=name, category=category, layers=layers, mode=mode, synth=synth)

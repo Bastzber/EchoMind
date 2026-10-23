@@ -2305,6 +2305,7 @@ _RECIPE_CACHE: Dict[str, Any] = {}
 _RECIPE_DEFS = [
     {
         "id": "amb_wind",
+        "synth": "wind",
         "name": "风与气流",
         "category": "环境音",
         "mode": "env",
@@ -2324,6 +2325,7 @@ _RECIPE_DEFS = [
     },
     {
         "id": "amb_rain",
+        "synth": "rain",
         "name": "雨天",
         "category": "环境音",
         "mode": "env",
@@ -2353,6 +2355,7 @@ _RECIPE_DEFS = [
     },
     {
         "id": "amb_sea",
+        "synth": "sea",
         "name": "海边浪潮",
         "category": "环境音",
         "mode": "env",
@@ -2367,6 +2370,7 @@ _RECIPE_DEFS = [
     },
     {
         "id": "amb_fire",
+        "synth": "fire",
         "name": "篝火燃烧",
         "category": "环境音",
         "mode": "env",
@@ -2417,9 +2421,20 @@ def _get_recipe(recipe_id: str):
     spec = next((d for d in _RECIPE_DEFS if d["id"] == recipe_id), None)
     if not spec:
         return None
+    if spec.get("synth"):
+        try:
+            import threading as _threading
+
+            from core.noise_ambience import warmup as _warmup
+
+            _threading.Thread(target=_warmup, daemon=True).start()
+        except Exception:
+            pass
+
     recipe = build_from_library(
         spec["id"], spec["name"], spec["category"], spec["queries"],
         mode=spec.get("mode", "step"),
+        synth=spec.get("synth", ""),
     )
     _RECIPE_CACHE[recipe_id] = recipe
     return recipe
@@ -2532,7 +2547,7 @@ async def recipe_ambience(recipe_id: str, payload: Dict[str, Any]):
 @app.post("/api/v1/recipes/{recipe_id}/session")
 async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
     """把一串触发事件渲染成一段录音（最长 60 秒）。"""
-    from core.sound_recipe import render_session
+    from core.sound_recipe import render_ambience_performance, render_session
 
     recipe = _get_recipe(recipe_id)
     if recipe is None or not recipe.layers:
@@ -2544,7 +2559,14 @@ async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
     for event in events:
         event.setdefault("sample", sample)
         event.setdefault("variation", variation)
-    samples = await asyncio.to_thread(render_session, recipe, events, max_seconds)
+    if recipe.mode == "env":
+        samples = await asyncio.to_thread(
+            render_ambience_performance, recipe, events, max_seconds,
+            enabled if isinstance(enabled, list) else None,
+            layer_samples,
+        )
+    else:
+        samples = await asyncio.to_thread(render_session, recipe, events, max_seconds)
     return {"success": True, **_serve_recipe_audio(samples)}
 
 

@@ -99,9 +99,20 @@ tags total: 1  scene: 0  attr: 1   （动物）
 短词快通道的关键坑：`_fts_keyword_search` 的 limit 传了 `fetch_k`（只有 3），
 导致「命中数 ≥5」永远不成立，快通道从不触发；改为固定取 200 条候选后正常。
 
-### P3 剩余
-- 前端提示：搜索框区分「关键词」与「长句语义」（可选）
-- 打包验证
+### 打包验证（第七轮）
+- 安装包内模型路径：`resources/models/bge-small-zh`（package.json extraResources 已加）
+- 打包版实测：
+  ```
+  embed: available=true loaded=true device=cuda dim=512
+  玻璃                    → 0.05s（FTS 快通道）
+  像玻璃被击碎那种清脆的声音 → 0.32s（BGE）
+  ```
+- 安装包体积增加约 92MB
+
+### 已知取舍
+- 由于 BGE-M3（2.2GB）下载在 hf-mirror 上反复中断，当前使用 **bge-small-zh-v1.5（512 维）**
+- 代码支持按目录自动选择：把 `models/bge-m3` 放进去即自动切换为 1024 维，无需改代码
+- 效果验证：语义排序明显优于 CLAP 文本塔（0.861 vs 0.308 同查询）
 - 模型选择：网络恢复后可换回 bge-m3（代码已支持按目录自动选择，维度自适应）
 
 ## 旧的 P3 说明（存档）

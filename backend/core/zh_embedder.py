@@ -15,8 +15,18 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).resolve().parents[2]
+_roots = [_ROOT / "models"]
+try:
+    import config as _app_config
+
+    _roots.insert(0, Path(_app_config.MODELS_DIR))
+except Exception:
+    pass
+
 # 优先 BGE-M3（更强），缺失时回退 bge-small-zh（体积小、下载可行）
-CANDIDATES = [_ROOT / "models" / "bge-m3", _ROOT / "models" / "bge-small-zh"]
+CANDIDATES = [
+    root / name for name in ("bge-m3", "bge-small-zh") for root in _roots
+]
 
 
 def _complete(path: Path) -> bool:

@@ -134,7 +134,8 @@
         "filter": [
           "model-manifest.json",
           "CLAP_MODEL_NOTICE.txt",
-          "clap/**/*"
+          "clap/**/*",
+          "bge-small-zh/**/*"
         ]
       }
     ],

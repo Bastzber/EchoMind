@@ -2839,6 +2839,93 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
     return {"success": True, "message": "已提交重新分析", "job_id": job_id}
 
 
+# ==================== M4：标签双层（scene / attr） ====================
+
+@app.get("/api/v1/tags")
+async def list_tags(project_id: str = Query(default="default")):
+    from core import tag_layers
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        tags = tag_layers.list_tags(cursor, project_id)
+    return {
+        "success": True,
+        "scene": [t for t in tags if t["layer"] == "scene"],
+        "attr": [t for t in tags if t["layer"] == "attr"],
+        "total": len(tags),
+    }
+
+
+@app.post("/api/v1/tags")
+async def create_tag(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    import uuid as _uuid
+
+    from core import tag_layers
+
+    name = str(payload.get("name") or "").strip()
+    layer = str(payload.get("layer") or tag_layers.LAYER_ATTR)
+    if not name:
+        raise HTTPException(status_code=422, detail="标签名不能为空")
+    if layer not in tag_layers.VALID_LAYERS:
+        raise HTTPException(status_code=422, detail="layer 只能是 scene 或 attr")
+    db_manager = get_db_manager()
+    tag_id = "tag_" + _uuid.uuid4().hex[:10]
+    with db_manager.get_cursor() as cursor:
+        try:
+            cursor.execute(
+                "INSERT INTO tags (id, project_id, name, layer, sort_order, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (tag_id, project_id, name, layer, 0, datetime.now().isoformat()),
+            )
+            cursor.connection.commit()
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=f"标签已存在: {exc}") from exc
+    return {"success": True, "id": tag_id, "name": name, "layer": layer}
+
+
+@app.patch("/api/v1/tags/{tag_id}")
+async def update_tag(tag_id: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+    from core import tag_layers
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        ok = True
+        if payload.get("name") is not None:
+            ok = tag_layers.rename_tag(cursor, project_id, tag_id, payload["name"]) and ok
+        if payload.get("layer") is not None:
+            ok = tag_layers.set_layer(cursor, project_id, tag_id, payload["layer"]) and ok
+        cursor.connection.commit()
+    return {"success": ok}
+
+
+@app.delete("/api/v1/tags/{tag_id}")
+async def delete_tag(tag_id: str, project_id: str = Query(default="default")):
+    from core import tag_layers
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        ok = tag_layers.delete_tag(cursor, project_id, tag_id)
+        cursor.connection.commit()
+    return {"success": ok}
+
+
+@app.post("/api/v1/files/{file_uuid}/tags")
+async def set_file_tags(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+    from core import tag_layers
+
+    tag_ids = payload.get("tag_ids") or []
+    if not isinstance(tag_ids, list):
+        raise HTTPException(status_code=422, detail="tag_ids 必须是数组")
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        try:
+            tag_layers.set_file_tags(cursor, project_id, file_uuid, [str(t) for t in tag_ids])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        cursor.connection.commit()
+    return {"success": True}
+
+
 @app.get("/api/v1/db/folder/stats")
 async def folder_stats(path: str = Query(...), project_id: str = Query(default="default")):
     """目录统计：文件数 / 有描述数 / 有标签数 / 总大小。"""

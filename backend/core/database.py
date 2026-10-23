@@ -488,6 +488,27 @@ class DatabaseManager:
         finally:
             self._migration_backup_in_progress = None
 
+    def _ensure_tag_layers(self, cursor) -> None:
+        """M4：标签双层表 + 首次迁移（files.tags → tags/file_tags）。"""
+        try:
+            from core import tag_layers
+
+            tag_layers.ensure_schema(cursor)
+            marker = cursor.execute(
+                "SELECT value FROM app_meta WHERE key='tag_migrated_v1'"
+            ).fetchone()
+            if marker:
+                return
+            linked = tag_layers.migrate_from_files(cursor)
+            cursor.execute(
+                "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('tag_migrated_v1', ?)",
+                (str(linked),),
+            )
+            cursor.connection.commit()
+            _get_logger().info("[Tags] 双层标签迁移完成，关联 %s 条", linked)
+        except Exception as exc:
+            _get_logger().warning("[Tags] 双层标签初始化失败: %s", exc)
+
     def _ensure_user_folder_files_table(self, cursor) -> None:
         """用户文件夹的「单个音效」成员表（区别于整目录映射）。"""
         try:
@@ -644,6 +665,7 @@ class DatabaseManager:
         with self.get_cursor() as cursor:
             self._ensure_content_hash_columns(cursor)
             self._ensure_user_folder_files_table(cursor)
+            self._ensure_tag_layers(cursor)
             schema_version_pending = False
             # 检查 files 表是否存在
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")

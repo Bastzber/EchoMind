@@ -360,6 +360,78 @@ def render_session(recipe: Recipe, events: Sequence[Dict[str, Any]], max_seconds
     return buffer
 
 
+def render_ambience(
+    recipe: Recipe,
+    x: float,
+    y: float,
+    seconds: float = 6.0,
+    variation: float = 1.0,
+    enabled: Optional[Sequence[str]] = None,
+    layer_samples: Optional[Dict[str, str]] = None,
+) -> np.ndarray:
+    """渲染一段可无缝循环的环境床（底声铺满，细节层随机点缀）。"""
+    rng = random.Random()
+    x = min(max(float(x), 0.0), 1.0)
+    y = min(max(float(y), 0.0), 1.0)
+    total = int(seconds * TARGET_SR)
+    fade = int(0.35 * TARGET_SR)
+    buffer = np.zeros(total + fade, dtype=np.float32)
+    enabled_set = set(enabled) if enabled else None
+
+    for layer in recipe.layers:
+        if enabled_set is not None and layer.id not in enabled_set:
+            continue
+        layer_prob = (
+            layer.prob_min + (layer.prob_max - layer.prob_min) * y
+            if layer.prob_max >= 0 else layer.prob
+        )
+        if rng.random() > max(layer_prob, 0.02):
+            continue
+        override = (layer_samples or {}).get(layer.id)
+        if override:
+            source = _load_single(override, 2.4)
+        else:
+            if not layer.audio:
+                layer.ensure_audio(layer.trim_seconds)
+            if not layer.audio:
+                continue
+            source = rng.choice(layer.audio)
+        if source is None or source.size == 0:
+            continue
+
+        gain = _db_to_gain(layer.gain_db - 6.0 * x)
+        if layer.strength_gain:
+            gain *= _db_to_gain(layer.strength_gain * x)
+
+        is_bed = layer.id in ("base", "bed", "open", "step")
+        if is_bed:
+            # 底声：循环铺满整段，首尾交叉淡化保证无缝
+            pos = 0
+            while pos < total + fade:
+                chunk = source * gain
+                end = min(len(buffer), pos + len(chunk))
+                buffer[pos:end] += chunk[: end - pos]
+                pos += len(chunk) - int(0.05 * TARGET_SR)
+        else:
+            # 细节层：随机点缀若干次
+            count = max(1, int(seconds * (0.6 + layer_prob * 2.5)))
+            for _ in range(count):
+                start = rng.randint(0, max(1, total - len(source)))
+                end = min(len(buffer), start + len(source))
+                buffer[start:end] += source[: end - start] * gain
+
+    # 首尾交叉淡化 → 可无缝 loop
+    head = buffer[:fade].copy()
+    tail = buffer[total:total + fade]
+    ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+    buffer[total:total + fade] = tail * (1.0 - ramp) + head * ramp
+    out = buffer[:total]
+    peak = float(np.max(np.abs(out))) if out.size else 0.0
+    if peak > 0.95:
+        out = out * (0.95 / peak)
+    return out
+
+
 def to_wav_bytes(samples: np.ndarray, sample_rate: int = TARGET_SR) -> bytes:
     pcm = np.clip(samples, -1.0, 1.0)
     pcm16 = (pcm * 32767).astype("<i2")

@@ -2323,6 +2323,61 @@ _RECIPE_DEFS = [
         ],
     },
     {
+        "id": "amb_rain",
+        "name": "雨天",
+        "category": "环境音",
+        "mode": "env",
+        "queries": [
+            {"layer": "base", "label": "雨声底噪", "q": "雨", "prob": 1.0, "gain_db": -8.0,
+             "trim_seconds": 2.0, "strength_gain": 3.0, "require": ["雨"]},
+            {"layer": "gust", "label": "雨点细节", "q": "雨滴", "prob": 0.4, "gain_db": -14.0,
+             "trim_seconds": 1.2, "prob_min": 0.2, "prob_max": 0.9, "require": ["雨滴", "雨"]},
+            {"layer": "strong", "label": "雷声", "q": "雷", "prob": 0.12, "gain_db": -8.0,
+             "trim_seconds": 2.0, "strength_gain": 6.0, "prob_min": 0.02, "prob_max": 0.35,
+             "require": ["雷"]},
+        ],
+    },
+    {
+        "id": "amb_forest",
+        "name": "林间鸟鸣",
+        "category": "环境音",
+        "mode": "env",
+        "queries": [
+            {"layer": "base", "label": "林间底噪", "q": "树林", "prob": 1.0, "gain_db": -10.0,
+             "trim_seconds": 2.0, "strength_gain": 2.0, "require": ["树林", "森林"]},
+            {"layer": "gust", "label": "鸟鸣", "q": "鸟叫", "prob": 0.5, "gain_db": -10.0,
+             "trim_seconds": 1.2, "prob_min": 0.15, "prob_max": 0.95, "require": ["鸟"]},
+            {"layer": "strong", "label": "虫声", "q": "虫鸣", "prob": 0.3, "gain_db": -14.0,
+             "trim_seconds": 1.2, "prob_min": 0.05, "prob_max": 0.6, "require": ["虫"]},
+        ],
+    },
+    {
+        "id": "amb_sea",
+        "name": "海边浪潮",
+        "category": "环境音",
+        "mode": "env",
+        "queries": [
+            {"layer": "base", "label": "海浪底声", "q": "海浪", "prob": 1.0, "gain_db": -8.0,
+             "trim_seconds": 2.4, "strength_gain": 4.0, "require": ["海浪", "海"]},
+            {"layer": "gust", "label": "浪花细节", "q": "浪花", "prob": 0.45, "gain_db": -12.0,
+             "trim_seconds": 1.2, "prob_min": 0.15, "prob_max": 0.9, "require": ["浪花", "海水"]},
+            {"layer": "strong", "label": "海风", "q": "海风", "prob": 0.2, "gain_db": -14.0,
+             "trim_seconds": 1.4, "strength_gain": 5.0, "prob_min": 0.05, "prob_max": 0.5, "require": ["海风"]},
+        ],
+    },
+    {
+        "id": "amb_fire",
+        "name": "篝火燃烧",
+        "category": "环境音",
+        "mode": "env",
+        "queries": [
+            {"layer": "base", "label": "火焰底声", "q": "火", "prob": 1.0, "gain_db": -10.0,
+             "trim_seconds": 2.0, "strength_gain": 3.0, "require": ["火"]},
+            {"layer": "gust", "label": "噼啪细节", "q": "噼啪", "prob": 0.5, "gain_db": -12.0,
+             "trim_seconds": 0.6, "prob_min": 0.15, "prob_max": 0.9, "require": ["噼啪", "燃烧"]},
+        ],
+    },
+    {
         "id": "footstep_wood",
         "name": "木板脚步",
         "category": "脚步",
@@ -2445,6 +2500,29 @@ async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
         layer_samples = {}
     samples = await asyncio.to_thread(
         render_hit, recipe, x, y, None, sample, variation,
+        enabled if isinstance(enabled, list) else None,
+        layer_samples,
+    )
+    return {"success": True, **_serve_recipe_audio(samples)}
+
+
+@app.post("/api/v1/recipes/{recipe_id}/ambience")
+async def recipe_ambience(recipe_id: str, payload: Dict[str, Any]):
+    """渲染一段可无缝循环的环境床（拖动触控板时连续换气）。"""
+    from core.sound_recipe import render_ambience
+
+    recipe = _get_recipe(recipe_id)
+    if recipe is None or not recipe.layers:
+        raise HTTPException(status_code=404, detail="配方不存在或样本不足")
+    x = float(payload.get("x", 0.5) or 0.5)
+    y = float(payload.get("y", 0.5) or 0.5)
+    seconds = min(max(float(payload.get("seconds", 6) or 6), 2.0), 12.0)
+    enabled = payload.get("enabled")
+    layer_samples = payload.get("layer_samples") or {}
+    if not isinstance(layer_samples, dict):
+        layer_samples = {}
+    samples = await asyncio.to_thread(
+        render_ambience, recipe, x, y, seconds, 1.0,
         enabled if isinstance(enabled, list) else None,
         layer_samples,
     )

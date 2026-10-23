@@ -1925,6 +1925,7 @@
             takes: [],
             enabled: new Set(),
             layerSamples: {},
+            ambiencePlaying: false,
         };
 
         async function openRecipeModal() {
@@ -1966,6 +1967,106 @@
                     list.appendChild(item);
                 });
             });
+        }
+
+        // ===== 环境音：可循环的无缝环境床，拖动时交叉淡化换气 =====
+        let ambiencePlayer = null;
+        let ambienceTimer = null;
+        let ambiencePending = false;
+        let ambienceLastAt = 0;
+
+        function fadeAudio(audio, from, to, ms, done) {
+            const steps = Math.max(1, Math.round(ms / 50));
+            let i = 0;
+            const timer = setInterval(() => {
+                i += 1;
+                const value = from + (to - from) * (i / steps);
+                try { audio.volume = Math.min(1, Math.max(0, value)); } catch (_) { }
+                if (i >= steps) {
+                    clearInterval(timer);
+                    done && done();
+                }
+            }, 50);
+        }
+
+        function stopAmbience() {
+            recipeState.ambiencePlaying = false;
+            if (ambienceTimer) { clearInterval(ambienceTimer); ambienceTimer = null; }
+            if (ambiencePlayer) {
+                const old = ambiencePlayer;
+                ambiencePlayer = null;
+                fadeAudio(old, old.volume, 0, 250, () => {
+                    try { old.pause(); } catch (_) { }
+                });
+            }
+            const btn = document.getElementById('recipeStopAmbience');
+            if (btn) btn.classList.add('hidden');
+        }
+
+        async function fetchAmbience(x, y) {
+            const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+            const data = await rendererApi.post(
+                `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/ambience`,
+                {
+                    x, y, seconds: 6,
+                    enabled: [...recipeState.enabled],
+                    layer_samples: recipeState.layerSamples,
+                },
+                { timeoutMs: 60000 }
+            );
+            return base + data.url;
+        }
+
+        async function startAmbience(x, y) {
+            if (!recipeState.current) return;
+            recipeState.ambiencePlaying = true;
+            stopRecipeAudio();
+            const btn = document.getElementById('recipeStopAmbience');
+            if (btn) btn.classList.remove('hidden');
+            try {
+                const url = await fetchAmbience(x, y);
+                const audio = new Audio(url);
+                audio.loop = true;
+                audio.volume = 0;
+                await audio.play().catch(() => {});
+                const previous = ambiencePlayer;
+                ambiencePlayer = audio;
+                fadeAudio(audio, 0, 0.9, 350);
+                if (previous) fadeAudio(previous, previous.volume, 0, 350, () => { try { previous.pause(); } catch (_) { } });
+            } catch (error) {
+                showNotification('环境音生成失败: ' + error.message, 'error');
+            }
+        }
+
+        function updateAmbience(x, y) {
+            if (!recipeState.ambiencePlaying || ambiencePending) return;
+            const now = Date.now();
+            if (now - ambienceLastAt < 450) return;
+            ambienceLastAt = now;
+            ambiencePending = true;
+            (async () => {
+                try {
+                    const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
+                    const data = await rendererApi.post(
+                        `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/ambience`,
+                        {
+                            x, y, seconds: 6,
+                            enabled: [...recipeState.enabled],
+                            layer_samples: recipeState.layerSamples,
+                        },
+                        { timeoutMs: 60000 }
+                    );
+                    const audio = new Audio(base + data.url);
+                    audio.loop = true;
+                    audio.volume = 0;
+                    await audio.play().catch(() => {});
+                    const previous = ambiencePlayer;
+                    ambiencePlayer = audio;
+                    fadeAudio(audio, 0, 0.9, 300);
+                    if (previous) fadeAudio(previous, previous.volume, 0, 300, () => { try { previous.pause(); } catch (_) { } });
+                } catch (_) { }
+                ambiencePending = false;
+            })();
         }
 
         function renderRecipeLayers() {
@@ -2025,6 +2126,7 @@
             recipeState.sample = null;
             recipeState.layerSamples = {};
             recipeState.enabled = new Set((recipe.layers || []).map((l) => l.id));
+            stopAmbience();
             document.getElementById('recipeTitle').textContent = recipe.name;
             document.getElementById('recipeLayers').textContent = (recipe.mode === 'env' ? '环境音' : '拟音') + ` · ${(recipe.layers || []).length} 层`;
             renderRecipeLayers();
@@ -6415,10 +6517,23 @@
                 document.getElementById('recipeModal').classList.add('hidden');
                 document.getElementById('recipeModal').classList.remove('flex');
             });
-            document.getElementById('recipePad')?.addEventListener('mousedown', (e) => {
+            // 环境音：按住拖动 → 连续合成；拟音：点一下 → 演奏一步
+            const padEl = document.getElementById('recipePad');
+            padEl?.addEventListener('mousedown', (e) => {
                 e.preventDefault();
-                triggerRecipeHit(recipePadParams(e));
+                const params = recipePadParams(e);
+                if (recipeState.current && recipeState.current.mode === 'env') {
+                    startAmbience(params.x, params.y);
+                } else {
+                    triggerRecipeHit(params);
+                }
             });
+            padEl?.addEventListener('mousemove', (e) => {
+                if (!recipeState.ambiencePlaying) return;
+                const params = recipePadParams(e);
+                updateAmbience(params.x, params.y);
+            });
+            document.getElementById('recipeStopAmbience')?.addEventListener('click', () => stopAmbience());
             document.getElementById('recipeRecordBtn')?.addEventListener('click', () => {
                 if (recipeState.recording) stopRecipeRecording(); else startRecipeRecording();
             });
@@ -6429,7 +6544,10 @@
                 toggleRecipeAudio(session.url, 'session', null);
                 button.textContent = (recipeAudioOwner === 'session') ? '暂停试听' : '试听录制';
             });
-            document.getElementById('recipeCloseBtn')?.addEventListener('click', () => stopRecipeAudio());
+            document.getElementById('recipeCloseBtn')?.addEventListener('click', () => {
+                stopRecipeAudio();
+                stopAmbience();
+            });
             document.getElementById('recipeSaveBtn')?.addEventListener('click', () => saveRecipeSession());
             document.getElementById('recipeResetLayers')?.addEventListener('click', () => {
                 if (recipeState.current) selectRecipe(recipeState.current);
@@ -9438,6 +9556,7 @@
                 </div>
                 <div id="recipeTakes" class="hidden px-4 py-2 border-t max-h-32 overflow-y-auto text-xs" style="border-color: var(--border-color);"></div>
                 <div class="flex items-center gap-2 px-4 py-3 border-t" style="border-color: var(--border-color);">
+                    <button id="recipeStopAmbience" class="hidden px-3 py-1.5 rounded-md text-xs" style="background: var(--bg-tertiary);">■ 停止环境音</button>
                     <button id="recipeRecordBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#ef4444;">● 开始录制</button>
                     <span id="recipeTimer" class="text-xs font-mono opacity-70">0.0 / 60 秒</span>
                     <div class="flex-1"></div>

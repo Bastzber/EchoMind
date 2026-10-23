@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-import os
+import os  # noqa: F401  （_PREFERRED 读取环境变量）
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,10 +23,12 @@ try:
 except Exception:
     pass
 
-# 优先 BGE-M3（更强），缺失时回退 bge-small-zh（体积小、下载可行）
-CANDIDATES = [
-    root / name for name in ("bge-m3", "bge-small-zh") for root in _roots
-]
+# 默认 bge-small-zh：512 维、92MB、速度快、区分度好（0.86 vs 0.40）
+# 想要更强的 BGE-M3 时设置环境变量 ECHOMIND_EMBED_MODEL=bge-m3，
+# 并重建文本索引（维度会从 512 变 1024）
+_PREFERRED = os.environ.get("ECHOMIND_EMBED_MODEL", "bge-small-zh")
+_ORDER = ("bge-m3", "bge-small-zh") if _PREFERRED == "bge-m3" else ("bge-small-zh", "bge-m3")
+CANDIDATES = [root / name for name in _ORDER for root in _roots]
 
 
 def _complete(path: Path) -> bool:

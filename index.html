@@ -11056,8 +11056,42 @@
                         + `（哈希 ${kinds.sha256 || 0}｜路径 ${kinds.path || 0}｜`
                         + `反向路径 ${kinds.reverse_path || 0}｜文件名 ${kinds.filename || 0}）`
                         + `，多义 ${preview.ambiguous}，未匹配 ${preview.unmatched}`;
+                    const missingItems = preview?.missing || [];
+                    const exportMissing = async () => {
+                        if (!missingItems.length) return;
+                        try {
+                            const header = '\uFEFF文件名,相对路径,未匹配原因,描述';
+                            const escape = (value) => '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
+                            const lines = missingItems.map((item) =>
+                                [item.filename || '', item.rel || '', item.reason || '', item.description || '']
+                                    .map(escape).join(',')
+                            );
+                            const saved = await window.electronAPI?.dialogs?.showSaveDialog({
+                                title: '导出未匹配清单',
+                                defaultPath: '未匹配清单.csv',
+                                filters: [{ name: 'CSV', extensions: ['csv'] }],
+                            });
+                            if (!saved || saved.canceled || !saved.filePath) return;
+                            const content = [header, ...lines].join('\r\n');
+                            const written = await window.electronAPI?.files?.writeText(saved.filePath, content);
+                            if (written?.success !== false) {
+                                showNotification('已导出 ' + missingItems.length + ' 条未匹配记录', 'success');
+                            }
+                        } catch (error) {
+                            showNotification('导出失败: ' + (error?.message || error), 'error');
+                        }
+                    };
+                    if (missingItems.length) {
+                        const exportBtn = document.createElement('button');
+                        exportBtn.className = 'ml-2 px-2 py-0.5 rounded text-xs border';
+                        exportBtn.style.borderColor = 'var(--border-color)';
+                        exportBtn.textContent = '导出未匹配清单 (' + missingItems.length + ')';
+                        exportBtn.addEventListener('click', exportMissing);
+                        if (statusEl) { statusEl.textContent = summary + ' '; statusEl.appendChild(exportBtn); }
+                    }
+
                     if (!preview || !preview.matched) {
-                        if (statusEl) statusEl.textContent = summary;
+                        if (statusEl && !missingItems.length) statusEl.textContent = summary;
                         showNotification('没有匹配到任何音效，请确认音效库已导入', 'error');
                         return;
                     }

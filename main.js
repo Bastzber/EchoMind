@@ -1659,7 +1659,18 @@ function setupIpcHandlers() {
     return await showOwnedOpenDialog(event, options);
   });
 
-  ipcMain.handle('dialog-save', async (event, options) => {
+  ipcMain.handle('file-write-text', async (event, payload = {}) => {
+    try {
+        const filePath = String(payload.filePath || '');
+        if (!filePath) return { success: false, error: '缺少文件路径' };
+        await fs.promises.writeFile(filePath, String(payload.content ?? ''), 'utf8');
+        return { success: true, path: filePath };
+    } catch (error) {
+        return { success: false, error: error?.message || String(error) };
+    }
+});
+
+ipcMain.handle('dialog-save', async (event, options) => {
     return await dialog.showSaveDialog(mainWindow, options);
   });
 

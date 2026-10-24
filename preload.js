@@ -164,6 +164,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     set: (prefs) => ipcRenderer.invoke('window-prefs-set', prefs)
   },
 
+  // 写文本文件（导出 CSV 等）
+  files: {
+    writeText: (filePath, content) => ipcRenderer.invoke('file-write-text', { filePath, content })
+  },
+
   // 对话框
   dialogs: {
     showMessageBox: (options) => ipcRenderer.invoke('dialog-message', options),

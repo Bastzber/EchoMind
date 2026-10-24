@@ -122,6 +122,7 @@ def preview(project_id: str, items: List[Dict[str, Any]], db_manager=None) -> Di
     ambiguous = 0
     unmatched = 0
     samples: List[Dict[str, Any]] = []
+    missing_items: List[Dict[str, Any]] = []
     for item in items:
         rel = str(item.get("rel") or "")
         uuid, how = matcher.match(rel, item.get("sha256", ""), item.get("filename", ""))
@@ -139,10 +140,27 @@ def preview(project_id: str, items: List[Dict[str, Any]], db_manager=None) -> Di
                 samples.append({"rel": rel, "file_uuid": uuid, "how": how})
         elif _norm(item.get("filename")):
             name_key = _norm(item.get("filename")).lower()
-            ambiguous += 1 if len(matcher.by_name.get(name_key) or []) > 1 else 0
-            unmatched += 0 if len(matcher.by_name.get(name_key) or []) > 1 else 1
+            candidates = matcher.by_name.get(name_key) or []
+            if len(candidates) > 1:
+                ambiguous += 1
+                reason = "同名多个（%d 个候选）" % len(candidates)
+            else:
+                unmatched += 1
+                reason = "库里没有这个文件"
+            missing_items.append({
+                "rel": rel,
+                "filename": str(item.get("filename") or ""),
+                "reason": reason,
+                "description": str(item.get("description") or "")[:120],
+            })
         else:
             unmatched += 1
+            missing_items.append({
+                "rel": rel,
+                "filename": "",
+                "reason": "条目缺少路径和文件名",
+                "description": str(item.get("description") or "")[:120],
+            })
     by_kind: Dict[str, int] = {}
     for entry in matched:
         by_kind[entry["how"]] = by_kind.get(entry["how"], 0) + 1
@@ -152,6 +170,7 @@ def preview(project_id: str, items: List[Dict[str, Any]], db_manager=None) -> Di
         "unmatched": unmatched,
         "by_kind": by_kind,
         "samples": samples,
+        "missing": missing_items,
         "pairs": matched,
         "pack": len(items),
     }

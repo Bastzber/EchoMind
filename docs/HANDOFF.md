@@ -16,7 +16,11 @@ cd E:\音效库管理软件\EchoMind\EchoMind-main
 powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 ```
 
-**打包发版**
+**打包发版 —— 只在用户明确说「打包」时才做**
+
+> ⚠ 一整套要 **8~9 分钟**（后端 ≈4 + 安装包 ≈5）。改完代码一律走 dev 模式 + Ctrl+R 验证，
+> **不要顺手重打包**。那次「顺手把修复也打进包里」就是典型反面教材：多花 9 分钟，
+> 用户还得等。要新版安装包会明说。
 
 ```powershell
 # 1) 后端，约 4 分钟

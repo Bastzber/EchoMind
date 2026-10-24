@@ -8583,6 +8583,19 @@
                                 );
                             }
                         });
+                        makeBtn('整组删除（含保留的那份）', '#7f1d1d', async () => {
+                            const paths = group.files.map(file => file.path);
+                            if (!confirm(`把这一组的 ${paths.length} 个文件全部移入回收站，并从库中移除？\n\n适合"整组都是静音/无效文件"的情况。`)) return;
+                            const result = await resolveDuplicates(paths, 'source');
+                            if (result && !result.failed) {
+                                panel.querySelectorAll('label').forEach(row => row.remove());
+                                const head = card.querySelector('.dup-head-title');
+                                const save = card.querySelector('.dup-save');
+                                if (head) head.textContent = `第 ${index + 1} 组 · 已整组删除（原有 ${paths.length} 个）`;
+                                if (save) save.textContent = '可省 0 MB';
+                                markProcessed(card, `已整组删除 ${paths.length} 个文件（回收站可还原）`, paths.length);
+                            }
+                        });
                         panel.appendChild(actions);
                     };
 

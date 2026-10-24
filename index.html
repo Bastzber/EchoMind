@@ -8672,20 +8672,21 @@
             setBusy(true);
             try {
                 const projectId = encodeURIComponent(currentProject?.id || 'default');
+                showNotification('正在扫描库目录…', 'info');
                 const preview = await rendererApi.post(
                     '/api/v1/db/library/rescan?project_id=' + projectId,
                     { dry_run: true },
-                    { timeoutMs: 600000 }
+                    { timeoutMs: 900000 }
                 );
-                const missing = preview?.missing_at_least || 0;
+                const missing = preview?.missing || 0;
                 const roots = (preview?.roots || []).join('、');
                 if (!missing) {
-                    showNotification('库目录里没有发现未入库的文件', 'info');
+                    showNotification(`扫描了 ${preview?.scanned || 0} 个音频，全部已在库中`, 'success');
                     setBusy(false);
                     return;
                 }
                 const samples = (preview?.missing_sample || []).slice(0, 3).join('\n');
-                if (!confirm(`扫描了 ${preview.scanned} 个音频，发现至少 ${missing} 个磁盘上有、库里没有的文件。\n\n库目录：${roots}\n示例：\n${samples}\n\n要把它们补录进库吗？（补录后会自动计算哈希）`)) {
+                if (!confirm(`扫描了 ${preview.scanned} 个音频，其中 ${missing} 个磁盘上有、库里没有。\n\n库目录：${roots}\n示例：\n${samples}\n\n要把这 ${missing} 个补录进库吗？（补录后会自动计算哈希）`)) {
                     setBusy(false);
                     return;
                 }

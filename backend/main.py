@@ -3308,7 +3308,8 @@ async def start_library_rescan(payload: Dict[str, Any] = None, background_tasks:
             for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (project_id,)):
                 if path:
                     known.add(canonicalize_path(str(path)))
-        missing = []
+        missing_count = 0
+        samples: List[str] = []
         scanned = 0
         for root_dir in roots:
             base = _Path(root_dir)
@@ -3318,18 +3319,16 @@ async def start_library_rescan(payload: Dict[str, Any] = None, background_tasks:
                 if entry.is_file() and entry.suffix.lower() in audio_exts:
                     scanned += 1
                     if canonicalize_path(str(entry)) not in known:
-                        missing.append(str(entry))
-                        if len(missing) >= 50:
-                            break
-            if len(missing) >= 50:
-                break
+                        missing_count += 1
+                        if len(samples) < 20:
+                            samples.append(str(entry))
         return {
             "success": True,
             "dry_run": True,
             "roots": roots,
             "scanned": scanned,
-            "missing_sample": missing,
-            "missing_at_least": len(missing),
+            "missing": missing_count,
+            "missing_sample": samples,
         }
 
     if _rescan_state.get("running"):

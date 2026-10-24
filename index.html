@@ -11206,6 +11206,27 @@
                             throw new Error('当前工程尚未就绪，请稍后重试');
                         }
 
+                        // 导入前先比一遍：这个目录是不是已经导入过了
+                        try {
+                            const precheck = await rendererApi.post(
+                                '/api/v1/db/folder/precheck?project_id=' + encodeURIComponent(importProjectId),
+                                { path: folderPath },
+                                { timeoutMs: 120000 }
+                            );
+                            if (precheck && precheck.existing > 0) {
+                                const pct = Math.round((precheck.ratio || 0) * 100);
+                                const message = precheck.already_imported
+                                    ? `这个文件夹里有 ${precheck.existing} / ${precheck.total} 个文件（${pct}%）在库里已经存在（同名同大小），看起来整个包之前导入过。\n\n仍然继续导入吗？重复导入会产生大量重复音效。`
+                                    : `这个文件夹里有 ${precheck.existing} / ${precheck.total} 个文件（${pct}%）与库里已有文件同名同大小，可能是重复导入。\n\n继续导入吗？`;
+                                if (!confirm(message)) {
+                                    showNotification('已取消导入', 'info');
+                                    return;
+                                }
+                            }
+                        } catch (precheckError) {
+                            console.warn('[Import] 预检失败，按原流程继续:', precheckError);
+                        }
+
                         if (!window.electronAPI?.backendAPI?.importFolderAsync) {
                             throw new Error(i18n.t('import.backend.unavailable'));
                         }

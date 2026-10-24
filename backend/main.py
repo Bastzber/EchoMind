@@ -3147,6 +3147,67 @@ async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(de
     }
 
 
+
+@app.post("/api/v1/db/folder/precheck")
+async def precheck_folder_import(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """导入前的重复预检：这个目录里有多少文件已经以"同名同大小"存在于库里。
+
+    只看文件名 + 字节数，不读内容，所以很快；用来提醒"这个包可能已经导入过"。
+    """
+    from pathlib import Path
+
+    folder = str(payload.get("path") or "").strip()
+    if not folder:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+    root = Path(folder)
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="目录不存在")
+
+    audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+    files = []
+    try:
+        for entry in root.rglob("*"):
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() not in audio_exts:
+                continue
+            try:
+                files.append((entry.name.lower(), entry.stat().st_size, str(entry)))
+            except OSError:
+                continue
+            if len(files) >= 20000:
+                break
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"读取目录失败: {exc}")
+
+    if not files:
+        return {"success": True, "total": 0, "existing": 0, "ratio": 0.0, "samples": [], "already_imported": False}
+
+    db_manager = get_db_manager()
+    names = sorted({name for name, _size, _path in files})
+    existing_pairs = set()
+    with db_manager.get_cursor() as cursor:
+        for start in range(0, len(names), 400):
+            chunk = names[start:start + 400]
+            marks = ",".join("?" * len(chunk))
+            rows = cursor.execute(
+                f"SELECT LOWER(filename), COALESCE(file_size,0) FROM files "
+                f"WHERE project_id=? AND LOWER(filename) IN ({marks})",
+                (project_id, *chunk),
+            ).fetchall()
+            existing_pairs.update((str(row[0]), int(row[1] or 0)) for row in rows)
+
+    matched = [path for name, size, path in files if (name, size) in existing_pairs]
+    ratio = len(matched) / len(files)
+    return {
+        "success": True,
+        "total": len(files),
+        "existing": len(matched),
+        "ratio": round(ratio, 3),
+        "already_imported": ratio >= 0.9,
+        "samples": matched[:5],
+    }
+
 @app.get("/api/v1/db/duplicates/backups")
 async def list_duplicate_backups(limit: int = Query(default=20, le=100)):
     """列出可撤回的备份清单（新的在前）。"""

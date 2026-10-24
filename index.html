@@ -8249,15 +8249,34 @@
                     head.className = 'text-xs opacity-60 mb-1';
                     head.textContent = `第 ${index + 1} 组 · ${group.count} 个同内容文件`;
                     card.appendChild(head);
+                    // 每一行都能点选：用户自己决定留哪一份（默认第一份）
+                    const radioName = 'dupKeep-' + index;
                     group.files.forEach((file, i) => {
-                        const line = document.createElement('div');
-                        line.className = 'text-xs py-0.5 truncate';
-                        line.style.opacity = i === 0 ? '1' : '0.75';
-                        line.textContent = `${i === 0 ? '[保留] ' : '      '}${file.path}`;
-                        card.appendChild(line);
+                        const row = document.createElement('label');
+                        row.className = 'flex items-start gap-2 text-xs py-0.5 cursor-pointer hover:bg-white/5 rounded px-1';
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.name = radioName;
+                        radio.checked = i === 0;
+                        radio.className = 'mt-0.5 shrink-0';
+                        const text = document.createElement('span');
+                        text.className = 'truncate';
+                        text.textContent = file.path;
+                        row.appendChild(radio);
+                        row.appendChild(text);
+                        card.appendChild(row);
                     });
-                    const dupPaths = group.files.slice(1).map(file => file.path);
-                    const keepName = String(group.files[0].path || '').split(/[\\/]/).pop() || '第一个文件';
+
+                    const pickedFiles = () => {
+                        const radios = [...card.querySelectorAll('input[type="radio"]')];
+                        const at = radios.findIndex(radio => radio.checked);
+                        const keep = group.files[at >= 0 ? at : 0];
+                        return {
+                            keep,
+                            keepName: String(keep.path || '').split(/[\\/]/).pop() || '第一个文件',
+                            dups: group.files.filter(file => file.path !== keep.path).map(file => file.path),
+                        };
+                    };
                     const actions = document.createElement('div');
                     actions.className = 'mt-1 flex items-center gap-2';
                     const makeBtn = (label, bg, handler) => {
@@ -8269,20 +8288,26 @@
                         actions.appendChild(button);
                         return button;
                     };
-                    makeBtn('只保留第一个，删库记录', '#ef4444', async () => {
-                        if (!confirm(`保留「${keepName}」，删掉其余 ${dupPaths.length} 条库记录？（磁盘文件保留）`)) return;
-                        await resolveDuplicates(dupPaths, 'records');
+                    makeBtn('保留选中的，删库记录', '#ef4444', async () => {
+                        const { keepName, dups } = pickedFiles();
+                        if (!dups.length) return;
+                        if (!confirm(`保留「${keepName}」，删掉其余 ${dups.length} 条库记录？（磁盘文件保留）`)) return;
+                        await resolveDuplicates(dups, 'records');
                         card.remove();
                     });
-                    makeBtn('只保留第一个，删源文件（回收站）', '#b91c1c', async () => {
-                        if (!confirm(`保留「${keepName}」，把其余 ${dupPaths.length} 个源文件移入回收站？`)) return;
-                        await resolveDuplicates(dupPaths, 'source');
+                    makeBtn('保留选中的，删源文件（回收站）', '#b91c1c', async () => {
+                        const { keepName, dups } = pickedFiles();
+                        if (!dups.length) return;
+                        if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个源文件移入回收站？`)) return;
+                        await resolveDuplicates(dups, 'source');
                         card.remove();
                     });
-                    makeBtn('只保留第一个，其余移到备份…', '#0ea5e9', async () => {
+                    makeBtn('保留选中的，其余移到备份…', '#0ea5e9', async () => {
+                        const { keepName, dups } = pickedFiles();
+                        if (!dups.length) return;
                         const picked = await pickBackupFolder();
                         if (!picked) return;
-                        await resolveDuplicates(dupPaths, 'backup', picked);
+                        await resolveDuplicates(dups, 'backup', picked);
                         card.remove();
                     });
                     card.appendChild(actions);
@@ -8304,17 +8329,17 @@
                     button.addEventListener('click', () => handler(button));
                     globalBar.appendChild(button);
                 };
-                globalBtn('全部：只保留一个，删库记录', '#ef4444', async () => {
-                    if (!confirm(`每组保留第一个文件，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
+                globalBtn('全部：每组保留第一份，删库记录', '#ef4444', async () => {
+                    if (!confirm(`每组保留列表里的第一份，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
                     await resolveDuplicates(allPaths, 'records');
                     box.remove();
                 });
-                globalBtn('全部：只保留一个，删源文件', '#b91c1c', async () => {
-                    if (!confirm(`每组保留第一个文件，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
+                globalBtn('全部：每组保留第一份，删源文件', '#b91c1c', async () => {
+                    if (!confirm(`每组保留列表里的第一份，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
                     await resolveDuplicates(allPaths, 'source');
                     box.remove();
                 });
-                globalBtn('全部：只保留一个，其余移到备份…', '#0ea5e9', async () => {
+                globalBtn('全部：每组保留第一份，其余移到备份…', '#0ea5e9', async () => {
                     const picked = await pickBackupFolder();
                     if (!picked) return;
                     await resolveDuplicates(allPaths, 'backup', picked);

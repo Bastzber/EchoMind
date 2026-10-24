@@ -3458,6 +3458,115 @@ async def merge_duplicates_into_tags(payload: Dict[str, Any], project_id: str = 
     }
 
 
+
+# ==================== 转码 / 损坏文件修复 ====================
+
+class TranscodeRequest(BaseModel):
+    paths: List[str]
+    target_format: str = "wav"
+    bitrate: Optional[str] = None
+    out_dir: Optional[str] = None
+    overwrite: bool = False
+
+
+def _transcode_one(source: str, target_format: str, bitrate: Optional[str], out_dir: Optional[str], overwrite: bool) -> Dict[str, Any]:
+    from core.transcode import target_extension, transcode_file
+
+    try:
+        extension = target_extension(target_format)
+    except ValueError as exc:
+        return {"source": source, "ok": False, "error": str(exc)}
+
+    source_path = Path(source)
+    if not source_path.is_file():
+        return {"source": source, "ok": False, "error": "文件不存在"}
+
+    destination_dir = Path(out_dir) if out_dir else source_path.parent / "_转码"
+    destination = destination_dir / (source_path.stem + extension)
+    if destination.exists() and not overwrite:
+        index = 2
+        while destination.exists():
+            destination = destination_dir / f"{source_path.stem} ({index}){extension}"
+            index += 1
+
+    result = transcode_file(str(source_path), str(destination), target_format, bitrate=bitrate, tolerate_errors=True)
+    return {
+        "source": source,
+        "destination": str(destination),
+        "ok": bool(result.get("ok")),
+        "salvaged": bool(result.get("salvaged")),
+        "frames": int(result.get("frames") or 0),
+        "error": result.get("error") or "",
+    }
+
+
+@app.post("/api/v1/transcode")
+async def transcode_files(payload: TranscodeRequest):
+    """把一批音频转成 WAV/MP3；坏文件尽量救回能解的部分。"""
+    if not payload.paths:
+        raise HTTPException(status_code=422, detail="paths 不能为空")
+    if len(payload.paths) > 500:
+        raise HTTPException(status_code=422, detail="单次最多 500 个文件")
+    if payload.target_format.lower() not in ("wav", "mp3"):
+        raise HTTPException(status_code=422, detail="只支持 wav / mp3")
+
+    loop = asyncio.get_running_loop()
+    results = []
+    for path in payload.paths:
+        results.append(
+            await loop.run_in_executor(
+                None,
+                _transcode_one,
+                str(path),
+                payload.target_format,
+                payload.bitrate,
+                payload.out_dir,
+                payload.overwrite,
+            )
+        )
+    ok = sum(1 for item in results if item["ok"])
+    salvaged = sum(1 for item in results if item.get("salvaged"))
+    return {
+        "success": True,
+        "total": len(results),
+        "ok": ok,
+        "failed": len(results) - ok,
+        "salvaged": salvaged,
+        "results": results,
+    }
+
+
+@app.post("/api/v1/transcode/scan-broken")
+async def scan_broken_files(project_id: str = Query(default="default")):
+    """列出解码失败的文件，附真实容器格式，便于判断是"格式不支持"还是"文件损坏"。"""
+    from core.transcode import probe_format
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            """
+            SELECT f.path, f.filename, f.file_size, a.error_message
+            FROM files f
+            JOIN file_artifacts a ON a.file_uuid = f.file_uuid AND a.project_id = f.project_id
+            WHERE f.project_id = ? AND a.kind='waveform' AND a.state='failed'
+            ORDER BY f.filename
+            """,
+            (project_id,),
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        path = row[0]
+        items.append({
+            "path": path,
+            "filename": row[1],
+            "size": int(row[2] or 0),
+            "error": row[3] or "",
+            "container": probe_format(path) if os.path.exists(path) else "",
+        })
+    return {"success": True, "total": len(items), "files": items}
+
+
 @app.get("/api/v1/tags/usage")
 async def get_tag_usage(project_id: str = Query(default="default")):
     """标签 + 使用次数（标签管理面板用）。"""

@@ -3647,6 +3647,79 @@
             return item;
         }
 
+        // 转码：把剪辑软件不认的格式转成 WAV/MP3（顺手救损坏文件）
+        function showTranscodeModal(sounds) {
+            document.getElementById('transcodeModal')?.remove();
+            const list = (sounds || []).filter(Boolean);
+            if (!list.length) return;
+
+            const overlay = document.createElement('div');
+            overlay.id = 'transcodeModal';
+            overlay.className = 'fixed inset-0 z-[310] flex items-center justify-center';
+            overlay.style.background = 'rgba(0,0,0,0.55)';
+            overlay.innerHTML =
+                '<div class="rounded-lg w-[540px] flex flex-col" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">' +
+                '  <div class="px-4 py-3 border-b text-sm font-medium" style="border-color: var(--border-color);">转码 ' + list.length + ' 个音频</div>' +
+                '  <div class="p-4 space-y-3 text-sm">' +
+                '    <div class="flex items-center gap-2"><span class="w-20 opacity-70">目标格式</span>' +
+                '      <select id="tcFormat" class="flex-1 px-2 py-1 rounded" style="background: var(--bg-tertiary);">' +
+                '        <option value="wav">WAV（无损，剪辑软件都认）</option>' +
+                '        <option value="mp3">MP3（体积小）</option>' +
+                '      </select></div>' +
+                '    <div class="flex items-center gap-2"><span class="w-20 opacity-70">输出到</span>' +
+                '      <input id="tcOutDir" type="text" class="flex-1 px-2 py-1 rounded" style="background: var(--bg-tertiary);" placeholder="留空 = 原文件夹下的 _转码 子目录"></div>' +
+                '    <label class="flex items-center gap-2 opacity-70"><input id="tcOverwrite" type="checkbox"> 覆盖同名文件</label>' +
+                '    <div class="text-xs opacity-50">损坏的文件会自动尽量救回能解码的部分（救回多少算多少）。</div>' +
+                '    <div id="tcProgress" class="text-xs opacity-60 h-4"></div>' +
+                '  </div>' +
+                '  <div class="px-4 py-3 flex justify-end gap-2 border-t" style="border-color: var(--border-color);">' +
+                '    <button id="tcCancel" class="px-3 py-1 rounded text-xs border" style="border-color: var(--border-color);">取消</button>' +
+                '    <button id="tcStart" class="px-3 py-1 rounded text-xs text-white" style="background: #8b5cf6;">开始转码</button>' +
+                '  </div>' +
+                '</div>';
+            document.body.appendChild(overlay);
+            overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
+            overlay.querySelector('#tcCancel').addEventListener('click', () => overlay.remove());
+
+            overlay.querySelector('#tcStart').addEventListener('click', async () => {
+                const format = overlay.querySelector('#tcFormat').value;
+                const outDir = overlay.querySelector('#tcOutDir').value.trim();
+                const overwrite = overlay.querySelector('#tcOverwrite').checked;
+                const progress = overlay.querySelector('#tcProgress');
+                const button = overlay.querySelector('#tcStart');
+                button.disabled = true;
+                button.style.opacity = '0.5';
+
+                const paths = list.map(item => item.path || item.file_path).filter(Boolean);
+                let done = 0, ok = 0, salvaged = 0, failed = 0;
+                const CHUNK = 20;
+                for (let i = 0; i < paths.length; i += CHUNK) {
+                    const chunk = paths.slice(i, i + CHUNK);
+                    try {
+                        const result = await rendererApi.post('/api/v1/transcode', {
+                            paths: chunk,
+                            target_format: format,
+                            out_dir: outDir || null,
+                            overwrite,
+                        }, { timeoutMs: 600000 });
+                        ok += result.ok || 0;
+                        failed += result.failed || 0;
+                        salvaged += result.salvaged || 0;
+                    } catch (error) {
+                        failed += chunk.length;
+                    }
+                    done += chunk.length;
+                    progress.textContent = '进度 ' + done + ' / ' + paths.length + '（成功 ' + ok + '，救回 ' + salvaged + '，失败 ' + failed + '）';
+                }
+                progress.textContent = '完成：成功 ' + ok + '，其中救回 ' + salvaged + '，失败 ' + failed;
+                showNotification('转码完成：' + ok + ' 个成功' + (salvaged ? '，' + salvaged + ' 个是救回的' : ''), failed ? 'warning' : 'success');
+                button.disabled = false;
+                button.style.opacity = '1';
+            });
+            lucide.createIcons();
+        }
+
+
         function showSoundContextMenu(event, sound) {
             closeSoundContextMenu();
             const menu = document.createElement('div');
@@ -3667,6 +3740,12 @@
             }));
             menu.appendChild(makeMenuItem(`粘贴标签${copiedTags && copiedTags.length ? ` (${copiedTags.length}个)` : ''}`, 'clipboard', () => pasteTagsToSounds(multi ? [...selectedSounds] : [sound.id]), { disabled: !(copiedTags && copiedTags.length) }));
             menu.appendChild(makeMenuItem('标签管理', 'tags', () => showTagManagerModal()));
+            menu.appendChild(makeMenuItem('转码为 WAV / MP3…', 'repeat', () => {
+                const targets = (selectedSounds.size > 0 && selectedSounds.has(sound.id))
+                    ? soundData.filter(item => selectedSounds.has(item.id))
+                    : [sound];
+                showTranscodeModal(targets);
+            }));
 
             // 分隔线
             const sep = document.createElement('div');

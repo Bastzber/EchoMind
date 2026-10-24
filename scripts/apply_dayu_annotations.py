@@ -87,7 +87,7 @@ def main() -> int:
     started = time.time()
     for index, item in enumerate(updates, 1):
         try:
-            manager.update_ai_description(item['file_uuid'], item['description'])
+            manager.update_ai_description(item['path'], item['description'], 'default')
             manager.update_tags(item['path'], item['tags'], 'default')
             manager.sync_layers_from_files_tags('default', file_uuid=item['file_uuid'])
             written += 1

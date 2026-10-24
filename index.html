@@ -4274,6 +4274,36 @@
             }
         }
 
+        async function renameSoundViaBackend(sound, newName) {
+            const next = String(newName || '').trim();
+            if (!next || next === sound.name) {
+                showNotification('文件名没有变化', 'info');
+                return;
+            }
+            const problem = rendererRename.validateName(next);
+            if (problem) {
+                showNotification(problem, 'error');
+                return;
+            }
+            try {
+                const data = await postBatchRename([{ file_uuid: sound.id, new_name: next }], { dry_run: false });
+                const result = (data && data.results && data.results[0]) || null;
+                if (!result || !result.ok) {
+                    showNotification((result && result.message) || '重命名失败', 'error');
+                    return;
+                }
+                rendererRename.applyResults([sound], [result]);
+                renderSoundList();
+                renderSoundDetail(sound);
+                showNotification(
+                    data && data.reindex_job ? '文件已重命名，正在更新语义索引' : '文件已重命名',
+                    'success'
+                );
+            } catch (error) {
+                showNotification('重命名失败: ' + (error?.message || error), 'error');
+            }
+        }
+
         function renderSoundDetail(sound) {
             const body = document.getElementById('detailBody');
             if (!body) return;
@@ -4298,6 +4328,35 @@
                 path.textContent = sound.filePath;
                 body.appendChild(path);
             }
+
+            // ---- 文件名（会真的改磁盘上的源文件）----
+            body.appendChild(detailSectionTitle('文件名'));
+            const nameInput = detailInput('detail-name');
+            nameInput.value = sound.name || '';
+            body.appendChild(nameInput);
+            const nameSave = detailSaveButton('重命名文件', async () => {
+                // 两步确认：第二次点击才动磁盘
+                if (!nameSave.dataset.armed) {
+                    nameSave.dataset.armed = '1';
+                    nameSave.textContent = '再点一次确认重命名';
+                    nameSave.style.color = '#ef4444';
+                    setTimeout(() => {
+                        delete nameSave.dataset.armed;
+                        nameSave.textContent = '重命名文件';
+                        nameSave.style.color = '';
+                    }, 5000);
+                    return;
+                }
+                delete nameSave.dataset.armed;
+                nameSave.textContent = '重命名文件';
+                nameSave.style.color = '';
+                await renameSoundViaBackend(sound, nameInput.value);
+            });
+            body.appendChild(nameSave);
+            const nameHint = document.createElement('div');
+            nameHint.className = 'text-[11px] opacity-40 mt-1';
+            nameHint.textContent = '会同步改磁盘上的源文件名；扩展名可以省略';
+            body.appendChild(nameHint);
 
             // ---- 标签 ----
             body.appendChild(detailSectionTitle('标签'));

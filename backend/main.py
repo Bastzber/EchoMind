@@ -2936,11 +2936,17 @@ async def batch_rename(payload: Dict[str, Any], project_id: str = Query(default=
                 )
                 cursor.connection.commit()
             db_manager.update_fts_row(file_uuid, project_id)
+            # 文件名是文本向量的输入之一，改名后这条要重算
+            db_manager.mark_artifacts_stale_for_file(project_id, file_uuid, ["text_vector"])
             entry["ok"] = True
             entry["message"] = "已重命名"
         except Exception as exc:
             entry["message"] = "数据库更新失败（文件已改名）: " + str(exc)
         results.append(entry)
+
+    reindex_job = None
+    if not dry_run and any(r["ok"] for r in results):
+        reindex_job = _schedule_project_reconcile(project_id, ["text_vector"], reason="rename")
 
     return {
         "success": all(r["ok"] for r in results),
@@ -2948,6 +2954,7 @@ async def batch_rename(payload: Dict[str, Any], project_id: str = Query(default=
         "total": len(results),
         "done": sum(1 for r in results if r["ok"]),
         "results": results,
+        "reindex_job": reindex_job,
     }
 
 
@@ -3081,14 +3088,22 @@ async def update_tag(tag_id: str, payload: Dict[str, Any], project_id: str = Que
     from core import tag_layers
 
     db_manager = get_db_manager()
+    affected = db_manager.list_file_uuids_by_tag(project_id, tag_id)
     with db_manager.get_cursor() as cursor:
         ok = True
-        if payload.get("name") is not None:
+        named = payload.get("name") is not None
+        if named:
             ok = tag_layers.rename_tag(cursor, project_id, tag_id, payload["name"]) and ok
         if payload.get("layer") is not None:
             ok = tag_layers.set_layer(cursor, project_id, tag_id, payload["layer"]) and ok
         cursor.connection.commit()
-    return {"success": ok}
+    job_id = None
+    if ok and named:
+        # 标签名变了，成员文件的 files.tags 也得跟着改
+        for file_uuid in affected:
+            db_manager.sync_tags_from_layers(project_id, file_uuid)
+        job_id = _schedule_project_reconcile(project_id, ["text_vector"], reason="tags")
+    return {"success": ok, "job_id": job_id}
 
 
 @app.delete("/api/v1/tags/{tag_id}")
@@ -3096,10 +3111,16 @@ async def delete_tag(tag_id: str, project_id: str = Query(default="default")):
     from core import tag_layers
 
     db_manager = get_db_manager()
+    affected = db_manager.list_file_uuids_by_tag(project_id, tag_id)
     with db_manager.get_cursor() as cursor:
         ok = tag_layers.delete_tag(cursor, project_id, tag_id)
         cursor.connection.commit()
-    return {"success": ok}
+    job_id = None
+    if ok:
+        for file_uuid in affected:
+            db_manager.sync_tags_from_layers(project_id, file_uuid)
+        job_id = _schedule_project_reconcile(project_id, ["text_vector"], reason="tags")
+    return {"success": ok, "job_id": job_id}
 
 
 @app.post("/api/v1/files/{file_uuid}/description")
@@ -3136,7 +3157,10 @@ async def set_file_tags(file_uuid: str, payload: Dict[str, Any], project_id: str
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         cursor.connection.commit()
-    return {"success": True}
+    # 分层标签只写在 file_tags 里，列表/搜索/向量读的是 files.tags，这里回写并标脏
+    changed = db_manager.sync_tags_from_layers(project_id, file_uuid)
+    job_id = _schedule_project_reconcile(project_id, ["text_vector"], reason="tags") if changed else None
+    return {"success": True, "job_id": job_id}
 
 
 @app.get("/api/v1/db/folder/stats")

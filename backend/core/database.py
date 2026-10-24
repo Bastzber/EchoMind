@@ -2649,6 +2649,57 @@ class DatabaseManager:
             """, (timestamp, project_id, file_uuid, *selected_kinds))
             return cursor.rowcount
 
+    def sync_tags_from_layers(self, project_id: str, file_uuid: str) -> bool:
+        """把双层标签（tags/file_tags）的标签名回写到 files.tags。
+
+        列表显示、FTS、以及文本向量的输入都读 files.tags 这一列；分层标签接口
+        只写 file_tags 的话，改完标签列表里看不到、搜索也搜不到。写完顺手把
+        这一行的文本向量标脏并同步 FTS —— 跟改描述一样。
+        """
+        try:
+            now = datetime.now().isoformat()
+            with self.get_cursor() as cursor:
+                rows = cursor.execute(
+                    """
+                    SELECT t.name FROM file_tags ft
+                    JOIN tags t ON t.id = ft.tag_id
+                    WHERE ft.project_id=? AND ft.file_uuid=?
+                    ORDER BY t.name
+                    """,
+                    (project_id, file_uuid),
+                ).fetchall()
+                names = [str(r[0]) for r in rows if r and r[0]]
+                cursor.execute(
+                    "UPDATE files SET tags=?, updated_at=? WHERE project_id=? AND file_uuid=?",
+                    (json.dumps(names, ensure_ascii=False), now, project_id, file_uuid),
+                )
+                changed = cursor.rowcount > 0
+                if changed:
+                    cursor.execute(
+                        """
+                        UPDATE file_artifacts SET state='stale', error_code=NULL,
+                            error_message=NULL, updated_at=?
+                        WHERE project_id=? AND file_uuid=? AND kind='text_vector'
+                        """,
+                        (now, project_id, file_uuid),
+                    )
+            if changed:
+                self.update_fts_row(project_id, file_uuid)
+            return changed
+        except Exception as e:
+            _get_logger().error(f"回写标签失败 {file_uuid}: {e}")
+            return False
+
+    def list_file_uuids_by_tag(self, project_id: str, tag_id: str) -> List[str]:
+        with self.get_cursor() as cursor:
+            return [
+                str(r[0])
+                for r in cursor.execute(
+                    "SELECT file_uuid FROM file_tags WHERE project_id=? AND tag_id=?",
+                    (project_id, tag_id),
+                ).fetchall()
+            ]
+
     def get_artifact_counts(self, project_id: str) -> Dict[str, Dict[str, int]]:
         result = {
             kind: {state: 0 for state in ARTIFACT_STATES}

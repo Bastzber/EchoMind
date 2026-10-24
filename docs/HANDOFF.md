@@ -58,7 +58,7 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 - 拟音工坊：修复林间鸟鸣静音（音轨接口白名单漏了 forest，四条音轨全被 400）
 - 「我的文件夹」移出：在「常用」这类自定义文件夹视图里右键，单条或多选都能「从「X」移出」
 - 左侧栏：源目录板块改名「音效库目录 · 名称不可改」+ 板块内搜索；新增「全部音效」一键回全库；收藏可再点取消
-- 右侧「详情」面板（工具栏「详情」按钮）：看/改选中音效的标签与一句话描述 + 文件信息
+- 右侧「详情」面板（工具栏「详情」按钮）：看/改文件名（会改磁盘源文件）、标签、一句话描述 + 文件信息
   （描述接口 `POST /api/v1/files/{uuid}/description`：同步 FTS + 标脏该行文本向量，
   并自动调度 `_schedule_project_reconcile(["text_vector"], reason="description")` 做增量对账，
   只重算 stale 行；实测 processed 1/1、全库 ready 数不变）
@@ -124,6 +124,10 @@ $env:ELECTRON_RUN_AS_NODE='1'
 - 本机常驻 `ELECTRON_RUN_AS_NODE=1`：跑需要真 Electron 的检查（如
   `check_electron_preload.js`）前要先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`
 - 本机没有全局 `node`，跑 js 脚本用 `node_modules\electron\dist\electron.exe`
+- **标签有两套存储**：老的 `files.tags`（JSON，列表/搜索/向量都读它）和新的
+  `tags`/`file_tags`（分层，侧栏与按标签筛选读它）。以前分层接口只写 file_tags，导致改完标签
+  列表里看不到；现在分层写入会回写 `files.tags`（`sync_tags_from_layers`）。改标签/改名/删标签
+  都会标脏这一行的 text_vector 并触发增量对账。反向（老接口写 files.tags）目前**不会**同步到 file_tags。
 
 ## 七、文档
 

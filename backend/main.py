@@ -3025,6 +3025,79 @@ async def list_duplicates(project_id: str = Query(default="default"), limit: int
     }
 
 
+
+@app.post("/api/v1/db/duplicates/resolve")
+async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """处理重复文件的"多余副本"。三种方式：
+
+    - records：只删库内记录，磁盘文件保留
+    - source：把源文件移入回收站，同时删记录（可恢复）
+    - backup：把源文件移动到指定目录做备份，同时删记录
+
+    判定重复用的是 sha256（字节级完全一致），所以删哪一份都不会丢内容。
+    """
+    import shutil
+    from pathlib import Path
+
+    paths = [str(item) for item in (payload.get("paths") or []) if str(item).strip()]
+    action = str(payload.get("action") or "records").strip()
+    target_dir = str(payload.get("target_dir") or "").strip()
+
+    if not paths:
+        raise HTTPException(status_code=422, detail="paths 不能为空")
+    if action not in ("records", "source", "backup"):
+        raise HTTPException(status_code=422, detail="action 只能是 records / source / backup")
+    if action == "backup":
+        if not target_dir:
+            raise HTTPException(status_code=422, detail="备份模式必须提供 target_dir")
+        try:
+            Path(target_dir).mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"无法创建备份目录: {exc}")
+
+    db_manager = get_db_manager()
+    moved = 0
+    removed = 0
+    failed = 0
+    errors: List[str] = []
+
+    for raw_path in paths:
+        try:
+            source = Path(raw_path)
+            if action in ("source", "backup") and source.exists():
+                if action == "source":
+                    _move_to_recycle_bin(source)
+                else:
+                    destination = Path(target_dir) / source.name
+                    index = 1
+                    while destination.exists():
+                        destination = Path(target_dir) / f"{source.stem} ({index}){source.suffix}"
+                        index += 1
+                    shutil.move(str(source), str(destination))
+                moved += 1
+            if db_manager.delete_file(raw_path, project_id):
+                removed += 1
+        except Exception as exc:
+            failed += 1
+            errors.append(f"{raw_path}: {exc}")
+            logger.warning("处理重复文件失败 %s: %s", raw_path, exc)
+
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception as exc:
+        logger.debug("清理搜索缓存失败: %s", exc)
+
+    return {
+        "success": True,
+        "action": action,
+        "requested": len(paths),
+        "moved": moved,
+        "removed": removed,
+        "failed": failed,
+        "errors": errors[:10],
+        "target_dir": target_dir or None,
+    }
+
 # ==================== P3：中文文本向量（BGE-M3） ====================
 
 @app.get("/api/v1/embed/status")

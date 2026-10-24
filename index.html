@@ -8690,25 +8690,40 @@
                     setBusy(false);
                     return;
                 }
-                await rendererApi.post('/api/v1/db/library/rescan?project_id=' + projectId, {}, { timeoutMs: 600000 });
-                showNotification('开始补录，完成后会自动重新检测…', 'info');
-                const started = Date.now();
+                // 这个接口会一直等后台任务跑完才返回（实测 10 秒起），
+                // 所以不要 await，立刻开始轮询进度。
+                const progressBox = document.getElementById('dupProgress');
+                const bar = progressBox?.querySelector('.dup-progress-bar');
+                const text = progressBox?.querySelector('.dup-progress-text');
+                const pctEl = progressBox?.querySelector('.dup-progress-pct');
+                if (progressBox) {
+                    progressBox.classList.remove('hidden');
+                    if (bar) bar.style.width = '100%';
+                    if (text) text.textContent = '正在补录磁盘上的文件…';
+                    if (pctEl) pctEl.textContent = '';
+                }
+                showNotification('已开始补录 ' + missing + ' 个文件…', 'info');
+                rendererApi.post('/api/v1/db/library/rescan?project_id=' + projectId, {}, { timeoutMs: 1800000 }).catch(() => { });
+
+                const startedAt = Date.now();
                 const poll = async () => {
                     const status = await rendererApi.get('/api/v1/db/library/rescan', { timeoutMs: 30000 }).catch(() => null);
                     if (!status) { setBusy(false); return; }
                     if (status.running) {
-                        if (Date.now() - started > 1800000) { setBusy(false); return; }
-                        setTimeout(poll, 2000);
+                        if (text) text.textContent = `正在补录… 已扫描 ${status.scanned}，已新增 ${status.added}`;
+                        if (Date.now() - startedAt > 1800000) { setBusy(false); return; }
+                        setTimeout(poll, 1500);
                         return;
                     }
                     showNotification(`补录完成：扫描 ${status.scanned} 个，新增 ${status.added} 个`, 'success');
+                    if (text) text.textContent = `补录完成：新增 ${status.added} 个`;
                     setBusy(false);
                     document.getElementById('dupModal')?.remove();
                     loadFilesFromDatabase({ reset: true }).catch(() => { });
                     loadFolderStats(true).catch(() => { });
-                    setTimeout(() => showDuplicatesModal(), 800);
+                    setTimeout(() => showDuplicatesModal(), 900);
                 };
-                setTimeout(poll, 1500);
+                setTimeout(poll, 1200);
             } catch (error) {
                 showNotification('扫描失败: ' + (error?.message || error), 'error');
                 setBusy(false);

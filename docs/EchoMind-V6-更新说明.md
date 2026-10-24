@@ -1,4 +1,4 @@
-# EchoMind 测试版 V6 更新说明
+﻿# EchoMind 测试版 V6 更新说明
 
 > 版本号：`0.3.0-beta.6`
 > 适用：Windows x64

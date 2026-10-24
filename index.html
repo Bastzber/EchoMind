@@ -8420,10 +8420,6 @@
 
                 const data = await rendererApi.get('/api/v1/duplicates?limit=20000', { timeoutMs: 240000 });
                 groups = (data && data.groups) || [];
-                if (!groups.length) {
-                    body.textContent = '没有发现重复音效（按 sha256 内容哈希比对）';
-                    return;
-                }
 
                 body.innerHTML = '';
                 summaryEl = document.createElement('div');
@@ -8479,6 +8475,15 @@
 
                 expandAll.addEventListener('click', () => body.querySelectorAll('[data-dup-card]').forEach(card => toggleCard(card, true)));
                 collapseAll.addEventListener('click', () => body.querySelectorAll('[data-dup-card]').forEach(card => toggleCard(card, false)));
+
+                if (!groups.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'py-6 text-center';
+                    empty.innerHTML = `<div class="text-sm opacity-70 mb-2">没有发现重复音效（按 sha256 内容哈希比对）</div>
+                        <div class="text-xs opacity-50 leading-6">如果刚从回收站还原过文件，或手动往库目录里拷过音效，<br>点上面的「补录磁盘上的文件」把它们找回来。</div>`;
+                    body.appendChild(empty);
+                    return;
+                }
 
                 groups.forEach((group, index) => {
                     const sizeMb = (Number(group.files[0]?.size || 0) * (group.files.length - 1) / 1024 / 1024).toFixed(2);

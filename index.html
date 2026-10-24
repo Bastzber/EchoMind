@@ -8522,6 +8522,7 @@
                     card.style.background = 'var(--bg-tertiary)';
                     card.dataset.dupCard = '1';
                     card.dataset.index = String(index);
+                    group.__index = index;
 
                     const header = document.createElement('button');
                     header.className = 'w-full px-2 py-2 flex items-center gap-2 text-left hover:bg-white/5';
@@ -8716,6 +8717,62 @@
                     if (!picked) return;
                     const ok = await resolveDuplicates(allPaths, 'backup', picked);
                     if (ok) markAll(allPaths.length);
+                });
+
+                // 批量：每组保留第一份，其余目录名转成标签后删源文件（治本，防库臃肿）
+                globalBtn('全部：保留一份，其余分类转成标签后删除', '#0369a1', async () => {
+                    const totalCopies = groups.reduce((sum, group) => sum + Math.max(0, group.files.length - 1), 0);
+                    if (!totalCopies) return;
+                    if (!confirm(`对全部 ${groups.length} 组执行：每组保留第一份，把其余 ${totalCopies} 个副本所在的目录名转成标签，然后把副本移入回收站？\n\n处理后每个音效只留一份物理文件，分类信息以标签形式保留。`)) return;
+
+                    const progressBox = document.getElementById('dupProgress');
+                    const bar = progressBox?.querySelector('.dup-progress-bar');
+                    const text = progressBox?.querySelector('.dup-progress-text');
+                    const pctEl = progressBox?.querySelector('.dup-progress-pct');
+                    if (progressBox) progressBox.classList.remove('hidden');
+
+                    let done = 0;
+                    let removed = 0;
+                    let failed = 0;
+                    const tagPool = new Set();
+                    for (const group of groups) {
+                        const keep = group.files[0];
+                        const dups = group.files.slice(1).map(file => file.path);
+                        if (!dups.length) continue;
+                        try {
+                            const result = await rendererApi.post(
+                                '/api/v1/duplicates/merge-tags?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
+                                { keep_path: keep.path, paths: dups, delete_source: true },
+                                { timeoutMs: 300000 }
+                            );
+                            removed += Number(result?.removed || 0);
+                            (result?.tags_added || []).forEach(tag => tagPool.add(tag));
+                            const card = body.querySelector('[data-dup-card][data-index="' + group.__index + '"]');
+                            if (card) {
+                                card.querySelector('button')?.click();
+                                keepOnlyRow(card, keep.path, group.files.length);
+                                markProcessed(card, `已合并：保留 1 份，新增标签 ${(result?.tags_added || []).join('、') || '无'}`, dups.length);
+                            }
+                        } catch (error) {
+                            failed += 1;
+                            console.warn('[Dedupe] 合并失败:', keep.path, error);
+                        }
+                        done += 1;
+                        const pct = Math.round(done / groups.length * 100);
+                        if (bar) bar.style.width = pct + '%';
+                        if (text) text.textContent = `正在合并… ${done} / ${groups.length} 组`;
+                        if (pctEl) pctEl.textContent = pct + '%';
+                    }
+                    showNotification(
+                        `合并完成：${groups.length} 组，删除 ${removed} 个副本`
+                        + (failed ? `，${failed} 组失败` : '')
+                        + `；新增标签 ${tagPool.size} 个`,
+                        failed ? 'warning' : 'success'
+                    );
+                    loadTagStats().catch(() => { });
+                    loadFilesFromDatabase({ reset: true }).catch(() => { });
+                    loadFolderStats(true).catch(() => { });
+                    setTimeout(() => progressBox?.classList.add('hidden'), 1500);
                 });
 
                 // 整组全删：连每组保留的那一份也删掉（适合整组都是静音/无效文件）

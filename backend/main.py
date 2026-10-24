@@ -4166,8 +4166,13 @@ async def _deferred_reconcile(project_id: str, kinds: List[str], reason: str) ->
 
     直接在保存接口里调度会把 4.8 万行的扫描算在请求里，实测保存描述要等 17 秒
     才拿到响应；丢进 BackgroundTasks 之后接口 <300ms 返回，索引照样在后台补。
+
+    再等一小会儿是有意的：连着改三条描述时，三次都会走到这里，但真正建出来的
+    只有一个对账任务（_schedule_project_reconcile 自带去重）。否则用户第二次保存
+    会正撞上一次还在跑的对账，又变成十几秒。
     """
     try:
+        await asyncio.sleep(2.5)
         _schedule_project_reconcile(project_id, kinds, reason=reason)
     except Exception as exc:  # 后台失败不能影响用户已经保存的数据
         logger.debug(f"调度索引对账失败({reason}): {exc}")

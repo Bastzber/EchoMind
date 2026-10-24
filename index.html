@@ -8267,54 +8267,65 @@
                 return;
             }
 
+            // 按「盘符 + 顶层目录」分组，每组各自建一棵树。
+            // 以前只给文件最多的那个根建层级，其他根（比如 F:\大羽包）被压成根级平铺，
+            // 结果一堆同名目录（单次/短尾/连续）看起来一模一样 —— 删掉一个别的还在，
+            // 就像"删了没生效"。
             const groupKey = (parts) => ((parts[0] || '') + '\\' + (parts[1] || '')).toLowerCase();
-            const groupCounts = new Map();
+            const groups = new Map();
             entries.forEach(entry => {
                 const key = groupKey(entry.parts);
-                groupCounts.set(key, (groupCounts.get(key) || 0) + entry.count);
-            });
-            let mainKey = null;
-            let best = -1;
-            groupCounts.forEach((count, key) => {
-                if (count > best) { best = count; mainKey = key; }
-            });
-            let common = [];
-            entries.forEach(entry => {
-                if (groupKey(entry.parts) !== mainKey) return;
-                if (!common.length) { common = entry.parts.slice(); return; }
-                let i = 0;
-                while (i < common.length && i < entry.parts.length
-                       && common[i].toLowerCase() === entry.parts[i].toLowerCase()) {
-                    i += 1;
-                }
-                common = common.slice(0, i);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(entry);
             });
 
-            const byPath = new Map();
             const roots = [];
-            entries.forEach(entry => {
-                const inMain = common.length > 0 && entry.parts.length >= common.length
-                    && common.every((seg, i) => (entry.parts[i] || '').toLowerCase() === seg.toLowerCase());
-                // 库外目录只显示「最后一级目录名」作为根，避免出现 E: 这种盘符节点
-                // （盘符节点一旦允许删除，就会把整盘当作目标）
-                const relative = inMain
-                    ? entry.parts.slice(common.length)
-                    : [entry.parts[entry.parts.length - 1]];
-                let acc = inMain
-                    ? common.join('\\')
-                    : entry.parts.slice(0, -1).join('\\');
-                let siblings = roots;
-                relative.forEach(part => {
-                    acc = acc ? acc + '\\' + part : part;
-                    const key = acc.toLowerCase();
-                    let node = byPath.get(key);
-                    if (!node) {
-                        node = { name: part, path: acc, fullPath: acc, children: [], count: 0 };
-                        byPath.set(key, node);
-                        siblings.push(node);
+            groups.forEach((list) => {
+                // 该组公共前缀作为根（短于两段就退回前两段，避免出现盘符节点）
+                let common = list[0].parts.slice();
+                list.forEach(entry => {
+                    let i = 0;
+                    while (i < common.length && i < entry.parts.length
+                           && common[i].toLowerCase() === entry.parts[i].toLowerCase()) {
+                        i += 1;
                     }
-                    node.count += entry.count;   // 子目录文件数也累加到父级
-                    siblings = node.children;
+                    common = common.slice(0, i);
+                });
+                const rootParts = common.length >= 2
+                    ? common
+                    : list[0].parts.slice(0, Math.max(2, common.length));
+                const rootPath = rootParts.join('\\');
+
+                const byPath = new Map();
+                let root = byPath.get(rootPath.toLowerCase());
+                if (!root) {
+                    root = {
+                        name: rootParts[rootParts.length - 1] || rootPath,
+                        path: rootPath,
+                        fullPath: rootPath,
+                        children: [],
+                        count: 0,
+                    };
+                    byPath.set(rootPath.toLowerCase(), root);
+                    roots.push(root);
+                }
+
+                list.forEach(entry => {
+                    let acc = rootPath;
+                    let siblings = root.children;
+                    root.count += entry.count;      // 子目录文件数也累加到父级
+                    entry.parts.slice(rootParts.length).forEach(part => {
+                        acc = acc ? acc + '\\' + part : part;
+                        const key = acc.toLowerCase();
+                        let node = byPath.get(key);
+                        if (!node) {
+                            node = { name: part, path: acc, fullPath: acc, children: [], count: 0 };
+                            byPath.set(key, node);
+                            siblings.push(node);
+                        }
+                        node.count += entry.count;
+                        siblings = node.children;
+                    });
                 });
             });
 

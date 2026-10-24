@@ -8648,6 +8648,28 @@
                     const ok = await resolveDuplicates(allPaths, 'backup', picked);
                     if (ok) markAll(allPaths.length);
                 });
+
+                // 整组全删：连每组保留的那一份也删掉（适合整组都是静音/无效文件）
+                globalBtn('全部：整组删除（含保留的那份）', '#7f1d1d', async () => {
+                    const everything = groups.flatMap(group => group.files.map(file => file.path));
+                    if (!everything.length) return;
+                    if (!confirm(`把全部 ${groups.length} 组、共 ${everything.length} 个文件的源文件移入回收站，并从库中移除？\n\n这会连每组保留的那一份一起删掉，只适合"整组都是静音/无效文件"。`)) return;
+                    if (!confirm(`再确认一次：真的要删除 ${everything.length} 个文件吗？（回收站可还原）`)) return;
+                    const result = await resolveDuplicates(everything, 'source');
+                    if (result && !result.failed) {
+                        body.querySelectorAll('[data-dup-card]').forEach((card) => {
+                            const rows = [...card.querySelectorAll('.dup-panel label')];
+                            const count = rows.length || Number((card.querySelector('.dup-head-title')?.textContent || '').match(/·\s*(\d+)\s*个/)?.[1] || 0);
+                            rows.forEach(row => row.remove());
+                            const head = card.querySelector('.dup-head-title');
+                            const save = card.querySelector('.dup-save');
+                            if (head) head.textContent = `第 ${Number(card.dataset.index) + 1} 组 · 已整组删除`;
+                            if (save) save.textContent = '可省 0 MB';
+                            if (card.dataset.done !== '1') markProcessed(card, '已整组删除', count);
+                            else markProcessed(card, '已整组删除', 0);
+                        });
+                    }
+                });
                 body.appendChild(globalBar);
 
                 const undoBar = document.createElement('div');

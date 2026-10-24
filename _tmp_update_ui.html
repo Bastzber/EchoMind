@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>检查更新 工装</title>
+<script src="./tailwindcss.js"></script>
+<script src="./lucide.min.js"></script>
+<style>
+        /* 使用系统字体栈，离线环境下也能正常显示 */
+        :root { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, sans-serif; }
+        body { font-family: inherit; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #525252; }
+        html:not(.dark) ::-webkit-scrollbar-thumb { background: #d4d4d4; }
+        html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
+        
+        .waveform-canvas { image-rendering: auto; }
+        
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-track {
+            height: 6px; border-radius: 3px;
+            background: rgba(128,128,128,.35);
+            border: 1px solid rgba(128,128,128,.2);
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: #8b5cf6; margin-top: -4px;
+            border: 2px solid rgba(255,255,255,.85);
+            box-shadow: 0 1px 4px rgba(0,0,0,.45);
+            transition: transform 0.15s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+        /* 创造音效面板滑块：高对比轨道，明确可拖动（!important 确保覆盖） */
+        #sfxParams input[type="range"] { background: transparent !important; }
+        #sfxParams input[type="range"]::-webkit-slider-track {
+            height: 7px !important; border-radius: 4px !important;
+            background: rgba(128,128,128,.45) !important;
+            border: 1px solid rgba(128,128,128,.25) !important;
+        }
+        #sfxParams input[type="range"]::-webkit-slider-thumb {
+            width: 16px !important; height: 16px !important; margin-top: -4.5px !important;
+            background: #a78bfa !important; border: 2px solid #ffffff !important;
+            box-shadow: 0 1px 5px rgba(0,0,0,.5) !important;
+        }
+        #sfxParams input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+        
+        /* 阈值滑块样式 */
+        #thresholdSlider::-webkit-slider-track { 
+            height: 6px; 
+            border-radius: 3px; 
+            background: linear-gradient(to right, #22c55e 0%, #22c55e var(--threshold-percent, 15%), var(--bg-tertiary) var(--threshold-percent, 15%), var(--bg-tertiary) 100%);
+        }
+        #thresholdSlider::-webkit-slider-thumb {
+            width: 16px; height: 16px; margin-top: -5px;
+            background: #22c55e; border: 2px solid var(--bg-secondary);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        #thresholdPopup.visible { display: block; animation: popupFadeIn 0.15s ease; }
+        @keyframes popupFadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes sound-bar {
+            from { transform: scaleY(0.3); }
+            to { transform: scaleY(1); }
+        }
+        .playing-indicator span { animation: sound-bar 0.5s ease-in-out infinite alternate; }
+        .playing-indicator span:nth-child(1) { animation-delay: 0s; }
+        .playing-indicator span:nth-child(2) { animation-delay: 0.1s; }
+        .playing-indicator span:nth-child(3) { animation-delay: 0.2s; }
+        .playing-indicator span:nth-child(4) { animation-delay: 0.3s; }
+        
+        .sidebar-item { transition: all 0.15s ease; }
+        .sidebar-item:hover { background-color: rgba(128, 128, 128, 0.1); }
+        .sidebar-item.active { background-color: rgba(128, 128, 128, 0.2); border-left: 3px solid var(--text-primary); }
+        
+        .sound-row { transition: all 0.15s ease; }
+        .sound-row:hover { background-color: rgba(128, 128, 128, 0.05); }
+        .sound-row.selected { background-color: rgba(128, 128, 128, 0.15); }
+        
+        .dropdown-menu { transform-origin: top right; transition: all 0.15s ease; }
+        .dropdown-menu.hidden { opacity: 0; transform: scale(0.95); pointer-events: none; }
+        .dropdown-menu.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+        
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #fafafa; --bg-tertiary: #f5f5f5;
+            --border-color: #e5e5e5; --text-primary: #171717; --text-secondary: #737373;
+        }
+        html.dark {
+            --bg-primary: #0a0a0a; --bg-secondary: #141414; --bg-tertiary: #1a1a1a;
+            --border-color: #262626; --text-primary: #e5e5e5; --text-secondary: #a3a3a3;
+        }
+        body { background-color: var(--bg-primary); color: var(--text-primary); }
+
+        /* ==================== 独立浮动面板窗口（float mode） ==================== */
+        body[data-float-mode] {
+            height: 100vh; overflow: hidden;
+        }
+        body[data-float-mode] header,
+        body[data-float-mode] #mainContent,
+        body[data-float-mode] #waveformResizer,
+        body[data-float-mode] footer#playerFooter {
+            display: none !important;
+        }
+        body[data-float-mode] [data-panel] {
+            display: none !important;
+        }
+        body[data-float-mode="folder"] [data-panel="folder"],
+        body[data-float-mode="category"] [data-panel="category"],
+        body[data-float-mode="library"] [data-panel="library"],
+        body[data-float-mode="ai"] [data-panel="ai"],
+        body[data-float-mode="waveform"] [data-panel="waveform"] {
+            display: flex !important;
+            max-height: none !important;
+            flex: 1 !important;
+            min-height: 0;
+        }
+        body[data-float-mode="waveform"] #waveformPanel {
+            height: auto !important;
+        }
+        body[data-float-mode="waveform"] footer#playerFooter {
+            display: flex !important;
+        }
+        .float-win-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 10px; flex-shrink: 0; user-select: none;
+            background: rgba(139,92,246,.16);
+            border-bottom: 1px solid var(--border-color, rgba(128,128,128,.3));
+            font-size: 12px; font-weight: 600;
+            -webkit-app-region: drag;
+        }
+        .float-win-bar button {
+            -webkit-app-region: no-drag;
+            padding: 3px 8px; border-radius: 6px; cursor: pointer;
+            background: transparent; border: 1px solid var(--border-color, rgba(128,128,128,.4));
+            color: var(--text-primary); font-size: 11px;
+        }
+        .float-win-bar button:hover { background: rgba(255,255,255,.12); }
+        body[data-float-mode] #floatHost {
+            flex: 1; min-height: 0; display: flex; flex-direction: column;
+        }
+    </style>
+<style>body{background:#141414;color:var(--text-primary);margin:0;padding:24px;font-family:system-ui,"Microsoft YaHei",sans-serif;}</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('dark');</script>
+<div id="settingsDropdown" class="relative w-64 rounded-lg border py-2" style="background: var(--bg-secondary); border-color: var(--border-color);">
+  <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50">工具</div>
+  <button class="w-full px-4 py-2 text-sm text-left flex items-center gap-2"><i data-lucide="copy" class="w-4 h-4"></i><span>重复音效检测</span></button>
+                    <button id="checkUpdateMenuBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        <span>检查更新</span>
+                        <span id="menuVersionText" class="ml-auto text-[10px] opacity-40 font-mono"></span>
+                    </button>
+</div>
+<script>
+  const lucide = window.lucide;
+  const notes = '应用内检查更新上线\n侧栏「全部音效」与详情面板\n保存不再卡 10 秒';
+  let mode = 'update';
+  window.__setMode = (m) => { mode = m; };
+  window.electronAPI = { updates: {
+    version: async () => '0.3.0-beta.9',
+    openExternal: async () => ({ success: true }),
+    check: async () => {
+      if (mode === 'error') return { ok: false, current: '0.3.0-beta.9', hasUpdate: false, error: '更新信息源不可用（可能没联网）' };
+      if (mode === 'same') return { ok: true, current: '0.3.0-beta.9', hasUpdate: false, latest: { version: '0.3.0-beta.9', notes: [] } };
+      return { ok: true, current: '0.3.0-beta.9', hasUpdate: true,
+               latest: { version: '0.3.0-beta.10', notes: notes.split('\n'), releasedAt: '2026-10-25',
+                         url: 'https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca', code: '73ca' } };
+    }
+  } };
+  function showNotification(message, type) {
+    const el = document.createElement('div');
+    el.textContent = message; el.dataset.toast = type || 'info';
+    el.style.cssText = 'position:fixed;top:12px;right:12px;padding:10px 14px;border-radius:8px;z-index:10000;background:var(--bg-secondary);border:1px solid var(--border-color);font-size:12px;';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+        // ==================== 检查更新（下拉菜单入口） ====================
+        async function fillMenuVersion() {
+            const el = document.getElementById('menuVersionText');
+            if (!el || !window.electronAPI?.updates) return;
+            if (el.textContent) return;
+            try {
+                el.textContent = 'v' + await window.electronAPI.updates.version();
+            } catch (_) { }
+        }
+
+        function showUpdateDialog(latest) {
+            document.getElementById('updateDialog')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'updateDialog';
+            overlay.className = 'fixed inset-0 z-[300] flex items-center justify-center';
+            overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+
+            const panel = document.createElement('div');
+            panel.className = 'rounded-lg shadow-2xl p-5 w-[520px] max-w-[92vw] max-h-[80vh] flex flex-col';
+            panel.style.backgroundColor = 'var(--bg-secondary)';
+            panel.style.border = '1px solid var(--border-color)';
+
+            const header = document.createElement('div');
+            header.className = 'flex items-start justify-between gap-4 mb-3';
+            const titleBox = document.createElement('div');
+            const h3 = document.createElement('h3');
+            h3.className = 'text-base font-semibold';
+            h3.textContent = '发现新版本';
+            const sub = document.createElement('div');
+            sub.className = 'text-xs opacity-60 mt-1';
+            sub.textContent = 'v' + latest.version + (latest.releasedAt ? '　' + latest.releasedAt : '');
+            titleBox.appendChild(h3);
+            titleBox.appendChild(sub);
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'p-1 rounded hover:bg-white/10 transition-colors shrink-0';
+            closeBtn.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i>';
+            closeBtn.addEventListener('click', () => overlay.remove());
+            header.appendChild(titleBox);
+            header.appendChild(closeBtn);
+            panel.appendChild(header);
+
+            const notes = document.createElement('div');
+            notes.className = 'flex-1 overflow-y-auto text-xs opacity-75 leading-6 whitespace-pre-line mb-4';
+            notes.textContent = (latest.notes || []).join('\n') || '这个版本没有写更新说明';
+            panel.appendChild(notes);
+
+            const footer = document.createElement('div');
+            footer.className = 'flex items-center gap-2 shrink-0';
+            const openBtn = document.createElement('button');
+            openBtn.className = 'px-3 py-1.5 rounded text-sm text-white';
+            openBtn.style.background = '#22c55e';
+            openBtn.textContent = '打开下载页';
+            openBtn.disabled = !latest.url;
+            openBtn.style.opacity = latest.url ? '1' : '0.5';
+            openBtn.addEventListener('click', () => {
+                if (!latest.url) return;
+                window.electronAPI?.updates?.openExternal(latest.url);
+            });
+            footer.appendChild(openBtn);
+
+            if (latest.code) {
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'px-3 py-1.5 rounded text-sm border hover:bg-white/5';
+                copyBtn.style.borderColor = 'var(--border-color)';
+                copyBtn.textContent = '复制提取码 ' + latest.code;
+                copyBtn.addEventListener('click', async () => {
+                    try {
+                        await navigator.clipboard.writeText(latest.code);
+                        showNotification('提取码已复制：' + latest.code, 'success');
+                    } catch (_) {
+                        showNotification('提取码：' + latest.code, 'info');
+                    }
+                });
+                footer.appendChild(copyBtn);
+            }
+
+            const spacer = document.createElement('div');
+            spacer.className = 'flex-1';
+            footer.appendChild(spacer);
+
+            const laterBtn = document.createElement('button');
+            laterBtn.className = 'px-3 py-1.5 rounded text-sm border hover:bg-white/5';
+            laterBtn.style.borderColor = 'var(--border-color)';
+            laterBtn.textContent = '以后再说';
+            laterBtn.addEventListener('click', () => overlay.remove());
+            footer.appendChild(laterBtn);
+
+            panel.appendChild(footer);
+            overlay.appendChild(panel);
+            overlay.addEventListener('mousedown', (event) => {
+                if (event.target === overlay) overlay.remove();
+            });
+            document.body.appendChild(overlay);
+            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        }
+
+        async function checkForUpdatesFromMenu() {
+            if (!window.electronAPI?.updates) {
+                showNotification('当前环境不支持检查更新', 'info');
+                return;
+            }
+            showNotification('正在检查更新…', 'info');
+            try {
+                const res = await window.electronAPI.updates.check();
+                if (!res || !res.ok) {
+                    showNotification((res && res.error) || '检查更新失败', 'error');
+                    return;
+                }
+                if (!res.hasUpdate) {
+                    showNotification('已是最新版本 v' + res.current, 'success');
+                    return;
+                }
+                showUpdateDialog(res.latest);
+            } catch (error) {
+                showNotification('检查更新失败: ' + (error?.message || error), 'error');
+            }
+        }
+
+
+  fillMenuVersion();
+</script>
+</body></html>

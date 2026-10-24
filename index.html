@@ -2946,27 +2946,53 @@
 
         // 批量删除音效库目录里的多个文件夹（Shift 多选后右键进来）
         async function openFolderBatchDeleteModal(folders) {
-            const list = (folders || []).filter(Boolean);
-            if (!list.length) return;
+            const selected = (folders || []).filter(Boolean);
+            if (!selected.length) return;
+
+            // 先问后端每个目录还剩多少条记录：已经删空的目录不该再出现在"要删除"的清单里
+            const projectId = encodeURIComponent(currentProject?.id || 'default');
+            const checked = await Promise.all(selected.map(async (item) => {
+                const path = item.fullPath || item.path;
+                let files = null;
+                try {
+                    const stats = await rendererApi.get(
+                        '/api/v1/db/folder/stats?path=' + encodeURIComponent(path) + '&project_id=' + projectId
+                    );
+                    if (stats && stats.success) files = Number(stats.files || 0);
+                } catch (_) { /* 查不到就当未知，仍列出来 */ }
+                return { ...item, path, files };
+            }));
+            const list = checked.filter(item => item.files !== 0);
+            const skipped = checked.filter(item => item.files === 0);
+            if (!list.length) {
+                showNotification('这些目录已经没有库内记录了，不需要再删', 'info');
+                return;
+            }
 
             document.getElementById('folderBatchDeleteModal')?.remove();
             const modal = document.createElement('div');
             modal.id = 'folderBatchDeleteModal';
             modal.className = 'fixed inset-0 z-[300] flex items-center justify-center';
             modal.style.background = 'rgba(0,0,0,0.55)';
-            const preview = list.slice(0, 6).map((item, index) =>
-                '<div class="text-xs opacity-70 truncate">' + (index + 1) + '. ' + escapeHtml(item.name || item.fullPath || item.path) + '</div>'
+            const preview = list.slice(0, 8).map((item, index) =>
+                '<div class="text-xs opacity-70 truncate">' + (index + 1) + '. ' + escapeHtml(item.name || item.fullPath || item.path)
+                + (item.files === null ? '' : '　<span class="opacity-50">' + item.files + ' 个文件</span>') + '</div>'
             ).join('');
-            const more = list.length > 6 ? '<div class="text-xs opacity-50 mt-1">…等 ' + list.length + ' 个</div>' : '';
+            const more = list.length > 8 ? '<div class="text-xs opacity-50 mt-1">…等 ' + list.length + ' 个</div>' : '';
+            const skippedNote = skipped.length
+                ? '<div class="text-xs mt-2" style="color:#f59e0b;">已自动排除 ' + skipped.length + ' 个没有库内记录的目录</div>'
+                : '';
 
             modal.innerHTML = `
                 <div class="rounded-lg shadow-xl w-[460px] max-h-[80vh] overflow-auto p-5"
                      style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
                     <h3 class="text-base font-semibold mb-2">删除 ${list.length} 个文件夹</h3>
                     <p class="text-xs opacity-60 mb-3">这些文件夹在音效库里的记录会被删除，磁盘上的源文件按下面的选择处理。</p>
-                    <div class="rounded-md p-2 mb-4" style="background: var(--bg-tertiary); max-height: 140px; overflow: auto;">
+                    <div class="rounded-md p-2 mb-2" style="background: var(--bg-tertiary); max-height: 160px; overflow: auto;">
                         ${preview}${more}
                     </div>
+                    ${skippedNote}
+                    <div class="mb-3"></div>
                     <label class="flex items-start gap-2 p-2 mb-2 rounded-md cursor-pointer" style="border:1px solid var(--border-color);">
                         <input type="radio" name="folderBatchMode" value="records" class="mt-0.5" checked>
                         <span class="text-xs">

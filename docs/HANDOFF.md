@@ -41,6 +41,15 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 `require('electron')` + 内置模块，所以那是真实结果，不是糊弄 electron-builder。
 跑完 zip 名是 `EchoMind-<版本>-win.zip`，按习惯改名成 `EchoMind测试版V9.zip` 即可。
 
+## 一·五、库目录（2026-10-25 迁移后）
+
+- 整合目标：`F:\CJ音效库整合包V1`（14 个一级 / 88 个二级，见 `docs/分类方案.md`）
+- 已迁入：70,509 个文件 / 188.5 GB（大羽包 34,190 + 老库 36,318）
+- 数据库 36,318 条记录的 path 已改到新库，标签/描述/哈希/向量保留（指纹只依赖 size+mtime）
+- 迁移工具：`scripts/migrate_library.py`（--dry-run / --apply / --workers / --update-db）
+- 完成通知：`scripts/notify-when-import-done.ps1`（等索引进度归零 → 写大羽标注 → 置顶弹窗）
+- 大羽标注：`scripts/apply_dayu_annotations.py`（34,187 条描述 + 6 标签，按 sha256 匹配）
+
 ## 二、当前版本
 
 - `0.3.0-beta.10`（测试版 V10），health 接口可验证

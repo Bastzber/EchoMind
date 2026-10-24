@@ -17,12 +17,13 @@ import csv
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-AUDIO_EXTS = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+AUDIO_EXTS = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape', '.caf'}
 
 SOURCES = [
     (r'D:\资源库', 'old'),
@@ -133,6 +134,10 @@ def main() -> int:
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--out', default=str(REPO_ROOT / 'migrate-plan.csv'))
     parser.add_argument('--limit', type=int, default=0, help='只处理前 N 个文件（调试）')
+    parser.add_argument('--source-kind', default='all', choices=['all', 'dayu', 'old'],
+                        help='只搬某个来源（dayu=F 盘大羽包，old=D 盘资源库）')
+    parser.add_argument('--workers', type=int, default=8, help='同盘移动并发数；跨盘建议 3')
+    parser.add_argument('--update-db', action='store_true', help='搬完后同步修改数据库里的路径')
     args = parser.parse_args()
     apply_changes = bool(args.apply)
 
@@ -164,7 +169,8 @@ def main() -> int:
     seen_targets = {}
     started = time.time()
 
-    for source_root_str, kind in SOURCES:
+    sources = [item for item in SOURCES if args.source_kind in ('all', item[1])]
+    for source_root_str, kind in sources:
         source_root = Path(source_root_str)
         if not source_root.is_dir():
             print('跳过（不存在）:', source_root)
@@ -227,28 +233,78 @@ def main() -> int:
         return 0
 
     # ---- 真正移动 ----
+    from concurrent.futures import ThreadPoolExecutor
+
     manifest_path = Path(args.target) / ('migrate-manifest-%s.json' % time.strftime('%Y%m%d-%H%M%S'))
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     moved = 0
     failed = 0
     manifest = []
-    for index, row in enumerate(rows, 1):
+    lock = __import__('threading').Lock()
+    done = 0
+
+    def move_one(row):
+        nonlocal moved, failed, done
         src = Path(row['原路径'])
         dst = Path(row['新路径'])
+        ok = False
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
-            manifest.append({'from': str(src), 'to': str(dst)})
-            moved += 1
+            ok = True
         except Exception as exc:
-            failed += 1
             print('  失败:', src, exc)
-        if index % 500 == 0:
-            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding='utf-8')
-            print('  已移动 %d / %d（失败 %d）' % (index, len(rows), failed), flush=True)
+        with lock:
+            done += 1
+            if ok:
+                moved += 1
+                manifest.append({'from': str(src), 'to': str(dst)})
+            else:
+                failed += 1
+            if done % 2000 == 0:
+                manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
+                print('  已移动 %d / %d（失败 %d）' % (done, len(rows), failed), flush=True)
+
+    started_move = time.time()
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        list(pool.map(move_one, rows))
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding='utf-8')
-    print('\n移动完成: %d 个，失败 %d 个' % (moved, failed))
+    print('\n移动完成: %d 个，失败 %d 个，用时 %.0fs' % (moved, failed, time.time() - started_move))
     print('回滚清单:', manifest_path)
+
+    if args.update_db and manifest:
+        update_database(manifest)
     return 0
+
+
+def update_database(manifest):
+    """把数据库里的路径改成新位置（指纹只依赖 size+mtime，所以索引不会失效）。"""
+    sys.path.insert(0, str(REPO_ROOT / 'backend'))
+    from core.database import canonicalize_path  # noqa: E402
+
+    db_path = os.path.join(os.environ['APPDATA'], 'EchoMind', 'db', 'soundmind.db')
+    backup = db_path.replace('.db', '.backup-%s.db' % time.strftime('%Y%m%d-%H%M%S'))
+    print('\n备份数据库 ->', backup)
+    shutil.copy2(db_path, backup)
+
+    conn = sqlite3.connect(db_path, timeout=120)
+    conn.execute('PRAGMA busy_timeout = 120000')
+    cursor = conn.cursor()
+    updated = 0
+    for index, item in enumerate(manifest, 1):
+        old, new = item['from'], item['to']
+        cursor.execute(
+            "UPDATE files SET path=?, canonical_path=? WHERE path=?",
+            (new, canonicalize_path(new), old),
+        )
+        if cursor.rowcount:
+            updated += cursor.rowcount
+        if index % 2000 == 0:
+            conn.commit()
+            print('  已更新 %d / %d 条' % (index, len(manifest)), flush=True)
+    conn.commit()
+    print('数据库更新完成: %d 条' % updated)
+    conn.close()
 
 
 if __name__ == '__main__':

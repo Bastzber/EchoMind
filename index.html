@@ -8374,6 +8374,19 @@
                 toolbar.append(expandAll, collapseAll, hint);
                 body.appendChild(toolbar);
 
+                const progressBox = document.createElement('div');
+                progressBox.id = 'dupProgress';
+                progressBox.className = 'hidden mb-2 px-1 py-1 rounded';
+                progressBox.style.cssText = 'position: sticky; top: 0; z-index: 5; background: var(--bg-secondary); border: 1px solid var(--border-color);';
+                progressBox.innerHTML = `<div class="flex items-center justify-between text-xs mb-1">
+                        <span class="dup-progress-text opacity-70"></span>
+                        <span class="dup-progress-pct opacity-50"></span>
+                    </div>
+                    <div style="height:4px;background:var(--bg-tertiary);border-radius:2px;overflow:hidden;">
+                        <div class="dup-progress-bar" style="height:100%;width:0%;background:#22c55e;transition:width .15s ease;"></div>
+                    </div>`;
+                body.appendChild(progressBox);
+
                 const toggleCard = (card, open) => {
                     const panel = card.querySelector('.dup-panel');
                     const arrow = card.querySelector('.dup-arrow');
@@ -8576,17 +8589,48 @@
 
         // 处理重复副本：records=只删记录 / source=移入回收站 / backup=复制到备份目录
         async function resolveDuplicates(paths, action, targetDir) {
-            if (!paths || !paths.length) return;
-            showNotification('正在处理 ' + paths.length + ' 个副本…', 'info');
+            if (!paths || !paths.length) return null;
+            if (window.__dupBusy) return null;
+            window.__dupBusy = true;
+            const total = paths.length;
+            const actionLabel = action === 'records' ? '删除记录' : (action === 'source' ? '移入回收站' : '复制到备份');
+            // 备份走一次请求（要在同一份清单里）；其它动作分块，边删边报进度
+            const chunkSize = action === 'backup' ? total : 40;
+
+            const progressBox = document.getElementById('dupProgress');
+            const bar = progressBox?.querySelector('.dup-progress-bar');
+            const text = progressBox?.querySelector('.dup-progress-text');
+            const pctEl = progressBox?.querySelector('.dup-progress-pct');
+            const showProgress = (done) => {
+                if (!progressBox) return;
+                progressBox.classList.remove('hidden');
+                const pct = total ? Math.round((done / total) * 100) : 0;
+                if (bar) bar.style.width = pct + '%';
+                if (text) text.textContent = `正在${actionLabel}… ${done} / ${total}`;
+                if (pctEl) pctEl.textContent = pct + '%';
+            };
+            showProgress(0);
+
+            const aggregate = { success: true, action, requested: total, moved: 0, removed: 0, failed: 0, manifest: '', errors: [] };
             try {
-                const result = await rendererApi.post(
-                    '/api/v1/db/duplicates/resolve?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
-                    { paths, action, target_dir: targetDir || '' },
-                    { timeoutMs: 300000 }
-                );
-                const label = action === 'records' ? '删除记录' : (action === 'source' ? '移入回收站' : '移到备份目录');
+                for (let start = 0; start < total; start += chunkSize) {
+                    const slice = paths.slice(start, start + chunkSize);
+                    const result = await rendererApi.post(
+                        '/api/v1/db/duplicates/resolve?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
+                        { paths: slice, action, target_dir: targetDir || '' },
+                        { timeoutMs: 300000 }
+                    );
+                    aggregate.moved += Number(result?.moved || 0);
+                    aggregate.removed += Number(result?.removed || 0);
+                    aggregate.failed += Number(result?.failed || 0);
+                    if (result?.manifest) aggregate.manifest = result.manifest;
+                    if (Array.isArray(result?.errors)) aggregate.errors.push(...result.errors);
+                    showProgress(Math.min(total, start + slice.length));
+                }
+                showProgress(total);
+                const result = aggregate;
                 showNotification(
-                    `已${label} ${result.removed || 0} 条` + (result.failed ? `，${result.failed} 个失败` : ''),
+                    `已${actionLabel} ${action === 'backup' ? result.moved : result.removed} 个` + (result.failed ? `，${result.failed} 个失败` : ''),
                     result.failed ? 'warning' : 'success'
                 );
                 loadFilesFromDatabase({ reset: true }).catch(() => { });
@@ -8598,6 +8642,9 @@
             } catch (error) {
                 showNotification('处理失败: ' + (error?.message || error), 'error');
                 return false;
+            } finally {
+                window.__dupBusy = false;
+                setTimeout(() => progressBox?.classList.add('hidden'), 1200);
             }
         }
 

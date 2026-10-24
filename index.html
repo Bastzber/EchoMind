@@ -98,6 +98,7 @@
         .sidebar-item { transition: all 0.15s ease; }
         .sidebar-item:hover { background-color: rgba(128, 128, 128, 0.1); }
         .sidebar-item.active { background-color: rgba(128, 128, 128, 0.2); border-left: 3px solid var(--text-primary); }
+        .sidebar-item.folder-multi-selected { background-color: rgba(139, 92, 246, 0.22); box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.55); }
         
         .sound-row { transition: all 0.15s ease; }
         .sound-row:hover { background-color: rgba(128, 128, 128, 0.05); }
@@ -1491,9 +1492,52 @@
             if (all) all.classList.toggle('active', view === 'all');
         }
 
+        // 音效库目录里的文件夹多选：Shift 连选 / Ctrl 点选，右键批量删除
+        const folderMultiSelection = new Set();
+        const folderNodeRegistry = new Map();
+        let folderSelectionAnchor = null;
+
+        function folderTreeNodes() {
+            return [...document.querySelectorAll('#folderTree .sidebar-item[data-path]')];
+        }
+
+        function applyFolderMultiSelection() {
+            folderTreeNodes().forEach(node => {
+                node.classList.toggle('folder-multi-selected', folderMultiSelection.has(node.dataset.path));
+            });
+        }
+
+        function toggleFolderMultiSelection(folder, event) {
+            const nodes = folderTreeNodes();
+            const path = folder.fullPath;
+            if (event.shiftKey && folderSelectionAnchor) {
+                const from = nodes.findIndex(node => node.dataset.path === folderSelectionAnchor);
+                const to = nodes.findIndex(node => node.dataset.path === path);
+                if (from >= 0 && to >= 0) {
+                    const start = Math.min(from, to);
+                    const end = Math.max(from, to);
+                    if (!event.ctrlKey && !event.metaKey) folderMultiSelection.clear();
+                    for (let i = start; i <= end; i += 1) folderMultiSelection.add(nodes[i].dataset.path);
+                }
+            } else if (event.ctrlKey || event.metaKey) {
+                if (folderMultiSelection.has(path)) folderMultiSelection.delete(path);
+                else folderMultiSelection.add(path);
+                folderSelectionAnchor = path;
+            } else {
+                folderMultiSelection.clear();
+                folderMultiSelection.add(path);
+                folderSelectionAnchor = path;
+            }
+            applyFolderMultiSelection();
+            if (folderMultiSelection.size > 1) {
+                showNotification('已选中 ' + folderMultiSelection.size + ' 个文件夹，右键可批量删除', 'info');
+            }
+        }
+
         function renderFolderTree() {
             const container = document.getElementById('folderTree');
             container.innerHTML = '';
+            folderNodeRegistry.clear();
 
             // 两个搜索框各管各的：上面搜「我的文件夹」，下面的搜「音效库目录」
             const userQuery = (document.getElementById('folderSearchInput')?.value || '').trim().toLowerCase();
@@ -1884,6 +1928,25 @@
                     { label: '批量重命名此文件夹…', icon: 'files', action: () => renameSoundsInFolder(folder.fullPath) },
                     { label: i18n.t('folder.move.to'), icon: 'folder-input', action: () => showMoveToFolderMenu(event, folder) }
                 );
+                const selectedPaths = [...folderMultiSelection];
+                const inSelection = selectedPaths.includes(folder.fullPath);
+                if (inSelection && selectedPaths.length > 1) {
+                    const targets = selectedPaths
+                        .map(path => folderNodeRegistry.get(path) || { fullPath: path, path, name: String(path).split(/[\\/]/).pop() });
+                    menuItems.push({
+                        label: '批量删除这 ' + selectedPaths.length + ' 个文件夹…',
+                        icon: 'trash-2',
+                        danger: true,
+                        action: () => openFolderBatchDeleteModal(targets)
+                    });
+                } else {
+                    menuItems.push({
+                        label: '删除文件夹…',
+                        icon: 'trash-2',
+                        danger: true,
+                        action: () => openFolderDeleteModal(folder)
+                    });
+                }
             }
 
             menu.innerHTML = menuItems.map(item => `
@@ -1923,6 +1986,7 @@
             div.className = 'sidebar-item rounded-md cursor-pointer';
             div.style.paddingLeft = `${level * 8 + 4}px`;
             div.dataset.path = folder.fullPath;
+            folderNodeRegistry.set(folder.fullPath, folder);
             // 右键：从库中移除 / 删除源文件
             div.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
@@ -1991,6 +2055,16 @@
                 // 如果点击的是展开按钮，不执行筛选
                 if (e.target.closest('.folder-toggle')) return;
 
+                // Shift 连选 / Ctrl 点选：只做多选，不切筛选
+                if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    toggleFolderMultiSelection(folder, e);
+                    return;
+                }
+
+                folderMultiSelection.clear();
+                applyFolderMultiSelection();
+                folderSelectionAnchor = folder.fullPath;
                 document.querySelectorAll('#folderTree .sidebar-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
 
@@ -2850,6 +2924,110 @@
                 }
             };
             setTimeout(() => document.addEventListener('click', close), 100);
+        }
+
+
+        // 批量删除音效库目录里的多个文件夹（Shift 多选后右键进来）
+        async function openFolderBatchDeleteModal(folders) {
+            const list = (folders || []).filter(Boolean);
+            if (!list.length) return;
+
+            document.getElementById('folderBatchDeleteModal')?.remove();
+            const modal = document.createElement('div');
+            modal.id = 'folderBatchDeleteModal';
+            modal.className = 'fixed inset-0 z-[300] flex items-center justify-center';
+            modal.style.background = 'rgba(0,0,0,0.55)';
+            const preview = list.slice(0, 6).map((item, index) =>
+                '<div class="text-xs opacity-70 truncate">' + (index + 1) + '. ' + escapeHtml(item.name || item.fullPath || item.path) + '</div>'
+            ).join('');
+            const more = list.length > 6 ? '<div class="text-xs opacity-50 mt-1">…等 ' + list.length + ' 个</div>' : '';
+
+            modal.innerHTML = `
+                <div class="rounded-lg shadow-xl w-[460px] max-h-[80vh] overflow-auto p-5"
+                     style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                    <h3 class="text-base font-semibold mb-2">删除 ${list.length} 个文件夹</h3>
+                    <p class="text-xs opacity-60 mb-3">这些文件夹在音效库里的记录会被删除，磁盘上的源文件按下面的选择处理。</p>
+                    <div class="rounded-md p-2 mb-4" style="background: var(--bg-tertiary); max-height: 140px; overflow: auto;">
+                        ${preview}${more}
+                    </div>
+                    <label class="flex items-start gap-2 p-2 mb-2 rounded-md cursor-pointer" style="border:1px solid var(--border-color);">
+                        <input type="radio" name="folderBatchMode" value="records" class="mt-0.5" checked>
+                        <span class="text-xs">
+                            <span class="block text-sm mb-0.5">只从库中移除记录</span>
+                            <span class="opacity-60">磁盘文件一律不动，以后还能重新导入。</span>
+                        </span>
+                    </label>
+                    <label class="flex items-start gap-2 p-2 rounded-md cursor-pointer" style="border:1px solid var(--border-color);">
+                        <input type="radio" name="folderBatchMode" value="source" class="mt-0.5">
+                        <span class="text-xs">
+                            <span class="block text-sm mb-0.5 text-red-400">连源文件一起删除</span>
+                            <span class="opacity-60">源文件移入回收站（可从回收站恢复）。</span>
+                        </span>
+                    </label>
+                    <label id="folderBatchRisk" class="hidden items-start gap-2 mt-3 p-2 rounded-md text-xs cursor-pointer"
+                           style="background: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35);">
+                        <input type="checkbox" id="folderBatchRiskCheck" class="mt-0.5">
+                        <span>我明白源文件会被移入回收站。</span>
+                    </label>
+                    <div class="flex justify-end gap-2 mt-5">
+                        <button id="folderBatchCancel" class="px-4 py-2 rounded-md text-sm" style="background: var(--bg-tertiary); color: var(--text-primary);">取消</button>
+                        <button id="folderBatchOk" class="px-4 py-2 rounded-md text-sm text-white" style="background: #ef4444;">确认删除</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+
+            const riskRow = modal.querySelector('#folderBatchRisk');
+            const riskCheck = modal.querySelector('#folderBatchRiskCheck');
+            modal.querySelectorAll('input[name="folderBatchMode"]').forEach((radio) => {
+                radio.addEventListener('change', () => {
+                    const isSource = modal.querySelector('input[name="folderBatchMode"]:checked').value === 'source';
+                    riskRow.classList.toggle('hidden', !isSource);
+                    riskRow.classList.toggle('flex', isSource);
+                    if (!isSource) riskCheck.checked = false;
+                });
+            });
+            modal.querySelector('#folderBatchCancel').addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+            modal.querySelector('#folderBatchOk').addEventListener('click', async () => {
+                const mode = modal.querySelector('input[name="folderBatchMode"]:checked').value;
+                const deleteSource = mode === 'source';
+                if (deleteSource && !riskCheck.checked) {
+                    showNotification('请先勾选「我明白源文件会被移入回收站」', 'error');
+                    return;
+                }
+                const okBtn = modal.querySelector('#folderBatchOk');
+                okBtn.disabled = true;
+                okBtn.textContent = '删除中…';
+                let removed = 0;
+                let failed = 0;
+                for (const item of list) {
+                    const path = item.fullPath || item.path;
+                    if (!path) continue;
+                    try {
+                        const result = await rendererApi.post(
+                            '/api/v1/db/folder/delete?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
+                            { path, delete_source: deleteSource }
+                        );
+                        removed += Number(result?.removed || 0);
+                    } catch (error) {
+                        failed += 1;
+                        console.warn('[Folder] 批量删除失败:', path, error);
+                    }
+                }
+                modal.remove();
+                folderMultiSelection.clear();
+                applyFolderMultiSelection();
+                await loadFilesFromDatabase({ reset: true });
+                await loadFolderStats(true);
+                loadTagStats();
+                showNotification(
+                    '已删除 ' + (list.length - failed) + ' 个文件夹，共 ' + removed + ' 条记录'
+                    + (deleteSource ? '（源文件已移入回收站）' : '')
+                    + (failed ? '，' + failed + ' 个失败' : ''),
+                    failed ? 'warning' : 'success'
+                );
+            });
         }
 
         // 删除文件夹：先弹窗让用户明确选择「只删库内记录」还是「连源文件一起删」
@@ -7578,6 +7756,37 @@
         // 扫描进度弹窗
         let scanProgressModal = null;
 
+        // 「等一下再取消」：弹窗取消了但任务 id 还没回来时用
+        let scanCancelRequested = false;
+
+        function finishScanModal(modal) {
+            const target = modal || scanProgressModal;
+            if (target && target.parentNode) target.parentNode.removeChild(target);
+            if (scanProgressModal === target) scanProgressModal = null;
+        }
+
+        function requestScanCancel(taskId) {
+            if (!taskId) return false;
+            try {
+                if (scanWebSocket && scanWebSocket.readyState === WebSocket.OPEN) {
+                    scanWebSocket.send(JSON.stringify({ type: 'cancel', task_id: taskId }));
+                    return true;
+                }
+            } catch (error) {
+                console.warn('[Scan] 发送取消失败:', error);
+            }
+            return false;
+        }
+
+        // 每次把 currentScanTaskId 赋好之后都调一下：如果用户已经点过取消，立刻补发
+        function maybeCancelPendingScan() {
+            if (!scanCancelRequested || !currentScanTaskId) return;
+            scanCancelRequested = false;
+            requestScanCancel(currentScanTaskId);
+            finishScanModal(null);
+            currentScanTaskId = null;
+        }
+
         function createScanProgressModal() {
             const modal = document.createElement('div');
             modal.className = 'scan-progress-modal';
@@ -7626,14 +7835,25 @@
                 </div>
             `;
 
-            // 取消按钮
+            // 取消按钮：点了必须立刻有反应。
+            // 以前只有「任务 id 和 WS 都就绪」时才发消息，否则点下去什么都不发生 ——
+            // 而弹窗是在拿到 task_id 之前就弹出来的，所以经常点不动。
             modal.querySelector('.cancel-btn').addEventListener('click', () => {
-                if (currentScanTaskId && scanWebSocket) {
-                    scanWebSocket.send(JSON.stringify({
-                        type: 'cancel',
-                        task_id: currentScanTaskId
-                    }));
+                const btn = modal.querySelector('.cancel-btn');
+                btn.disabled = true;
+                btn.textContent = '正在取消…';
+                scanCancelRequested = true;
+
+                const taskId = currentScanTaskId;
+                if (taskId) {
+                    requestScanCancel(taskId);
+                    showNotification('已取消导入（已扫描的文件会留在库里）', 'info');
+                    finishScanModal(modal);
+                    return;
                 }
+                // 任务还没建好：先关弹窗，等 task_id 回来时在 maybeCancelPendingScan 里补一刀
+                showNotification('正在取消…', 'info');
+                setTimeout(() => finishScanModal(modal), 600);
             });
 
             return modal;
@@ -10266,6 +10486,7 @@
                             );
                             if (res && res.task_id) {
                                 currentScanTaskId = res.task_id;
+                                maybeCancelPendingScan();
                                 monitorImportJobWithoutWebSocket(res.task_id);  // 与 WS 并行兜底，handleScanComplete 内部去重
                             }
                         } catch (error) {
@@ -10354,6 +10575,7 @@
                         return;
                     }
 
+                    scanCancelRequested = false;
                     const folderResult = await window.electronAPI.fileImport.selectFolder({
                         title: '选择音频文件夹'
                     });
@@ -10395,6 +10617,7 @@
 
                             if (result && result.task_id) {
                                 currentScanTaskId = result.task_id;
+                                maybeCancelPendingScan();
                                 showNotification('正在导入音频文件...', 'info');
                                 // 与 WebSocket 并行兜底：WS 丢消息时也能拿到完成事件
                                 monitorImportJobWithoutWebSocket(currentScanTaskId);

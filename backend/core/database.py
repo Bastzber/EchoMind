@@ -61,6 +61,24 @@ WINDOWS_RESERVED_PROJECT_IDS = {
 }
 
 
+def _parse_tags(raw) -> List[str]:
+    """tags 列存的是 JSON 字符串，对外统一返回数组。"""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(t) for t in raw if str(t).strip()]
+    text = str(raw).strip()
+    if not text or text == "[]":
+        return []
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [str(t) for t in parsed if str(t).strip()]
+    except Exception:
+        return [t.strip() for t in text.split(",") if t.strip()]
+    return []
+
+
 def is_safe_project_id(project_id: str) -> bool:
     """Return whether an identifier is safe to use as an application key/path part."""
     value = str(project_id or "").strip()
@@ -588,7 +606,7 @@ class DatabaseManager:
                 "file_size": r[4],
                 "sample_rate": r[5],
                 "channels": r[6],
-                "tags": r[7],
+                "tags": _parse_tags(r[7]),
                 "ai_description": r[8],
                 "format": (r[2].rsplit(".", 1)[-1].lower() if r[2] and "." in r[2] else ""),
             }

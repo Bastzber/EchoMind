@@ -3667,7 +3667,7 @@
                                     <span></span><span></span><span></span><span></span>
                                 </div>
                             ` : ''}
-                            ${(sound.tags && sound.tags.length) ? `
+                            ${(Array.isArray(sound.tags) && sound.tags.length) ? `
                                 <div class="flex items-center gap-1 flex-wrap max-w-[40%]">
                                     ${sound.tags.slice(0, 3).map(tag => `
                                         <span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap" style="background: var(--bg-tertiary); color: var(--text-secondary);">${escapeHtml(tag)}</span>
@@ -6650,6 +6650,20 @@
             console.log('[Folder] 从后端统计重建目录树:', roots.length, '个根');
         }
 
+        // 后端 tags 列是 JSON 字符串，前端统一转成数组（否则 .slice().map 会炸）
+        function normalizeTags(raw) {
+            if (Array.isArray(raw)) return raw.filter((t) => typeof t === 'string' && t.trim());
+            if (typeof raw === 'string' && raw.trim()) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) return parsed.filter((t) => typeof t === 'string' && t.trim());
+                } catch (_) {
+                    return raw.split(',').map((t) => t.trim()).filter(Boolean);
+                }
+            }
+            return [];
+        }
+
         function mapDbFileToSound(file, index) {
             return {
                 id: file.id || file.file_uuid || ('folder-' + index),
@@ -6666,7 +6680,7 @@
                 waveformDuration: file.duration,
                 waveformSampleRate: file.sample_rate,
                 waveformChannels: file.channels,
-                tags: file.tags || [],
+                tags: normalizeTags(file.tags),
                 aiDescription: file.ai_description || '',
                 createdAt: file.created_at,
                 folderPath: getParentPath(file.path)
@@ -6767,7 +6781,7 @@
                     waveformDuration: file.duration,
                     waveformSampleRate: file.sample_rate,
                     waveformChannels: file.channels,
-                    tags: file.tags || [],
+                    tags: normalizeTags(file.tags),
                     aiDescription: file.ai_description || '',
                     createdAt: file.created_at,
                     folderPath: getParentPath(file.path)

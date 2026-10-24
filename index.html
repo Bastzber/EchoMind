@@ -3154,10 +3154,19 @@
                 // 先把节点摘掉（立刻可见），再等目录统计真正刷新完，最后才弹提示
                 console.info('[Folder] 删除目录:', path, 'removed=', result.removed);
                 pruneImportedFolders([path]);
-                await loadUserFolders();
-                await loadFolderStats(true);
-                await loadFilesFromDatabase({ reset: true });
-                loadTagStats();
+                try {
+                    await loadUserFolders();
+                    await loadFolderStats(true);
+                } catch (refreshError) {
+                    // 刷新失败不影响"已经删掉了"这个事实，节点也已经从树上摘掉了
+                    console.warn('[Folder] 删除后刷新目录失败:', refreshError);
+                }
+                try {
+                    await loadFilesFromDatabase({ reset: true });
+                    loadTagStats();
+                } catch (refreshError) {
+                    console.warn('[Folder] 删除后刷新列表失败:', refreshError);
+                }
                 showNotification(
                     deleteSource
                         ? `已删除 ${result.removed} 条记录及磁盘文件`

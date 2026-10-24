@@ -8223,8 +8223,9 @@
             }
             try {
                 const projectId = currentProject?.id || 'default';
-                const data = await rendererApi.get(
-                    '/api/v1/db/folder-stats?project_id=' + encodeURIComponent(projectId)
+                const data = await withDbRetry(
+                    () => rendererApi.get('/api/v1/db/folder-stats?project_id=' + encodeURIComponent(projectId)),
+                    { label: '目录统计', attempts: 3 }
                 );
                 if (!data || !data.success || !Array.isArray(data.folders)) {
                     return;
@@ -8441,6 +8442,24 @@
             }
         }
 
+        // 数据库忙（比如刚删上千条、索引任务在写）时首屏请求会失败，
+        // 以前会直接渲染成空态，看起来像"数据全没了"。这里做几次退避重试。
+        async function withDbRetry(task, { attempts = 4, delayMs = 1200, label = '加载' } = {}) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+                try {
+                    return await task(attempt);
+                } catch (error) {
+                    lastError = error;
+                    console.warn('[Retry] ' + label + ' 第 ' + attempt + ' 次失败:', error?.message || error);
+                    if (attempt < attempts) {
+                        await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+                    }
+                }
+            }
+            throw lastError;
+        }
+
         async function loadFilesFromDatabase({ reset = true } = {}) {
             if ((fileListLoading && !reset) || (!reset && !fileListNextCursor)) return;
             const loadToken = reset ? ++fileListLoadToken : fileListLoadToken;
@@ -8455,10 +8474,10 @@
             console.log('[Library] 加载文件页:', { reset, cursor });
 
             try {
-                const result = await rendererProjects.listFiles(projectId, {
-                    limit: 200,
-                    cursor
-                });
+                const result = await withDbRetry(
+                    () => rendererProjects.listFiles(projectId, { limit: 200, cursor }),
+                    { label: '文件列表' }
+                );
                 if (loadToken !== fileListLoadToken || projectId !== currentProject?.id) return null;
                 const files = Array.isArray(result?.files) ? result.files : [];
                 const mapped = files.map((file, index) => ({

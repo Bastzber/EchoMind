@@ -289,6 +289,12 @@
                         <span data-i18n="settings.cache.clear">清理临时裁切文件</span>
                     </button>
                     <div class="border-t my-2" style="border-color: var(--border-color);"></div>
+                    <button id="aboutAppBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                        <i data-lucide="info" class="w-4 h-4"></i>
+                        <span>关于回声</span>
+                        <span id="aboutVersionText" class="ml-auto text-[10px] opacity-40 font-mono"></span>
+                    </button>
+                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
                     <button id="openAISettingsBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="bot" class="w-4 h-4"></i>
                         <span data-i18n="settings.ai">AI 设置</span>
@@ -6714,14 +6720,89 @@
             }
         }
 
+
+        // ==================== 关于回声 ====================
+        async function showAboutDialog() {
+            document.getElementById('aboutDialog')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'aboutDialog';
+            overlay.className = 'fixed inset-0 z-[300] flex items-center justify-center';
+            overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+
+            let version = '0.3.0-beta.10';
+            try { version = await window.electronAPI.updates.version(); } catch (_) { }
+
+            const panel = document.createElement('div');
+            panel.className = 'rounded-lg shadow-2xl p-5 w-[380px] max-w-[92vw]';
+            panel.style.backgroundColor = 'var(--bg-secondary)';
+            panel.style.border = '1px solid var(--border-color)';
+            panel.innerHTML = `
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:linear-gradient(135deg,#8b5cf6,#22d3ee);">
+                        <span class="text-white font-semibold">E</span>
+                    </div>
+                    <div>
+                        <div class="text-base font-semibold">回声 EchoMind</div>
+                        <div class="text-xs opacity-50 font-mono">v${escapeHtml(version)}</div>
+                    </div>
+                </div>
+                <p class="text-xs opacity-60 leading-5 mb-4">AI 音效管理器 · 本地索引与语义搜索，不依赖云端。</p>
+                <div class="flex items-center gap-2 mb-4">
+                    <button id="aboutCheckUpdateBtn" class="px-3 py-1.5 rounded-md text-sm text-white" style="background:#8b5cf6;">检查更新</button>
+                    <button id="aboutOpenLogBtn" class="px-3 py-1.5 rounded-md text-sm border" style="border-color: var(--border-color);">日志目录</button>
+                </div>
+                <label class="flex items-center gap-2 text-[11px] opacity-45 cursor-pointer select-none">
+                    <input type="checkbox" id="aboutTelemetryToggle">
+                    <span>匿名使用统计（仅计数，不含个人信息）</span>
+                </label>
+                <div id="aboutTelemetryStatus" class="text-[11px] opacity-35 mt-1"></div>
+                <div class="flex justify-end mt-4">
+                    <button id="aboutCloseBtn" class="px-3 py-1.5 rounded-md text-sm border" style="border-color: var(--border-color);">关闭</button>
+                </div>`;
+            overlay.appendChild(panel);
+            overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+
+            panel.querySelector('#aboutCloseBtn').addEventListener('click', () => overlay.remove());
+            panel.querySelector('#aboutCheckUpdateBtn').addEventListener('click', () => {
+                overlay.remove();
+                checkForUpdatesFromMenu();
+            });
+            panel.querySelector('#aboutOpenLogBtn')?.addEventListener('click', async () => {
+                try { await window.electronAPI.backendAPI?.openLogDirectory?.(); } catch (_) { }
+            });
+
+            const toggle = panel.querySelector('#aboutTelemetryToggle');
+            const status = panel.querySelector('#aboutTelemetryStatus');
+            try {
+                const res = await window.electronAPI.telemetry.get();
+                toggle.checked = res?.enabled !== false;
+                status.textContent = toggle.checked ? '已开启' : '已关闭，不再发送任何统计请求';
+            } catch (_) { }
+            toggle.addEventListener('change', async () => {
+                try {
+                    const res = await window.electronAPI.telemetry.set(toggle.checked);
+                    status.textContent = res?.enabled ? '已开启' : '已关闭，不再发送任何统计请求';
+                } catch (_) {
+                    toggle.checked = !toggle.checked;
+                    status.textContent = '保存失败，请重试';
+                }
+            });
+        }
+
         // ==================== 检查更新（下拉菜单入口） ====================
         async function fillMenuVersion() {
-            const el = document.getElementById('menuVersionText');
-            if (!el || !window.electronAPI?.updates) return;
-            if (el.textContent) return;
+            if (!window.electronAPI?.updates) return;
+            let version = '';
             try {
-                el.textContent = 'v' + await window.electronAPI.updates.version();
-            } catch (_) { }
+                version = 'v' + await window.electronAPI.updates.version();
+            } catch (_) {
+                return;
+            }
+            for (const id of ['menuVersionText', 'aboutVersionText']) {
+                const el = document.getElementById(id);
+                if (el && !el.textContent) el.textContent = version;
+            }
         }
 
         function showUpdateDialog(latest) {
@@ -8665,6 +8746,11 @@
             document.getElementById('dupCheckBtn')?.addEventListener('click', () => {
                 document.getElementById('settingsDropdown').classList.add('hidden');
                 showDuplicatesModal();
+            });
+            document.getElementById('aboutAppBtn')?.addEventListener('click', () => {
+                document.getElementById('settingsDropdown').classList.add('hidden');
+                document.getElementById('settingsDropdown').classList.remove('visible');
+                showAboutDialog();
             });
             document.getElementById('checkUpdateMenuBtn')?.addEventListener('click', () => {
                 document.getElementById('settingsDropdown').classList.add('hidden');
@@ -11804,14 +11890,6 @@
                             </div>
                         </div>
                     </div>
-                    <label class="flex items-start gap-2 mt-5 cursor-pointer select-none">
-                        <input type="checkbox" id="telemetryToggle" class="mt-0.5">
-                        <span class="text-xs leading-5 opacity-80">
-                            匿名使用统计
-                            <span class="block opacity-60">只上报「启动次数 / 当天启动 / 版本 / 平台 / 首次安装」几个计数，不含安装 ID、路径、文件名等任何个人信息。随时可以关。</span>
-                        </span>
-                    </label>
-                    <div id="telemetryStatus" class="text-xs opacity-50 mt-1"></div>
                     <p class="text-xs opacity-50 mt-4">更新信息放 Gitee，安装包走百度网盘；用户不需要 GitHub，也不需要代理。</p>
                 </div>
             </div>

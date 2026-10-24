@@ -45,7 +45,9 @@ assert(mainJs.includes('ipcMain.handle(\'telemetry-get\''), '主进程缺 teleme
 assert(mainJs.includes('ipcMain.handle(\'telemetry-set\''), '主进程缺 telemetry-set');
 assert(preload.includes("invoke('telemetry-get')"), 'preload 没暴露 telemetry.get');
 assert(preload.includes("invoke('telemetry-set'"), 'preload 没暴露 telemetry.set');
-assert(indexHtml.includes('id="telemetryToggle"'), '设置里没有匿名统计开关');
-assert(indexHtml.includes('id="telemetryStatus"'), '设置里没有统计状态文案');
+assert(indexHtml.includes('id="aboutTelemetryToggle"'), '关于窗口里没有匿名统计开关');
+assert(indexHtml.includes('id="aboutTelemetryStatus"'), '关于窗口里没有统计状态文案');
+assert(indexHtml.includes("id=\"aboutAppBtn\""), '设置菜单里没有「关于回声」');
+assert(!indexHtml.includes('id="telemetryToggle"'), '设置面板里不该再放大段统计说明');
 
 console.log('匿名统计契约检查通过。');

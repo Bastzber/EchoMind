@@ -3362,6 +3362,101 @@ async def start_hash_backfill(background_tasks: BackgroundTasks, project_id: str
 
 
 
+
+GENERIC_FOLDER_NAMES = {"音效", "音效素材", "音效库", "声音", "音频", "新文件夹", "新建文件夹", "下载"}
+
+
+def _folder_tag_name(path: str) -> str:
+    """从文件路径推出一个可读的分类标签（目录名）。"""
+    from pathlib import Path as _Path
+
+    parts = [p for p in _Path(str(path)).parent.parts if p]
+    for name in reversed(parts):
+        cleaned = name.strip().strip('[]【】()（）')
+        if not cleaned or cleaned in GENERIC_FOLDER_NAMES:
+            continue
+        if cleaned.replace(' ', '').replace('-', '').replace('_', '').isdigit():
+            continue
+        return cleaned[:24]
+    return ""
+
+
+@app.post("/api/v1/duplicates/merge-tags")
+async def merge_duplicates_into_tags(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """把"副本所在目录名"变成保留文件的标签，然后删掉副本。
+
+    这样一个音效只留一份物理文件，多分类归属靠标签表达，不再占双倍空间。
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    keep_path = str(payload.get("keep_path") or "").strip()
+    remove_paths = [str(item) for item in (payload.get("paths") or []) if str(item).strip()]
+    delete_source = payload.get("delete_source", True) is not False
+    extra_tags = [str(t).strip() for t in (payload.get("tags") or []) if str(t).strip()]
+
+    if not keep_path or not remove_paths:
+        raise HTTPException(status_code=422, detail="keep_path 和 paths 都不能为空")
+
+    db_manager = get_db_manager()
+
+    derived = []
+    for path in remove_paths:
+        name = _folder_tag_name(path)
+        if name and name not in derived:
+            derived.append(name)
+    for tag in extra_tags:
+        if tag not in derived:
+            derived.append(tag)
+
+    merged_tags = []
+    with db_manager.get_cursor() as cursor:
+        row = cursor.execute(
+            "SELECT tags FROM files WHERE project_id=? AND canonical_path=?",
+            (project_id, canonicalize_path(keep_path)),
+        ).fetchone()
+        try:
+            merged_tags = [str(t) for t in (_json.loads(row[0]) if row and row[0] else []) if str(t).strip()]
+        except Exception:
+            merged_tags = []
+    for tag in derived:
+        if tag not in merged_tags:
+            merged_tags.append(tag)
+
+    if merged_tags:
+        db_manager.update_tags(keep_path, merged_tags, project_id)
+        db_manager.sync_layers_from_files_tags(project_id, path=keep_path)
+
+    moved = 0
+    removed = 0
+    failed = 0
+    for path in remove_paths:
+        try:
+            source = _Path(path)
+            if delete_source and source.exists():
+                _move_to_recycle_bin(source)
+                moved += 1
+            if db_manager.delete_file(path, project_id):
+                removed += 1
+        except Exception as exc:
+            failed += 1
+            logger.warning("合并标签后删除失败 %s: %s", path, exc)
+
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "keep_path": keep_path,
+        "tags_added": derived,
+        "tags_total": merged_tags,
+        "moved": moved,
+        "removed": removed,
+        "failed": failed,
+    }
+
 @app.get("/api/v1/duplicates/ignored")
 async def list_ignored_duplicates(project_id: str = Query(default="default")):
     """被标记为"有意保留多个分类副本"的组。"""

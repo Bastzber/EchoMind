@@ -8617,6 +8617,27 @@
                                 );
                             }
                         });
+                        makeBtn('保留选中的，其余分类转成标签后删源文件', '#0369a1', async () => {
+                            const { keep, keepName, dups } = pickedFiles();
+                            if (!dups.length) return;
+                            if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个副本所在的目录名转成它的标签，然后把这些副本移入回收站？\n\n这样分类信息不丢，但磁盘上只留一份。`)) return;
+                            try {
+                                const result = await rendererApi.post(
+                                    '/api/v1/duplicates/merge-tags?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
+                                    { keep_path: keep.path, paths: dups, delete_source: true },
+                                    { timeoutMs: 300000 }
+                                );
+                                keepOnlyRow(card, keep.path, group.files.length);
+                                markProcessed(
+                                    card,
+                                    `已合并：保留 1 份，删 ${result.removed || dups.length} 个副本，新增标签 ${(result.tags_added || []).join('、') || '无'}`,
+                                    dups.length
+                                );
+                                loadTagStats().catch(() => { });
+                            } catch (error) {
+                                showNotification('合并失败: ' + (error?.message || error), 'error');
+                            }
+                        });
                         makeBtn('这一组要保留在多个分类（忽略）', '#475569', async () => {
                             if (!confirm(`同一个音效归到多个分类目录是正常的，把这个组加入忽略名单？\n\n以后重复检测不再提示它（不会删任何文件）。`)) return;
                             try {

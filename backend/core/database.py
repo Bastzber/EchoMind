@@ -673,8 +673,50 @@ class DatabaseManager:
             ).fetchone()
         return int(row[0] or 0)
 
+    def ensure_ignored_duplicate_schema(self) -> None:
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE IF NOT EXISTS ignored_duplicate_groups ("
+                "project_id TEXT NOT NULL, sha256 TEXT NOT NULL, note TEXT, created_at TEXT, "
+                "PRIMARY KEY (project_id, sha256))"
+            )
+
+    def ignore_duplicate_group(self, project_id: str, sha256: str, note: str = "") -> bool:
+        """把一组"有意保留的多分类音效"加入忽略名单，重复检测不再提示它。"""
+        if not sha256:
+            return False
+        self.ensure_ignored_duplicate_schema()
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT OR REPLACE INTO ignored_duplicate_groups "
+                "(project_id, sha256, note, created_at) VALUES (?,?,?,?)",
+                (str(project_id), str(sha256), str(note or ""), datetime.now().isoformat()),
+            )
+        return True
+
+    def unignore_duplicate_group(self, project_id: str, sha256: str) -> bool:
+        self.ensure_ignored_duplicate_schema()
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM ignored_duplicate_groups WHERE project_id=? AND sha256=?",
+                (str(project_id), str(sha256)),
+            )
+            return cursor.rowcount > 0
+
+    def list_ignored_duplicate_groups(self, project_id: str) -> List[Dict[str, str]]:
+        self.ensure_ignored_duplicate_schema()
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT sha256, COALESCE(note,''), COALESCE(created_at,'') "
+                "FROM ignored_duplicate_groups WHERE project_id=? ORDER BY created_at DESC",
+                (str(project_id),),
+            ).fetchall()
+        return [{"sha256": row[0], "note": row[1], "created_at": row[2]} for row in rows]
+
     def duplicate_groups(self, project_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """按 sha256 分组找重复文件。"""
+        """按 sha256 分组找重复文件（跳过被标记"有意保留"的组）。"""
+        self.ensure_ignored_duplicate_schema()
+        ignored = {row["sha256"] for row in self.list_ignored_duplicate_groups(project_id)}
         with self.get_cursor() as cursor:
             rows = cursor.execute(
                 "SELECT sha256, COUNT(*) AS n FROM files "
@@ -684,6 +726,8 @@ class DatabaseManager:
             ).fetchall()
             groups = []
             for sha, count in rows:
+                if sha in ignored:
+                    continue
                 files = cursor.execute(
                     "SELECT file_uuid, path, filename, file_size FROM files "
                     "WHERE project_id=? AND sha256=? ORDER BY path",

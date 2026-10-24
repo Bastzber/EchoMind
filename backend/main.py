@@ -3361,6 +3361,32 @@ async def start_hash_backfill(background_tasks: BackgroundTasks, project_id: str
     return {"success": True, "started": True}
 
 
+
+@app.get("/api/v1/duplicates/ignored")
+async def list_ignored_duplicates(project_id: str = Query(default="default")):
+    """被标记为"有意保留多个分类副本"的组。"""
+    db_manager = get_db_manager()
+    return {"success": True, "groups": db_manager.list_ignored_duplicate_groups(project_id)}
+
+
+@app.post("/api/v1/duplicates/ignore")
+async def ignore_duplicate(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """忽略一组重复：同一个音效本来就要归到多个分类时用。"""
+    sha = str(payload.get("sha256") or "").strip()
+    if not sha:
+        raise HTTPException(status_code=422, detail="sha256 不能为空")
+    note = str(payload.get("note") or "").strip()[:200]
+    db_manager = get_db_manager()
+    db_manager.ignore_duplicate_group(project_id, sha, note)
+    return {"success": True, "sha256": sha}
+
+
+@app.delete("/api/v1/duplicates/ignore/{sha256}")
+async def unignore_duplicate(sha256: str, project_id: str = Query(default="default")):
+    db_manager = get_db_manager()
+    removed = db_manager.unignore_duplicate_group(project_id, sha256)
+    return {"success": True, "removed": removed}
+
 @app.get("/api/v1/db/duplicates/backups")
 async def list_duplicate_backups(limit: int = Query(default=20, le=100)):
     """列出可撤回的备份清单（新的在前）。"""

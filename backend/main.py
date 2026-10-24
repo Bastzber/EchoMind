@@ -3026,15 +3026,51 @@ async def list_duplicates(project_id: str = Query(default="default"), limit: int
 
 
 
+DUPLICATE_BACKUP_DIRNAME = "duplicate-backups"
+
+
+def _duplicate_backup_root() -> Path:
+    """备份清单和副本都放在用户数据目录下，不和音效库混在一起。"""
+    return Path(config.get_user_data_dir()) / DUPLICATE_BACKUP_DIRNAME
+
+
+def _write_backup_manifest(entries, action: str, target_dir: str) -> Path:
+    import json as _json
+    import time as _time
+
+    root = _duplicate_backup_root()
+    (root / "manifests").mkdir(parents=True, exist_ok=True)
+    stamp = _time.strftime("%Y%m%d-%H%M%S")
+    manifest = root / "manifests" / f"{stamp}-{action}.json"
+    index = 1
+    while manifest.exists():
+        manifest = root / "manifests" / f"{stamp}-{action}-{index}.json"
+        index += 1
+    manifest.write_text(
+        _json.dumps(
+            {
+                "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "action": action,
+                "target_dir": target_dir,
+                "entries": entries,
+            },
+            ensure_ascii=False,
+            indent=1,
+        ),
+        encoding="utf-8",
+    )
+    return manifest
+
+
 @app.post("/api/v1/db/duplicates/resolve")
 async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    """处理重复文件的"多余副本"。三种方式：
+    """处理重复文件的"多余副本"。
 
-    - records：只删库内记录，磁盘文件保留
-    - source：把源文件移入回收站，同时删记录（可恢复）
-    - backup：把源文件移动到指定目录做备份，同时删记录
+    - backup：**复制**到备份目录（原文件与库记录都保留），并写一份可撤回的清单
+    - records：只删库内记录，磁盘文件保留（重新导入即恢复）
+    - source：源文件移入回收站并删记录（回收站可还原）
 
-    判定重复用的是 sha256（字节级完全一致），所以删哪一份都不会丢内容。
+    判定重复用 sha256（字节级一致），所以留哪一份都不会丢内容。
     """
     import shutil
     from pathlib import Path
@@ -3049,7 +3085,7 @@ async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(de
         raise HTTPException(status_code=422, detail="action 只能是 records / source / backup")
     if action == "backup":
         if not target_dir:
-            raise HTTPException(status_code=422, detail="备份模式必须提供 target_dir")
+            target_dir = str(_duplicate_backup_root() / "files")
         try:
             Path(target_dir).mkdir(parents=True, exist_ok=True)
         except Exception as exc:
@@ -3059,21 +3095,28 @@ async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(de
     moved = 0
     removed = 0
     failed = 0
+    entries = []
     errors: List[str] = []
 
     for raw_path in paths:
         try:
             source = Path(raw_path)
-            if action in ("source", "backup") and source.exists():
-                if action == "source":
-                    _move_to_recycle_bin(source)
-                else:
-                    destination = Path(target_dir) / source.name
-                    index = 1
-                    while destination.exists():
-                        destination = Path(target_dir) / f"{source.stem} ({index}){source.suffix}"
-                        index += 1
-                    shutil.move(str(source), str(destination))
+            if action == "backup":
+                if not source.exists():
+                    errors.append(f"{raw_path}: 源文件不存在")
+                    continue
+                destination = Path(target_dir) / source.name
+                index = 1
+                while destination.exists():
+                    destination = Path(target_dir) / f"{source.stem} ({index}){source.suffix}"
+                    index += 1
+                shutil.copy2(str(source), str(destination))
+                entries.append({"original": raw_path, "backup": str(destination)})
+                moved += 1
+                continue
+
+            if action == "source" and source.exists():
+                _move_to_recycle_bin(source)
                 moved += 1
             if db_manager.delete_file(raw_path, project_id):
                 removed += 1
@@ -3081,6 +3124,10 @@ async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(de
             failed += 1
             errors.append(f"{raw_path}: {exc}")
             logger.warning("处理重复文件失败 %s: %s", raw_path, exc)
+
+    manifest_path = ""
+    if action == "backup" and entries:
+        manifest_path = str(_write_backup_manifest(entries, action, target_dir))
 
     try:
         await _get_project_searcher(project_id).clear_cache()
@@ -3096,7 +3143,90 @@ async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(de
         "failed": failed,
         "errors": errors[:10],
         "target_dir": target_dir or None,
+        "manifest": manifest_path,
     }
+
+
+@app.get("/api/v1/db/duplicates/backups")
+async def list_duplicate_backups(limit: int = Query(default=20, le=100)):
+    """列出可撤回的备份清单（新的在前）。"""
+    import json as _json
+
+    root = _duplicate_backup_root() / "manifests"
+    if not root.is_dir():
+        return {"success": True, "manifests": []}
+    manifests = []
+    for item in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            data = _json.loads(item.read_text(encoding="utf-8"))
+            manifests.append({
+                "path": str(item),
+                "created_at": data.get("created_at", ""),
+                "action": data.get("action", ""),
+                "target_dir": data.get("target_dir", ""),
+                "count": len(data.get("entries") or []),
+            })
+        except Exception as exc:
+            logger.debug("读取备份清单失败 %s: %s", item, exc)
+    return {"success": True, "manifests": manifests}
+
+
+@app.post("/api/v1/db/duplicates/restore")
+async def restore_duplicate_backup(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """按备份清单把副本还原回**原来的目录**（仅还原缺失的文件，不覆盖已有文件）。"""
+    import json as _json
+    import shutil
+    from pathlib import Path
+
+    manifest = str(payload.get("manifest") or "").strip()
+    if not manifest:
+        latest = sorted((_duplicate_backup_root() / "manifests").glob("*.json"),
+                        key=lambda p: p.stat().st_mtime, reverse=True) if (_duplicate_backup_root() / "manifests").is_dir() else []
+        if not latest:
+            raise HTTPException(status_code=404, detail="没有可撤回的备份")
+        manifest = str(latest[0])
+
+    path = Path(manifest)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="备份清单不存在")
+
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"备份清单损坏: {exc}")
+
+    restored = 0
+    skipped = 0
+    failed = 0
+    errors: List[str] = []
+    for entry in data.get("entries") or []:
+        original = Path(str(entry.get("original") or ""))
+        backup = Path(str(entry.get("backup") or ""))
+        try:
+            if not backup.exists():
+                skipped += 1
+                continue
+            if original.exists():
+                skipped += 1
+                continue
+            original.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(backup), str(original))
+            restored += 1
+        except Exception as exc:
+            failed += 1
+            errors.append(f"{original}: {exc}")
+            logger.warning("还原失败 %s: %s", original, exc)
+
+    return {
+        "success": True,
+        "manifest": str(path),
+        "restored": restored,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors[:10],
+        "note": "文件已还原；库记录需要重新导入对应目录才会回来",
+    }
+
 
 # ==================== P3：中文文本向量（BGE-M3） ====================
 

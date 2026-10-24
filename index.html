@@ -8245,7 +8245,7 @@
                     + (processedGroups ? `　<span style="color:#22c55e;">已处理 ${processedGroups} 组 / ${processedFiles} 个副本</span>` : '');
             };
 
-            const markProcessed = (card, text, files, groupCount = 1, backupDir = '') => {
+            const markProcessed = (card, text, files, groupCount = 1, backupDir = '', extra = {}) => {
                 const alreadyDone = card.dataset.done === '1';
                 card.dataset.done = '1';
                 if (!alreadyDone) {
@@ -8266,7 +8266,7 @@
 
                 // 处理完之后给两个出口：打开备份目录 / 重新处理
                 const aftercare = document.createElement('div');
-                aftercare.className = 'dup-aftercare flex items-center gap-2 mt-1';
+                aftercare.className = 'dup-aftercare flex items-center gap-2 mt-1 flex-wrap';
                 if (backupDir) {
                     const openBtn = document.createElement('button');
                     openBtn.className = 'px-2 py-1 rounded text-xs border';
@@ -8276,6 +8276,29 @@
                         try { window.electronAPI?.fileImport?.revealInExplorer?.(backupDir); } catch (_) { }
                     });
                     aftercare.appendChild(openBtn);
+                }
+                // 备份是"复制"，原文件还在 —— 听完确认后可以真正删掉这些副本
+                if (extra.manifest && Array.isArray(extra.dups) && extra.dups.length) {
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'px-2 py-1 rounded text-xs text-white';
+                    delBtn.style.background = '#b91c1c';
+                    delBtn.textContent = '听完确认，删除这些副本';
+                    delBtn.addEventListener('click', async () => {
+                        if (!confirm(`把 ${extra.dups.length} 个副本的源文件移入回收站，并从库中移除？（备份目录里还留着一份）`)) return;
+                        const result = await resolveDuplicates(extra.dups, 'source');
+                        if (result && !result.failed) {
+                            const badge = card.querySelector('.dup-status');
+                            if (badge) badge.textContent = `已删除 ${extra.dups.length} 个副本（备份仍在）`;
+                        }
+                    });
+                    aftercare.appendChild(delBtn);
+
+                    const undoBtn = document.createElement('button');
+                    undoBtn.className = 'px-2 py-1 rounded text-xs border';
+                    undoBtn.style.borderColor = 'var(--border-color)';
+                    undoBtn.textContent = '撤回备份';
+                    undoBtn.addEventListener('click', () => restoreBackup(extra.manifest));
+                    aftercare.appendChild(undoBtn);
                 }
                 const retryBtn = document.createElement('button');
                 retryBtn.className = 'px-2 py-1 rounded text-xs border';
@@ -8402,23 +8425,30 @@
                         const { keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         if (!confirm(`保留「${keepName}」，删掉其余 ${dups.length} 条库记录？（磁盘文件保留）`)) return;
-                        const ok = await resolveDuplicates(dups, 'records');
-                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
+                        const result = await resolveDuplicates(dups, 'records');
+                        if (result && !result.failed) markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
                     });
                     makeBtn('保留选中的，删源文件（回收站）', '#b91c1c', async () => {
                         const { keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个源文件移入回收站？`)) return;
-                        const ok = await resolveDuplicates(dups, 'source');
-                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
+                        const result = await resolveDuplicates(dups, 'source');
+                        if (result && !result.failed) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
                     });
                     makeBtn('保留选中的，其余移到备份…', '#0ea5e9', async () => {
                         const { keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         const picked = await pickBackupFolder();
                         if (!picked) return;
-                        const ok = await resolveDuplicates(dups, 'backup', picked);
-                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个副本移到备份`, dups.length, 1, picked);
+                        const result = await resolveDuplicates(dups, 'backup', picked);
+                        if (result && !result.failed) {
+                            markProcessed(
+                                card,
+                                `已备份 ${result.moved} 个副本（原文件仍在，可先试听再决定）`,
+                                dups.length, 1, picked,
+                                { manifest: result.manifest, dups, keepName }
+                            );
+                        }
                     });
                     panel.appendChild(actions);
                     card.appendChild(panel);
@@ -8464,6 +8494,21 @@
                     if (ok) markAll(allPaths.length);
                 });
                 body.appendChild(globalBar);
+
+                const undoBar = document.createElement('div');
+                undoBar.className = 'mt-2 text-xs opacity-60 flex items-center gap-2';
+                const undoText = document.createElement('span');
+                undoText.textContent = '备份是复制，原文件不动；想反悔就点这里把备份还原回原目录：';
+                const undoLatest = document.createElement('button');
+                undoLatest.className = 'px-2 py-1 rounded text-xs border';
+                undoLatest.style.borderColor = 'var(--border-color)';
+                undoLatest.textContent = '撤回最近一次备份';
+                undoLatest.addEventListener('click', async () => {
+                    if (!confirm('把最近一次备份的文件还原回原来的目录？（原位置已有文件的会跳过）')) return;
+                    await restoreBackup('');
+                });
+                undoBar.append(undoText, undoLatest);
+                body.appendChild(undoBar);
             } catch (error) {
                 body.textContent = '扫描失败: ' + error.message;
             }
@@ -8480,7 +8525,26 @@
             return result.folder;
         }
 
-        // 处理重复副本：records=只删记录 / source=移入回收站 / backup=移到备份目录
+        // 按备份清单把文件还原回原目录（备份是复制，所以原文件可能还在）
+        async function restoreBackup(manifest) {
+            try {
+                const result = await rendererApi.post(
+                    '/api/v1/db/duplicates/restore?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
+                    { manifest: manifest || '' },
+                    { timeoutMs: 300000 }
+                );
+                showNotification(
+                    '已还原 ' + (result.restored || 0) + ' 个文件'
+                    + (result.skipped ? '，' + result.skipped + ' 个跳过（原位置已有）' : '')
+                    + (result.failed ? '，' + result.failed + ' 个失败' : ''),
+                    result.failed ? 'warning' : 'success'
+                );
+            } catch (error) {
+                showNotification('撤回失败: ' + (error?.message || error), 'error');
+            }
+        }
+
+        // 处理重复副本：records=只删记录 / source=移入回收站 / backup=复制到备份目录
         async function resolveDuplicates(paths, action, targetDir) {
             if (!paths || !paths.length) return;
             showNotification('正在处理 ' + paths.length + ' 个副本…', 'info');
@@ -8500,7 +8564,7 @@
                     .then(() => loadFolderStats(true))
                     .then(() => loadTagStats())
                     .catch(() => { });
-                return !result.failed;
+                return result;
             } catch (error) {
                 showNotification('处理失败: ' + (error?.message || error), 'error');
                 return false;

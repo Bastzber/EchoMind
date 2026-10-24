@@ -55,6 +55,9 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ### Added / 新增
 
+- **重复音效检测：备份改成"复制"+ 可撤回**：备份不再剪切原文件，而是复制到指定目录并写一份清单
+  （`%APPDATA%\EchoMind\duplicate-backups\manifests\*.json`）；听完确认后可以「删除这些副本」，
+  或者「撤回备份」按清单把文件还原回**原来的目录**。
 - **重复音效检测支持三种处理方式**：每组可「只删库记录」「删源文件（回收站）」「移到备份文件夹」，
   底部还能对全部组一键执行。判定重复用 sha256（字节级一致），删哪一份都不丢内容。
 - **目录树按根分组建层级**：以前只给"文件最多的那个根"建层级，其他根（比如 F 盘大羽包）被压成

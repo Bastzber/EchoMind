@@ -3102,6 +3102,22 @@ async def delete_tag(tag_id: str, project_id: str = Query(default="default")):
     return {"success": ok}
 
 
+@app.post("/api/v1/files/{file_uuid}/description")
+async def set_file_description(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """单条改「一句话描述」：写库 + 同步 FTS，并把这条的文本向量标脏。"""
+    description = str(payload.get("description") or "").strip()[:500]
+    db_manager = get_db_manager()
+    record = db_manager.get_file_by_uuid(file_uuid, project_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    path = getattr(record, "path", None) or getattr(record, "file_path", None)
+    if not path:
+        raise HTTPException(status_code=500, detail="文件路径缺失")
+    if not db_manager.update_ai_description(path, description, project_id):
+        raise HTTPException(status_code=500, detail="写入描述失败")
+    return {"success": True, "description": description}
+
+
 @app.post("/api/v1/files/{file_uuid}/tags")
 async def set_file_tags(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
     from core import tag_layers

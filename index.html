@@ -461,6 +461,11 @@
                         <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
                     </button>
                 </div>
+                <button id="detailToggleBtn" class="h-9 px-2 rounded-lg border text-xs flex items-center gap-1 opacity-60 transition-colors hover:bg-white/5"
+                        style="border-color: var(--border-color);" title="详情面板（显示选中音效的标签与描述）">
+                    <i data-lucide="panel-right" class="w-3.5 h-3.5"></i>
+                    <span class="hidden sm:inline">详情</span>
+                </button>
             </div>
             <div id="listHeader" class="h-10 flex items-center border-b px-4 text-xs font-medium uppercase tracking-wider opacity-70 shrink-0"
                  style="border-color: var(--border-color);">
@@ -479,6 +484,18 @@
             <div class="flex-1 overflow-y-auto" id="soundList" data-panel-body></div>
         </main>
         
+        <!-- ==================== RIGHT: SOUND DETAIL ==================== -->
+        <aside id="detailAside" class="hidden w-80 border-l flex-col shrink-0"
+               style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+            <div class="h-10 flex items-center justify-between px-3 border-b shrink-0" style="border-color: var(--border-color);">
+                <span class="text-xs font-medium uppercase tracking-wider opacity-60">音效详情</span>
+                <button id="detailCloseBtn" class="p-1 rounded hover:bg-white/10 transition-colors" title="收起详情">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <div id="detailBody" class="flex-1 overflow-y-auto p-4 text-sm"></div>
+        </aside>
+
         <!-- 右分隔条（AI 面板已并入搜索框，保留元素以便兼容旧逻辑） -->
         <div class="panel-resizer-v hidden" data-resizer="right" data-target="#rightAside" data-min="200" data-max="720" title="拖拽调整宽度"></div>
         
@@ -1438,6 +1455,26 @@
         // 源目录板块自己的搜索：和顶部「搜索文件夹」互不干扰
         let sourceSearchOpen = false;
         let sourceFolderQuery = '';
+        let sourceSearchComposing = false;
+        let sourceSearchTimer = null;
+
+        // 停手 200ms 再重建，别每敲一个字都把树拆了
+        function scheduleSourceSearch() {
+            if (sourceSearchTimer) clearTimeout(sourceSearchTimer);
+            sourceSearchTimer = setTimeout(() => {
+                sourceSearchTimer = null;
+                const box = document.getElementById('sourceFolderSearchInput');
+                if (!box) return;
+                const caret = box.selectionStart;
+                sourceFolderQuery = box.value;
+                renderFolderTree();
+                const again = document.getElementById('sourceFolderSearchInput');
+                if (again) {
+                    again.focus();
+                    try { again.setSelectionRange(caret, caret); } catch (_) { }
+                }
+            }, 200);
+        }
         // 左侧当前高亮的是哪个「非文件夹」视图：all / favorites / null
         let sidebarView = null;
 
@@ -1453,28 +1490,32 @@
             const container = document.getElementById('folderTree');
             container.innerHTML = '';
 
-            const query = (document.getElementById('folderSearchInput')?.value || '').trim().toLowerCase();
-            const forceExpand = Boolean(query);
+            // 两个搜索框各管各的：上面搜「我的文件夹」，下面的搜「音效库目录」
+            const userQuery = (document.getElementById('folderSearchInput')?.value || '').trim().toLowerCase();
+            const forceExpand = Boolean(sourceFolderQuery.trim());
 
             // 一个文件夹都没有时给个提示（「全部音效」那一行也一并省掉）
             if (userFolders.length === 0 && importedFolderData.length === 0) {
                 const emptyTip = document.createElement('div');
                 emptyTip.className = 'text-xs opacity-50 px-4 py-2 i18n-empty-folder';
                 emptyTip.setAttribute('data-i18n', 'empty.folder.create');
-                emptyTip.textContent = query ? '没有匹配的文件夹' : '暂无文件夹，点击上方按钮创建';
+                emptyTip.textContent = (userQuery || sourceFolderQuery.trim()) ? '没有匹配的文件夹' : '暂无文件夹，点击上方按钮创建';
                 container.appendChild(emptyTip);
                 return;
             }
 
-            // 渲染用户自定义文件夹
-            userFolders.forEach(folder => {
+            // 渲染用户自定义文件夹（只受顶部搜索框影响）
+            const visibleUserFolders = userQuery
+                ? userFolders.filter(folder => String(folder.name || '').toLowerCase().includes(userQuery))
+                : userFolders;
+            visibleUserFolders.forEach(folder => {
                 container.appendChild(createUserFolderItem(folder));
             });
 
             // ===== 源目录板块：全部音效 + 还没归类的库目录 =====
             // 这里的目录来自磁盘，名字不能改；要改名就先拖进「我的文件夹」再改。
             const unclassifiedFolders = importedFolderData.filter(f => !folderMappings[f.fullPath]);
-            const dirQuery = (sourceFolderQuery.trim() || query).toLowerCase();
+            const dirQuery = sourceFolderQuery.trim().toLowerCase();
             const visibleDirs = filterFolderNodes(unclassifiedFolders, dirQuery);
 
             const sourceSection = document.createElement('div');
@@ -1512,15 +1553,15 @@
                 box.className = 'w-full px-2 py-1 rounded-md border text-xs';
                 box.style.cssText = 'background-color: var(--bg-secondary); border-color: var(--border-color); color: var(--text-primary);';
                 box.value = sourceFolderQuery;
-                box.addEventListener('input', () => {
-                    const caret = box.selectionStart;
-                    sourceFolderQuery = box.value;
-                    renderFolderTree();   // 整棵树会重建，焦点得自己还回去
-                    const again = document.getElementById('sourceFolderSearchInput');
-                    if (again) {
-                        again.focus();
-                        try { again.setSelectionRange(caret, caret); } catch (_) { }
-                    }
+                // 中文输入法合成期间不能重建 DOM，否则候选词直接没了（中文打不进去）
+                box.addEventListener('compositionstart', () => { sourceSearchComposing = true; });
+                box.addEventListener('compositionend', () => {
+                    sourceSearchComposing = false;
+                    scheduleSourceSearch();
+                });
+                box.addEventListener('input', (event) => {
+                    if (sourceSearchComposing || event.isComposing) return;
+                    scheduleSourceSearch();
                 });
                 searchWrap.appendChild(box);
                 sourceSection.appendChild(searchWrap);
@@ -4158,6 +4199,160 @@
             setExecuteEnabled(false);
             lucide.createIcons();
         }
+        // ==================== 音效详情面板 ====================
+        let detailPanelOpen = false;
+
+        function setDetailPanelOpen(open) {
+            detailPanelOpen = Boolean(open);
+            const aside = document.getElementById('detailAside');
+            const btn = document.getElementById('detailToggleBtn');
+            if (aside) {
+                aside.classList.toggle('hidden', !detailPanelOpen);
+                aside.classList.toggle('flex', detailPanelOpen);
+            }
+            if (btn) {
+                btn.style.opacity = detailPanelOpen ? '1' : '0.6';
+                btn.style.background = detailPanelOpen ? 'var(--bg-tertiary)' : 'transparent';
+            }
+            if (detailPanelOpen) renderSoundDetail(currentSound || null);
+        }
+
+        function detailRow(label, value) {
+            const row = document.createElement('div');
+            row.className = 'flex items-start gap-3 py-1';
+            const key = document.createElement('div');
+            key.className = 'w-14 shrink-0 text-xs opacity-50';
+            key.textContent = label;
+            const val = document.createElement('div');
+            val.className = 'flex-1 min-w-0 text-xs break-all';
+            val.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
+            row.appendChild(key);
+            row.appendChild(val);
+            return row;
+        }
+
+        function detailSectionTitle(text) {
+            const el = document.createElement('div');
+            el.className = 'text-xs font-medium opacity-70 mt-3 mb-1';
+            el.textContent = text;
+            return el;
+        }
+
+        function detailInput(className) {
+            const el = document.createElement('input');
+            el.type = 'text';
+            el.className = 'w-full h-7 px-2 rounded border text-xs ' + (className || '');
+            el.style.cssText = 'background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);';
+            return el;
+        }
+
+        function detailSaveButton(text, onClick) {
+            const btn = document.createElement('button');
+            btn.className = 'mt-1 px-2 py-1 rounded text-xs border hover:bg-white/5';
+            btn.style.borderColor = 'var(--border-color)';
+            btn.textContent = text;
+            btn.addEventListener('click', onClick);
+            return btn;
+        }
+
+        async function saveSoundDescription(sound, value) {
+            const text = String(value || '').trim().slice(0, 500);
+            try {
+                await rendererApi.post(
+                    '/api/v1/files/' + encodeURIComponent(sound.id) + '/description',
+                    { description: text }
+                );
+                sound.aiDescription = text;
+                renderSoundList();
+                renderSoundDetail(sound);
+                showNotification('已保存一句话描述', 'success');
+            } catch (error) {
+                showNotification('保存描述失败: ' + (error?.message || error), 'error');
+            }
+        }
+
+        function renderSoundDetail(sound) {
+            const body = document.getElementById('detailBody');
+            if (!body) return;
+            body.innerHTML = '';
+
+            if (!sound) {
+                const empty = document.createElement('div');
+                empty.className = 'text-xs opacity-40 leading-6';
+                empty.textContent = '选中一条音效，这里会显示它的标签、一句话描述和文件信息。';
+                body.appendChild(empty);
+                return;
+            }
+
+            const title = document.createElement('div');
+            title.className = 'text-sm font-medium break-all';
+            title.textContent = sound.name || '';
+            body.appendChild(title);
+
+            if (sound.filePath) {
+                const path = document.createElement('div');
+                path.className = 'text-[11px] opacity-40 break-all mt-1 mb-2';
+                path.textContent = sound.filePath;
+                body.appendChild(path);
+            }
+
+            // ---- 标签 ----
+            body.appendChild(detailSectionTitle('标签'));
+            const tags = Array.isArray(sound.tags) ? sound.tags : [];
+            const chips = document.createElement('div');
+            chips.className = 'flex flex-wrap gap-1 mb-1';
+            if (!tags.length) {
+                const none = document.createElement('span');
+                none.className = 'text-xs opacity-40';
+                none.textContent = '（暂无）';
+                chips.appendChild(none);
+            }
+            tags.forEach(tag => {
+                const chip = document.createElement('span');
+                chip.className = 'px-1.5 py-0.5 rounded text-[11px]';
+                chip.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary);';
+                chip.textContent = tag;
+                chips.appendChild(chip);
+            });
+            body.appendChild(chips);
+
+            const tagsInput = detailInput('detail-tags');
+            tagsInput.placeholder = '逗号分隔，如：城市, 环境';
+            tagsInput.value = tags.join(', ');
+            body.appendChild(tagsInput);
+            body.appendChild(detailSaveButton('保存标签', async () => {
+                await setSoundTags(sound, parseTagsInput(tagsInput.value));
+                renderSoundDetail(sound);
+            }));
+
+            // ---- 一句话描述 ----
+            body.appendChild(detailSectionTitle('一句话描述'));
+            const descInput = document.createElement('textarea');
+            descInput.rows = 3;
+            descInput.className = 'w-full px-2 py-1 rounded border text-xs leading-5';
+            descInput.style.cssText = 'background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);';
+            descInput.placeholder = '一句话说清这是什么声音';
+            descInput.value = String(sound.aiDescription || '').replace(/^\[auto\]/, '');
+            body.appendChild(descInput);
+            body.appendChild(detailSaveButton('保存描述', () => saveSoundDescription(sound, descInput.value)));
+
+            // ---- 文件信息 ----
+            const attrs = document.createElement('div');
+            attrs.className = 'mt-4 pt-3 border-t';
+            attrs.style.borderColor = 'var(--border-color)';
+            const ext = (sound.type || (sound.name || '').match(/\.[^.]+$/) || '').replace('.', '').toUpperCase();
+            const seconds = Number(sound.duration) > 0 ? (Number(sound.duration) / 1000).toFixed(2) + ' 秒' : '';
+            const khz = Number(sound.sampleRate) > 0 ? (Number(sound.sampleRate) / 1000).toFixed(Number(sound.sampleRate) % 1000 === 0 ? 0 : 1) + ' kHz' : '';
+            attrs.appendChild(detailRow('格式', ext));
+            attrs.appendChild(detailRow('时长', seconds));
+            attrs.appendChild(detailRow('采样率', khz));
+            attrs.appendChild(detailRow('声道', sound.channels));
+            attrs.appendChild(detailRow('大小', Number(sound.size) > 0 ? formatBytes(Number(sound.size)) : ''));
+            attrs.appendChild(detailRow('来源', sound.source === 'ai' ? 'AI 生成' : '用户导入'));
+            body.appendChild(attrs);
+
+            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        }
         // ---- 标签管理面板 ----
         function showTagManagerModal() {
             closeSoundContextMenu();
@@ -4698,6 +4893,9 @@
             
             // 只更新选中状态，不重绘整个列表
             updateSelectionState(previousSound, sound);
+
+            // 详情面板跟着选中走
+            if (detailPanelOpen) renderSoundDetail(sound);
 
             // 主窗口：把当前选中音效广播给所有独立浮窗（浮窗模式自身不广播，避免回环）
             broadcastPlayState({ playing: false });
@@ -7944,6 +8142,8 @@
             document.getElementById('viewListBtn')?.addEventListener('click', () => setViewMode('list'));
             document.getElementById('viewCardBtn')?.addEventListener('click', () => setViewMode('card'));
             applyViewMode();
+            document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
+            document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));
 
             initAudioPlayer();
             bindPlayerContextMenu();

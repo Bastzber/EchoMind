@@ -22,6 +22,14 @@ Electron provides the desktop UI. A local backend built with FastAPI, SQLite, Py
 
 ***
 
+
+## Anonymous usage stats
+
+The app sends one **anonymous** ping per launch (launch count, daily count, version, platform,
+first install) so the author can gauge adoption. It never sends install IDs, file paths, file
+names, tags, descriptions, or anything that identifies a person. You can turn it off under
+"Settings → About & Updates"; once off, no further pings are sent.
+
 ## 📥 Download
 
 | Asset | Notes | Where |

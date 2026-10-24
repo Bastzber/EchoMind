@@ -106,11 +106,16 @@ $env:ELECTRON_RUN_AS_NODE='1'
 |---|---|
 | P1 | 左侧「全部音效」目录树跟随磁盘同步：源文件夹改名、子目录新增/删除后树要更新 |
 | P2 | 音频格式转码：把剪辑软件不认的格式（OGG / OPUS / APE / WMA 等）转成 WAV/MP3，输出到指定目录 |
+| P2 | 损坏文件（waveform_decode_failed）：分类原因（真损坏 / 编码不支持 / 被占用），支持导出清单 + 尝试用 ffmpeg 转码修复 |
 | P2 | 各环境音细节区分度调参 |
 | P2 | 描述包导入未匹配 CSV 导出 |
 | P3 | `metadata/apply` 后自动重建文本索引 |
 
 ## 六、已知坑（踩过的）
+
+- **「损坏文件」的判定**：file_artifacts 里 kind='waveform' 且 state='failed' 的文件，
+  错误码 waveform_decode_failed（后端解码音频画波形失败）。常见原因是文件本身截断/损坏、
+  编码不被 PyAV 支持、或被其他程序独占。清理只删库记录，不动磁盘文件。
 
 - `main.js` 优先找打包后端；开发必须设 `SOUNDBOT_BACKEND_DEV=1`（dev.ps1 已含）
 - **dev.ps1 两个坑（2026-10-24 修好）**：

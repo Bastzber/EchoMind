@@ -3457,6 +3457,69 @@ async def merge_duplicates_into_tags(payload: Dict[str, Any], project_id: str = 
         "failed": failed,
     }
 
+
+@app.get("/api/v1/tags/usage")
+async def get_tag_usage(project_id: str = Query(default="default")):
+    """标签 + 使用次数（标签管理面板用）。"""
+    db_manager = get_db_manager()
+    return {"success": True, "tags": db_manager.list_tag_usage(project_id)}
+
+
+@app.post("/api/v1/tags/rename")
+async def rename_tag(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """按名字改名；新名字已存在则自动合并。"""
+    old_name = str(payload.get("old") or "").strip()
+    new_name = str(payload.get("new") or "").strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=422, detail="old / new 都不能为空")
+    if old_name == new_name:
+        return {"success": True, "renamed": 0, "merged": 0, "files": 0}
+    db_manager = get_db_manager()
+    result = db_manager.rename_tag_by_name(project_id, old_name, new_name)
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception:
+        pass
+    return {"success": True, **result, "old": old_name, "new": new_name}
+
+
+@app.post("/api/v1/tags/delete")
+async def delete_tag_batch(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """删除标签（含文件关联），同步 files.tags。"""
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name 不能为空")
+    db_manager = get_db_manager()
+    result = db_manager.delete_tag_by_name(project_id, name)
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception:
+        pass
+    return {"success": True, **result, "name": name}
+
+
+@app.post("/api/v1/tags/merge")
+async def merge_tags(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """把多个标签合并到一个（旧的都并进 target）。"""
+    target = str(payload.get("target") or "").strip()
+    sources = [str(item).strip() for item in (payload.get("sources") or []) if str(item).strip()]
+    if not target or not sources:
+        raise HTTPException(status_code=422, detail="target / sources 不能为空")
+    db_manager = get_db_manager()
+    merged = 0
+    files = 0
+    for name in sources:
+        if name == target:
+            continue
+        result = db_manager.rename_tag_by_name(project_id, name, target)
+        merged += result.get("merged", 0) + result.get("renamed", 0)
+        files += result.get("files", 0)
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception:
+        pass
+    return {"success": True, "target": target, "merged": merged, "files": files}
+
 @app.get("/api/v1/duplicates/ignored")
 async def list_ignored_duplicates(project_id: str = Query(default="default")):
     """被标记为"有意保留多个分类副本"的组。"""

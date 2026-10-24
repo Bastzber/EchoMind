@@ -2756,6 +2756,108 @@ class DatabaseManager:
             return False
 
 
+
+    # ===== 标签批量操作（改名 / 合并 / 删除） =====
+
+    def _files_touched_by_tag(self, cursor, project_id: str, tag_id: str) -> List[str]:
+        return [
+            row[0]
+            for row in cursor.execute(
+                "SELECT file_uuid FROM file_tags WHERE project_id=? AND tag_id=?",
+                (str(project_id), str(tag_id)),
+            )
+        ]
+
+    def rename_tag_by_name(self, project_id: str, old_name: str, new_name: str) -> Dict[str, int]:
+        """按名字改名；如果新名字已存在就合并成一个标签。返回 {renamed, merged, files}。"""
+        old_name = str(old_name or "").strip()
+        new_name = str(new_name or "").strip()
+        if not old_name or not new_name or old_name == new_name:
+            return {"renamed": 0, "merged": 0, "files": 0}
+
+        from core import tag_layers
+
+        files: List[str] = []
+        merged = 0
+        with self.get_cursor() as cursor:
+            old_row = cursor.execute(
+                "SELECT id FROM tags WHERE project_id=? AND name=?",
+                (str(project_id), old_name),
+            ).fetchone()
+            if not old_row:
+                return {"renamed": 0, "merged": 0, "files": 0}
+            old_id = old_row[0]
+
+            new_row = cursor.execute(
+                "SELECT id FROM tags WHERE project_id=? AND name=?",
+                (str(project_id), new_name),
+            ).fetchone()
+
+            if new_row:
+                # 合并：把 old 的文件关联指向 new，然后删掉 old
+                new_id = new_row[0]
+                files = self._files_touched_by_tag(cursor, project_id, old_id)
+                cursor.execute(
+                    "INSERT OR IGNORE INTO file_tags (project_id, file_uuid, tag_id, created_at) "
+                    "SELECT project_id, file_uuid, ?, created_at FROM file_tags WHERE project_id=? AND tag_id=?",
+                    (new_id, str(project_id), old_id),
+                )
+                cursor.execute(
+                    "DELETE FROM file_tags WHERE project_id=? AND tag_id=?",
+                    (str(project_id), old_id),
+                )
+                cursor.execute("DELETE FROM tags WHERE id=?", (old_id,))
+                merged = 1
+            else:
+                files = self._files_touched_by_tag(cursor, project_id, old_id)
+                cursor.execute("UPDATE tags SET name=? WHERE id=?", (new_name, old_id))
+
+        for file_uuid in files:
+            self.sync_tags_from_layers(project_id, file_uuid)
+        return {"renamed": 0 if merged else 1, "merged": merged, "files": len(files)}
+
+    def delete_tag_by_name(self, project_id: str, name: str) -> Dict[str, int]:
+        """删除一个标签（含文件关联），并把受影响的 files.tags 同步回去。"""
+        name = str(name or "").strip()
+        if not name:
+            return {"deleted": 0, "files": 0}
+        with self.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT id FROM tags WHERE project_id=? AND name=?",
+                (str(project_id), name),
+            ).fetchone()
+            if not row:
+                return {"deleted": 0, "files": 0}
+            tag_id = row[0]
+            files = self._files_touched_by_tag(cursor, project_id, tag_id)
+            cursor.execute(
+                "DELETE FROM file_tags WHERE project_id=? AND tag_id=?",
+                (str(project_id), tag_id),
+            )
+            cursor.execute("DELETE FROM tags WHERE id=?", (tag_id,))
+        for file_uuid in files:
+            self.sync_tags_from_layers(project_id, file_uuid)
+        return {"deleted": 1, "files": len(files)}
+
+    def list_tag_usage(self, project_id: str) -> List[Dict[str, Any]]:
+        """标签 + 使用次数，按次数降序（用于标签管理面板）。"""
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                """
+                SELECT t.id, t.name, t.layer, COUNT(ft.file_uuid) AS usage
+                FROM tags t
+                LEFT JOIN file_tags ft ON ft.project_id = t.project_id AND ft.tag_id = t.id
+                WHERE t.project_id = ?
+                GROUP BY t.id
+                ORDER BY usage DESC, t.name
+                """,
+                (str(project_id),),
+            ).fetchall()
+        return [
+            {"id": row[0], "name": row[1], "layer": row[2], "usage": int(row[3] or 0)}
+            for row in rows
+        ]
+
     def sync_layers_from_files_tags(
         self,
         project_id: str,

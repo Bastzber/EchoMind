@@ -3010,6 +3010,7 @@
                             { path, delete_source: deleteSource }
                         );
                         removed += Number(result?.removed || 0);
+                        pruneImportedFolders([path]);
                     } catch (error) {
                         failed += 1;
                         console.warn('[Folder] 批量删除失败:', path, error);
@@ -3129,6 +3130,7 @@
                         : `已从库中移除 ${result.removed} 条记录（源文件保留）`,
                     'success'
                 );
+                pruneImportedFolders([path]);
                 await loadFilesFromDatabase({ reset: true });
                 await loadFolderStats(true);
                 loadTagStats();
@@ -8157,13 +8159,31 @@
                 const data = await rendererApi.get(
                     '/api/v1/db/folder-stats?project_id=' + encodeURIComponent(projectId)
                 );
-                if (!data || !data.success || !Array.isArray(data.folders) || !data.folders.length) {
+                if (!data || !data.success || !Array.isArray(data.folders)) {
                     return;
                 }
+                // 以前这里遇到空列表就直接 return，树里会一直留着已经删掉的目录
                 buildFolderTreeFromStats(data.folders);
             } catch (error) {
                 console.warn('[Folder] 加载目录统计失败:', error);
             }
+        }
+
+        // 从目录树里摘掉被删掉的目录（含子目录），删完立刻生效，不用等重新拉取
+        function pruneImportedFolders(paths) {
+            const targets = (paths || []).filter(Boolean).map(p => String(p).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase());
+            if (!targets.length) return;
+            const hit = (nodePath) => {
+                const value = String(nodePath || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+                return targets.some(t => value === t || value.startsWith(t + '\\'));
+            };
+            const walk = (nodes) => nodes
+                .filter(node => !hit(node.fullPath || node.path))
+                .map(node => ({ ...node, children: node.children ? walk(node.children) : [] }));
+            importedFolderData = walk(importedFolderData || []);
+            targets.forEach(t => folderMultiSelection.delete(t));
+            applyFolderMultiSelection();
+            renderFolderTree();
         }
 
         function buildFolderTreeFromStats(folders) {
@@ -8173,7 +8193,12 @@
                     count: Number(item.count) || 0,
                 }))
                 .filter(entry => entry.parts.length);
-            if (!entries.length) return;
+            if (!entries.length) {
+                importedFolderData = [];
+                folderTreeBuiltAt = Date.now();
+                renderFolderTree();
+                return;
+            }
 
             const groupKey = (parts) => ((parts[0] || '') + '\\' + (parts[1] || '')).toLowerCase();
             const groupCounts = new Map();

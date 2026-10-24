@@ -8220,7 +8220,7 @@
             box.id = 'dupModal';
             box.className = 'fixed inset-0 z-[300] flex items-center justify-center';
             box.style.background = 'rgba(0,0,0,0.55)';
-            box.innerHTML = `<div class="w-[760px] max-h-[80vh] flex flex-col rounded-xl" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+            box.innerHTML = `<div class="w-[820px] max-h-[82vh] flex flex-col rounded-xl" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
                 <div class="flex items-center justify-between px-5 py-3 border-b" style="border-color: var(--border-color);">
                     <div class="text-base font-medium">重复音效检测</div>
                     <button id="dupClose" class="p-1 rounded hover:bg-white/10">✕</button>
@@ -8232,24 +8232,99 @@
             box.addEventListener('click', (e) => { if (e.target === box) box.remove(); });
 
             const body = box.querySelector('#dupBody');
+            let groups = [];
+            let processedGroups = 0;
+            let processedFiles = 0;
+            let summaryEl = null;
+
+            const updateSummary = () => {
+                if (!summaryEl) return;
+                const totalFiles = groups.reduce((sum, group) => sum + group.files.length, 0);
+                const wasted = groups.reduce((sum, group) => sum + (group.files.length - 1) * Number(group.files[0]?.size || 0), 0);
+                summaryEl.innerHTML = `发现 <b>${groups.length}</b> 组重复，共 <b>${totalFiles}</b> 个文件，约浪费 <b>${(wasted / 1024 / 1024).toFixed(1)} MB</b>`
+                    + (processedGroups ? `　<span style="color:#22c55e;">已处理 ${processedGroups} 组 / ${processedFiles} 个副本</span>` : '');
+            };
+
+            const markProcessed = (card, text, files, groupCount = 1) => {
+                card.dataset.done = '1';
+                processedGroups += groupCount;
+                processedFiles += files;
+                const status = card.querySelector('.dup-status');
+                if (status) {
+                    status.textContent = text;
+                    status.style.color = '#22c55e';
+                }
+                card.querySelectorAll('button.dup-action').forEach((button) => {
+                    button.disabled = true;
+                    button.style.opacity = '0.35';
+                    button.style.pointerEvents = 'none';
+                });
+                updateSummary();
+            };
+
             try {
                 const data = await rendererApi.get('/api/v1/duplicates?limit=100', { timeoutMs: 120000 });
-                const groups = (data && data.groups) || [];
+                groups = (data && data.groups) || [];
                 if (!groups.length) {
                     body.textContent = '没有发现重复音效（按 sha256 内容哈希比对）';
                     return;
                 }
-                const mb = (data.wasted_bytes || 0) / 1024 / 1024;
-                body.innerHTML = `<div class="mb-3">发现 <b>${data.group_count}</b> 组重复，共 <b>${data.file_count}</b> 个文件，约浪费 <b>${mb.toFixed(1)} MB</b></div>`;
+
+                body.innerHTML = '';
+                summaryEl = document.createElement('div');
+                summaryEl.className = 'mb-2';
+                body.appendChild(summaryEl);
+                updateSummary();
+
+                const toolbar = document.createElement('div');
+                toolbar.className = 'flex items-center gap-2 mb-3';
+                const expandAll = document.createElement('button');
+                expandAll.className = 'px-2 py-1 rounded text-xs border';
+                expandAll.style.borderColor = 'var(--border-color)';
+                expandAll.textContent = '全部展开';
+                const collapseAll = document.createElement('button');
+                collapseAll.className = 'px-2 py-1 rounded text-xs border';
+                collapseAll.style.borderColor = 'var(--border-color)';
+                collapseAll.textContent = '全部收起';
+                const hint = document.createElement('span');
+                hint.className = 'text-xs opacity-50 ml-auto';
+                hint.textContent = '点每组标题展开/收起，行前的圆点决定保留哪一份';
+                toolbar.append(expandAll, collapseAll, hint);
+                body.appendChild(toolbar);
+
+                const toggleCard = (card, open) => {
+                    const panel = card.querySelector('.dup-panel');
+                    const arrow = card.querySelector('.dup-arrow');
+                    if (!panel) return;
+                    const next = open === undefined ? panel.style.display === 'none' : open;
+                    panel.style.display = next ? 'block' : 'none';
+                    if (arrow) arrow.style.transform = next ? 'rotate(90deg)' : '';
+                };
+
+                expandAll.addEventListener('click', () => body.querySelectorAll('[data-dup-card]').forEach(card => toggleCard(card, true)));
+                collapseAll.addEventListener('click', () => body.querySelectorAll('[data-dup-card]').forEach(card => toggleCard(card, false)));
+
                 groups.forEach((group, index) => {
+                    const sizeMb = (Number(group.files[0]?.size || 0) * (group.files.length - 1) / 1024 / 1024).toFixed(2);
                     const card = document.createElement('div');
-                    card.className = 'mb-2 p-2 rounded-md';
+                    card.className = 'mb-2 rounded-md overflow-hidden';
                     card.style.background = 'var(--bg-tertiary)';
-                    const head = document.createElement('div');
-                    head.className = 'text-xs opacity-60 mb-1';
-                    head.textContent = `第 ${index + 1} 组 · ${group.count} 个同内容文件`;
-                    card.appendChild(head);
-                    // 每一行都能点选：用户自己决定留哪一份（默认第一份）
+                    card.dataset.dupCard = '1';
+                    card.dataset.index = String(index);
+
+                    const header = document.createElement('button');
+                    header.className = 'w-full px-2 py-2 flex items-center gap-2 text-left hover:bg-white/5';
+                    header.innerHTML = `<span class="dup-arrow inline-block transition-transform" style="width:10px;">▶</span>
+                        <span class="text-xs font-medium">第 ${index + 1} 组 · ${group.files.length} 个同内容文件</span>
+                        <span class="text-xs opacity-50">可省 ${sizeMb} MB</span>
+                        <span class="dup-status text-xs ml-auto"></span>`;
+                    header.addEventListener('click', () => toggleCard(card));
+                    card.appendChild(header);
+
+                    const panel = document.createElement('div');
+                    panel.className = 'dup-panel px-2 pb-2';
+                    panel.style.display = 'none';
+
                     const radioName = 'dupKeep-' + index;
                     group.files.forEach((file, i) => {
                         const row = document.createElement('label');
@@ -8264,11 +8339,11 @@
                         text.textContent = file.path;
                         row.appendChild(radio);
                         row.appendChild(text);
-                        card.appendChild(row);
+                        panel.appendChild(row);
                     });
 
                     const pickedFiles = () => {
-                        const radios = [...card.querySelectorAll('input[type="radio"]')];
+                        const radios = [...panel.querySelectorAll('input[type="radio"]')];
                         const at = radios.findIndex(radio => radio.checked);
                         const keep = group.files[at >= 0 ? at : 0];
                         return {
@@ -8277,50 +8352,58 @@
                             dups: group.files.filter(file => file.path !== keep.path).map(file => file.path),
                         };
                     };
+
                     const actions = document.createElement('div');
-                    actions.className = 'mt-1 flex items-center gap-2';
+                    actions.className = 'mt-1 flex flex-wrap items-center gap-2';
                     const makeBtn = (label, bg, handler) => {
                         const button = document.createElement('button');
-                        button.className = 'px-2 py-1 rounded text-xs text-white';
+                        button.className = 'dup-action px-2 py-1 rounded text-xs text-white';
                         button.style.background = bg;
                         button.textContent = label;
                         button.addEventListener('click', () => handler(button));
                         actions.appendChild(button);
-                        return button;
                     };
                     makeBtn('保留选中的，删库记录', '#ef4444', async () => {
                         const { keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         if (!confirm(`保留「${keepName}」，删掉其余 ${dups.length} 条库记录？（磁盘文件保留）`)) return;
-                        await resolveDuplicates(dups, 'records');
-                        card.remove();
+                        const ok = await resolveDuplicates(dups, 'records');
+                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
                     });
                     makeBtn('保留选中的，删源文件（回收站）', '#b91c1c', async () => {
                         const { keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个源文件移入回收站？`)) return;
-                        await resolveDuplicates(dups, 'source');
-                        card.remove();
+                        const ok = await resolveDuplicates(dups, 'source');
+                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
                     });
                     makeBtn('保留选中的，其余移到备份…', '#0ea5e9', async () => {
                         const { keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         const picked = await pickBackupFolder();
                         if (!picked) return;
-                        await resolveDuplicates(dups, 'backup', picked);
-                        card.remove();
+                        const ok = await resolveDuplicates(dups, 'backup', picked);
+                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个副本移到备份`, dups.length);
                     });
-                    card.appendChild(actions);
+                    panel.appendChild(actions);
+                    card.appendChild(panel);
                     body.appendChild(card);
                 });
+
                 const allPaths = groups.flatMap(group => group.files.slice(1).map(file => file.path));
                 const globalBar = document.createElement('div');
                 globalBar.className = 'mt-4 pt-3 border-t flex flex-wrap items-center gap-2';
                 globalBar.style.borderColor = 'var(--border-color)';
                 const tip = document.createElement('span');
                 tip.className = 'text-xs opacity-60 mr-auto';
-                tip.textContent = `全部 ${groups.length} 组、${allPaths.length} 个多余副本：`;
+                tip.textContent = `全部 ${groups.length} 组、${allPaths.length} 个多余副本（每组保留第一份）：`;
                 globalBar.appendChild(tip);
+                const markAll = (files, count) => {
+                    body.querySelectorAll('[data-dup-card]').forEach((card) => {
+                        if (card.dataset.done === '1') return;
+                        markProcessed(card, '已按第一份处理', files, count || 1);
+                    });
+                };
                 const globalBtn = (label, bg, handler) => {
                     const button = document.createElement('button');
                     button.className = 'px-2 py-1 rounded text-xs text-white';
@@ -8330,20 +8413,20 @@
                     globalBar.appendChild(button);
                 };
                 globalBtn('全部：每组保留第一份，删库记录', '#ef4444', async () => {
-                    if (!confirm(`每组保留列表里的第一份，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
-                    await resolveDuplicates(allPaths, 'records');
-                    box.remove();
+                    if (!confirm(`每组保留第一份，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
+                    const ok = await resolveDuplicates(allPaths, 'records');
+                    if (ok) markAll(allPaths.length);
                 });
                 globalBtn('全部：每组保留第一份，删源文件', '#b91c1c', async () => {
-                    if (!confirm(`每组保留列表里的第一份，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
-                    await resolveDuplicates(allPaths, 'source');
-                    box.remove();
+                    if (!confirm(`每组保留第一份，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
+                    const ok = await resolveDuplicates(allPaths, 'source');
+                    if (ok) markAll(allPaths.length);
                 });
                 globalBtn('全部：每组保留第一份，其余移到备份…', '#0ea5e9', async () => {
                     const picked = await pickBackupFolder();
                     if (!picked) return;
-                    await resolveDuplicates(allPaths, 'backup', picked);
-                    box.remove();
+                    const ok = await resolveDuplicates(allPaths, 'backup', picked);
+                    if (ok) markAll(allPaths.length);
                 });
                 body.appendChild(globalBar);
             } catch (error) {
@@ -8382,8 +8465,10 @@
                     .then(() => loadFolderStats(true))
                     .then(() => loadTagStats())
                     .catch(() => { });
+                return !result.failed;
             } catch (error) {
                 showNotification('处理失败: ' + (error?.message || error), 'error');
+                return false;
             }
         }
 

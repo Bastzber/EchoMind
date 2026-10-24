@@ -3045,15 +3045,19 @@
                     showNotification('请先勾选「我明白源文件会被移入回收站」', 'error');
                     return;
                 }
-                const okBtn = modal.querySelector('#folderBatchOk');
-                okBtn.disabled = true;
-                okBtn.textContent = '删除中…';
+                // 先在界面上把事办完：关窗、摘节点、给提示，全部同步完成（毫秒级）
+                const targets = list.map(item => item.fullPath || item.path).filter(Boolean);
+                modal.remove();
+                folderMultiSelection.clear();
+                applyFolderMultiSelection();
+                pruneImportedFolders(targets);          // 只重绘一次树，而不是每个目录重绘一次
+                showNotification('正在删除 ' + list.length + ' 个文件夹…', 'info');
+
+                // 再去后台删；界面不等它
                 let removed = 0;
                 let failed = 0;
                 const outcomes = [];
-                for (const item of list) {
-                    const path = item.fullPath || item.path;
-                    if (!path) continue;
+                for (const path of targets) {
                     try {
                         const result = await rendererApi.post(
                             '/api/v1/db/folder/delete?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
@@ -3062,9 +3066,6 @@
                         const count = Number(result?.removed || 0);
                         removed += count;
                         outcomes.push({ path, removed: count, error: '' });
-                        // 只有真的有记录被删掉，才把节点从树里摘掉；
-                        // 否则界面和服务器会打架（摘了又被拉回来）
-                        if (count > 0) pruneImportedFolders([path]);
                     } catch (error) {
                         failed += 1;
                         outcomes.push({ path, removed: 0, error: error?.message || String(error) });
@@ -3072,13 +3073,6 @@
                     }
                 }
                 console.info('[Folder] 批量删除结果:', outcomes);
-                modal.remove();
-                folderMultiSelection.clear();
-                applyFolderMultiSelection();
-                await loadUserFolders();
-                await loadFilesFromDatabase({ reset: true });
-                await loadFolderStats(true);
-                loadTagStats();
                 const empty = outcomes.filter(o => o.removed === 0 && !o.error).length;
                 showNotification(
                     '已删除 ' + (list.length - failed) + ' 个文件夹，共 ' + removed + ' 条记录'
@@ -3087,6 +3081,14 @@
                     + (failed ? '，' + failed + ' 个失败' : ''),
                     failed ? 'warning' : 'success'
                 );
+
+                // 最后统一对一次账：不 await，界面早就更新完了
+                Promise.resolve()
+                    .then(() => loadUserFolders())
+                    .then(() => loadFolderStats(true))
+                    .then(() => loadTagStats())
+                    .catch((error) => console.warn('[Folder] 删除后刷新失败:', error));
+                loadFilesFromDatabase({ reset: true }).catch((error) => console.warn('[Folder] 删除后重载列表失败:', error));
             });
         }
 
@@ -3178,34 +3180,34 @@
             const path = folder.fullPath || folder.path;
             if (!path) return;
 
+            // 前端先"预演"：节点立刻从树上消失，不让用户等后端把上千条记录删完
+            const snapshot = importedFolderData;
+            pruneImportedFolders([path]);
+            showNotification('正在删除…', 'info');
+
             try {
                 const result = await rendererApi.post(
                     '/api/v1/db/folder/delete?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
                     { path, delete_source: deleteSource }
                 );
-                // 先把节点摘掉（立刻可见），再等目录统计真正刷新完，最后才弹提示
                 console.info('[Folder] 删除目录:', path, 'removed=', result.removed);
-                pruneImportedFolders([path]);
-                try {
-                    await loadUserFolders();
-                    await loadFolderStats(true);
-                } catch (refreshError) {
-                    // 刷新失败不影响"已经删掉了"这个事实，节点也已经从树上摘掉了
-                    console.warn('[Folder] 删除后刷新目录失败:', refreshError);
-                }
-                try {
-                    await loadFilesFromDatabase({ reset: true });
-                    loadTagStats();
-                } catch (refreshError) {
-                    console.warn('[Folder] 删除后刷新列表失败:', refreshError);
-                }
                 showNotification(
                     deleteSource
                         ? `已删除 ${result.removed} 条记录及磁盘文件`
                         : `已从库中移除 ${result.removed} 条记录（源文件保留）`,
                     'success'
                 );
+                // 后台对账，不阻塞界面
+                Promise.resolve()
+                    .then(() => loadUserFolders())
+                    .then(() => loadFolderStats(true))
+                    .then(() => loadTagStats())
+                    .catch((refreshError) => console.warn('[Folder] 删除后刷新目录失败:', refreshError));
+                loadFilesFromDatabase({ reset: true }).catch((refreshError) => console.warn('[Folder] 删除后刷新列表失败:', refreshError));
             } catch (error) {
+                // 删除失败就把树还原，别让用户以为删掉了
+                importedFolderData = snapshot;
+                renderFolderTree();
                 showNotification('删除失败: ' + error.message, 'error');
             }
         }

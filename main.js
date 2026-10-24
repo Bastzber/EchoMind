@@ -1991,7 +1991,9 @@ function setupIpcHandlers() {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 7000);
       try {
-        const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+        // Gitee raw 带 max-age=60 的 CDN 缓存：加个时间戳，保证点一次就是最新的
+        const target = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+        const response = await fetch(target, { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) continue;
         return await response.json();
       } catch (_error) {

@@ -3513,10 +3513,38 @@
                 '</div>' +
                 '<div class="flex items-center gap-2 px-5 py-2 border-b shrink-0 text-xs" style="border-color: var(--border-color);">' +
                     '<span class="opacity-60">已改 <span data-role="changed" class="font-mono">0</span> 个</span>' +
-                    '<span class="opacity-20">|</span>' +
+                    '<span data-role="sep" class="opacity-20" style="display: none;">|</span>' +
                     '<span data-role="summary" class="truncate opacity-70"></span>' +
                     '<span class="flex-1"></span>' +
                     '<button data-role="reset" class="px-2 py-1 rounded border hover:bg-white/5" style="border-color: var(--border-color);">全部还原</button>' +
+                '</div>' +
+                '<div data-role="rules" class="px-5 py-2 border-b shrink-0 text-xs" style="border-color: var(--border-color);">' +
+                    '<div class="flex items-center gap-1.5 flex-wrap">' +
+                        '<span class="opacity-60">前缀</span>' +
+                        '<input data-rule="prefix" placeholder="SFX_" class="h-6 w-24 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="opacity-60 ml-2">后缀</span>' +
+                        '<input data-rule="suffix" placeholder="_v2" class="h-6 w-20 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="opacity-60 ml-2">查找</span>' +
+                        '<input data-rule="find" placeholder="_" class="h-6 w-20 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="opacity-40">→</span>' +
+                        '<input data-rule="replace" placeholder="空格" class="h-6 w-20 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="flex-1"></span>' +
+                        '<button data-role="apply-rules" class="px-2 py-1 rounded border hover:bg-white/5" style="border-color: var(--border-color);">应用到全部</button>' +
+                    '</div>' +
+                    '<div class="flex items-center gap-1.5 mt-1.5">' +
+                        '<label class="flex items-center gap-1 cursor-pointer">' +
+                            '<input type="checkbox" data-rule="numbering-enabled" class="w-3.5 h-3.5 rounded">' +
+                            '<span class="opacity-60">自动编号</span>' +
+                        '</label>' +
+                        '<span class="opacity-60 ml-1">起始</span>' +
+                        '<input type="number" data-rule="numbering-start" value="1" class="h-6 w-14 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="opacity-60">位数</span>' +
+                        '<input type="number" data-rule="numbering-digits" value="2" class="h-6 w-12 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="opacity-60">分隔</span>' +
+                        '<input data-rule="numbering-separator" value="_" class="h-6 w-10 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="flex-1"></span>' +
+                        '<span class="opacity-40">规则按原名算，重复点不会叠出两层前缀</span>' +
+                    '</div>' +
                 '</div>' +
                 '<div class="grid items-center gap-2 px-5 py-1.5 text-[11px] uppercase tracking-wider opacity-60 border-b shrink-0" style="border-color: var(--border-color); grid-template-columns: 1fr 16px 1fr 92px;">' +
                     '<div>原名</div><div></div><div>新名</div><div>状态</div>' +
@@ -3550,6 +3578,13 @@
                 row.statusEl.title = text;
             }
 
+            // 统计行没内容时把分隔符一起藏起来，别留一根孤零零的竖线
+            function setSummary(text) {
+                summaryEl.textContent = text || '';
+                const sep = panel.querySelector('[data-role="sep"]');
+                if (sep) sep.style.display = text ? '' : 'none';
+            }
+
             function setExecuteEnabled(enabled) {
                 executeBtn.disabled = !enabled;
                 executeBtn.style.opacity = enabled ? '1' : '0.4';
@@ -3575,6 +3610,39 @@
                 return rendererRename.planItems(state.rows.map((row) => row.sound), names);
             }
 
+            function readRules() {
+                const field = (name) => {
+                    const el = panel.querySelector('[data-rule="' + name + '"]');
+                    return el ? el.value : '';
+                };
+                return {
+                    prefix: field('prefix'),
+                    suffix: field('suffix'),
+                    find: field('find'),
+                    replace: field('replace'),
+                    numbering: {
+                        enabled: Boolean(panel.querySelector('[data-rule="numbering-enabled"]')?.checked),
+                        start: field('numbering-start'),
+                        digits: field('numbering-digits'),
+                        separator: field('numbering-separator')
+                    }
+                };
+            }
+
+            // 规则一律以「原名」为底稿重算，所以手改过的行也会被覆盖，重复点不会叠前缀
+            function applyRulesToAll() {
+                const rules = readRules();
+                state.rows.forEach((row, index) => {
+                    const next = rendererRename.applyRules(row.oldName, rules, index);
+                    row.inputEl.value = next;
+                    const reason = rendererRename.validateName(next);
+                    if (reason) setStatus(row, 'error', reason);
+                    else if (next.trim() === row.oldName) setStatus(row, 'idle', '未改动');
+                    else setStatus(row, 'stale', '待预览');
+                });
+                onDirty();
+            }
+
             function countKinds() {
                 const tally = { ok: 0, error: 0, idle: 0, stale: 0 };
                 state.rows.forEach((row) => { tally[row.kind] = (tally[row.kind] || 0) + 1; });
@@ -3584,7 +3652,7 @@
             // 任何一处编辑都会让上一次预览作废：强制重看一遍再执行
             function onDirty() {
                 changedEl.textContent = String(collectPlan().length);
-                summaryEl.textContent = '';
+                setSummary('');
                 state.previewOk = null;
                 state.previewItems = [];
                 disarm();
@@ -3628,7 +3696,7 @@
                 });
                 if (sendable.length === 0) {
                     const tally = countKinds();
-                    summaryEl.textContent = '可改 0 / 失败 ' + tally.error + ' / 未改动 ' + tally.idle;
+                    setSummary('可改 0 / 失败 ' + tally.error + ' / 未改动 ' + tally.idle);
                     hintEl.textContent = tally.error > 0
                         ? '先把上面标红的改好，再来预览'
                         : '改几行「新文件名」再来预览';
@@ -3663,13 +3731,13 @@
                     });
                     const tally = countKinds();
                     state.previewOk = tally.ok;
-                    summaryEl.textContent = '可改 ' + tally.ok + ' / 失败 ' + tally.error + ' / 未改动 ' + tally.idle;
+                    setSummary('可改 ' + tally.ok + ' / 失败 ' + tally.error + ' / 未改动 ' + tally.idle);
                     hintEl.textContent = tally.ok > 0
                         ? '确认无误后点「执行」，会真的改动 ' + tally.ok + ' 个文件'
                         : '没有可改的文件，先看看上面标红的原因';
                     setExecuteEnabled(tally.ok > 0);
                 } catch (error) {
-                    summaryEl.textContent = '预览失败：' + (error?.message || error);
+                    setSummary('预览失败：' + (error?.message || error));
                     hintEl.textContent = '后端不可用时无法预览（不会动到文件）';
                     setExecuteEnabled(false);
                 } finally {
@@ -3730,7 +3798,7 @@
                         closeModal();
                     } else {
                         // 还有没改成的那几行，留在弹窗里让用户接着修
-                        summaryEl.textContent = '可改 0 / 失败 ' + leftover.error + ' / 未改动 ' + leftover.idle;
+                        setSummary('可改 0 / 失败 ' + leftover.error + ' / 未改动 ' + leftover.idle);
                         hintEl.textContent = '已完成 ' + summary.ok + ' 个，还有 ' + leftover.error + ' 个没处理，改好可以再来一次';
                     }
                 } catch (error) {
@@ -3805,6 +3873,13 @@
                     setStatus(row, 'idle', '未改动');
                 });
                 onDirty();
+            });
+            panel.querySelector('[data-role="apply-rules"]').addEventListener('click', applyRulesToAll);
+            panel.querySelector('[data-role="rules"]').addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    applyRulesToAll();
+                }
             });
             previewBtn.addEventListener('click', runPreview);
             executeBtn.addEventListener('click', runExecute);

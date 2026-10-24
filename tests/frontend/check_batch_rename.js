@@ -37,6 +37,51 @@ async function main() {
   assert.strictEqual(rename.basename('/tmp/a.wav'), 'a.wav', 'POSIX 取文件名错误');
   assert.strictEqual(rename.basename('C:\\Audio\\trailing\\'), '', '目录路径应该没有文件名');
 
+  // ---- 批量规则：前缀 / 后缀 / 查找替换 / 自动编号 ----
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(rename.splitExtension('林间鸟鸣_01.wav'))),
+    { stem: '林间鸟鸣_01', ext: '.wav' },
+    '扩展名没拆出来'
+  );
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(rename.splitExtension('no_ext'))),
+    { stem: 'no_ext', ext: '' },
+    '没有扩展名的文件名被拆错了'
+  );
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(rename.splitExtension('a.b.c.WAV'))),
+    { stem: 'a.b.c', ext: '.WAV' },
+    '多点文件名只该按最后一段拆'
+  );
+
+  assert.strictEqual(rename.applyRules('林中鸟.wav', {}), '林中鸟.wav', '空规则不应该改名');
+  assert.strictEqual(rename.applyRules('林中鸟.wav', { prefix: 'SFX_', suffix: '_v2' }), 'SFX_林中鸟_v2.wav', '前后缀位置不对');
+  assert.strictEqual(rename.applyRules('city_street_02.wav', { find: '_', replace: ' ' }), 'city street 02.wav', '查找替换没生效');
+  assert.strictEqual(
+    rename.applyRules('a.wav', { find: 'wav', replace: 'mp3' }),
+    'a.wav',
+    '查找替换改到了扩展名'
+  );
+  const numbering = { enabled: true, start: 5, digits: 2, separator: '_' };
+  assert.strictEqual(rename.applyRules('x.wav', { numbering }, 0), '05_x.wav', '编号起始值不对');
+  assert.strictEqual(rename.applyRules('x.wav', { numbering }, 2), '07_x.wav', '编号没有跟着行号走');
+  assert.strictEqual(
+    rename.applyRules('x.wav', { numbering: { enabled: false, start: 5, digits: 2 } }, 0),
+    'x.wav',
+    '关闭编号后仍在编号'
+  );
+  assert.strictEqual(
+    rename.applyRules('x.wav', { prefix: 'SFX_', numbering }, 0),
+    'SFX_05_x.wav',
+    '前缀应该在编号之前'
+  );
+  assert.strictEqual(
+    rename.applyRules('x.wav', { numbering: { enabled: true, start: 1, digits: 0, separator: '' } }, 0),
+    '1x.wav',
+    '位数写 0 时应该退化成不补零'
+  );
+  assert.strictEqual(rename.applyRules('x.wav', { prefix: '好声音', find: 'x', replace: '雨' }), '好声音雨.wav', '规则组合顺序不对');
+
   const planSounds = [
     { id: 'u1', fileId: 'u1', name: 'a.wav', filePath: 'C:\\x\\a.wav' },
     { id: 'u2', fileId: 'u2', name: 'b.wav', filePath: 'C:\\x\\b.wav' },
@@ -86,6 +131,8 @@ async function main() {
   assert(/dry_run:\s*true/.test(indexHtml), '预览没有走 dry_run');
   assert(/dry_run:\s*false/.test(indexHtml), '执行仍然停在 dry_run');
   assert(indexHtml.includes('showBatchRenameModal('), '批量重命名弹窗入口缺失');
+  assert(indexHtml.includes('应用到全部'), '弹窗里没有「应用到全部」');
+  assert(/rendererRename\.applyRules\(/.test(indexHtml), '批量规则没有接到弹窗上');
   assert(indexHtml.includes('批量重命名'), '右键菜单没有批量重命名文案');
 
   // ---------- 内联脚本语法 ----------

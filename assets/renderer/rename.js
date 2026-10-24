@@ -27,6 +27,43 @@
         return index >= 0 ? value.slice(index + 1) : value;
     }
 
+    function splitExtension(name) {
+        const value = String(name === undefined || name === null ? '' : name);
+        const index = value.lastIndexOf('.');
+        if (index <= 0 || index === value.length - 1) return { stem: value, ext: '' };
+        return { stem: value.slice(0, index), ext: value.slice(index) };
+    }
+
+    function textOf(value) {
+        return value === undefined || value === null ? '' : String(value);
+    }
+
+    // 批量规则：一律以「原名」为输入，所以重复点不会把前缀叠两层。
+    // 扩展名永远放在最后，查找替换也只在主名上做。
+    function applyRules(name, rules, index) {
+        const config = rules || {};
+        const parts = splitExtension(name);
+
+        let core = parts.stem;
+        const find = textOf(config.find);
+        if (find) core = core.split(find).join(textOf(config.replace));
+
+        let number = '';
+        const numbering = config.numbering;
+        if (numbering && numbering.enabled) {
+            const startRaw = numbering.start;
+            const start = startRaw === '' || startRaw === undefined || startRaw === null
+                ? 1
+                : Math.round(Number(startRaw));
+            const base = Number.isFinite(start) ? start : 1;
+            const digits = Math.max(0, Math.round(Number(numbering.digits) || 0));
+            const raw = String(base + (Number(index) || 0));
+            number = (digits > 0 ? raw.padStart(digits, '0') : raw) + textOf(numbering.separator);
+        }
+
+        return textOf(config.prefix) + number + core + textOf(config.suffix) + parts.ext;
+    }
+
     // 只把「真的改了」的行送进接口：没动的不发，空的也不发
     function planItems(sounds, namesById) {
         const items = [];
@@ -89,6 +126,8 @@
         EMPTY_MESSAGE,
         validateName,
         basename,
+        splitExtension,
+        applyRules,
         planItems,
         applyResults,
         summarize

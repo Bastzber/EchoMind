@@ -2647,20 +2647,27 @@
             const box = document.getElementById('recipeTakes');
             if (!box) return;
             if (!recipeState.takes.length) {
-                box.classList.add('hidden');
-                box.innerHTML = '';
+                // 右栏常驻，空的时候给个提示，不要整块消失
+                box.innerHTML = '<div class="opacity-40 text-center py-6">还没有录音</div>';
                 return;
             }
-            box.classList.remove('hidden');
-            box.innerHTML = '<div class="opacity-50 mb-1">历史录音（本次会话）</div>';
+            box.innerHTML = '<div class="opacity-50 mb-1 px-1">历史录音（本次会话）</div>';
             recipeState.takes.forEach((take, index) => {
+                // 右栏只有 288px：名字一行，按钮一行，别挤成一条
                 const row = document.createElement('div');
-                row.className = 'flex items-center gap-2 py-1';
-                row.innerHTML = `<span class="opacity-60">${index + 1}.</span>
+                row.className = 'py-1.5 px-1 border-b';
+                row.style.borderColor = 'var(--border-color)';
+                const head = document.createElement('div');
+                head.className = 'flex items-center gap-2 mb-1';
+                head.innerHTML = `<span class="opacity-60">${index + 1}.</span>
                     <span class="flex-1 truncate">${escapeHtml(take.name)}</span>
                     <span class="opacity-50">${take.duration}s</span>`;
+                const actions = document.createElement('div');
+                actions.className = 'flex items-center gap-1';
+                row.appendChild(head);
+                row.appendChild(actions);
                 const play = document.createElement('button');
-                play.className = 'px-2 py-0.5 rounded w-14';
+                play.className = 'px-2 py-0.5 rounded flex-1';
                 play.style.background = 'var(--bg-tertiary)';
                 play.textContent = '试听';
                 play.dataset.audition = 'take';
@@ -2670,19 +2677,19 @@
                 });
 
                 const save = document.createElement('button');
-                save.className = 'px-2 py-0.5 rounded';
+                save.className = 'px-2 py-0.5 rounded flex-1';
                 save.style.background = '#8b5cf6';
                 save.style.color = '#fff';
                 save.textContent = '保存';
                 save.addEventListener('click', () => saveTakeToLibrary(take));
 
                 const copy = document.createElement('button');
-                copy.className = 'px-2 py-0.5 rounded';
+                copy.className = 'px-2 py-0.5 rounded flex-1';
                 copy.style.background = 'var(--bg-tertiary)';
                 copy.textContent = '复制路径';
                 copy.addEventListener('click', () => copyTakePath(take));
 
-                row.append(play, save, copy);
+                actions.append(play, save, copy);
                 box.appendChild(row);
             });
         }
@@ -11467,7 +11474,7 @@
 
     <!-- 声音配方：本地分层合成（毫秒级触发 + 录制） -->
 <div id="recipeModal" class="fixed inset-0 z-[200] hidden items-center justify-center" style="background-color: rgba(0,0,0,0.55);">
-    <div class="w-[880px] max-h-[86vh] flex flex-col rounded-xl overflow-hidden" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="w-[1080px] max-w-[94vw] max-h-[86vh] flex flex-col rounded-xl overflow-hidden" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
         <div class="flex items-center justify-between px-5 py-3 border-b" style="border-color: var(--border-color);">
             <div class="flex items-center gap-2">
                 <i data-lucide="layers" class="w-4 h-4"></i>
@@ -11477,12 +11484,14 @@
             <button id="recipeCloseBtn" class="p-1 rounded hover:bg-white/10"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
         <div class="flex flex-1 min-h-0">
+            <!-- 左：配方列表 -->
             <div class="w-52 border-r overflow-y-auto p-2" style="border-color: var(--border-color);" id="recipeList"></div>
+            <!-- 中：触控板 + 声音配方 -->
             <div class="flex-1 flex flex-col min-w-0">
                 <div class="px-4 pt-3 text-sm font-medium" id="recipeTitle">选择左侧的配方</div>
                 <div class="px-4 pb-2 text-xs opacity-50" id="recipeLayers"></div>
                 <div class="flex-1 flex items-center justify-center p-4">
-                    <div id="recipePad" class="relative rounded-xl border select-none" style="width:460px;height:300px;border-color:var(--border-color);background:var(--bg-tertiary);cursor:crosshair;">
+                    <div id="recipePad" class="relative rounded-xl border select-none" style="width:min(460px,100%);height:300px;border-color:var(--border-color);background:var(--bg-tertiary);cursor:crosshair;">
                         <span class="absolute left-2 top-2 text-[10px] opacity-50">远处 · 轻步</span>
                         <span class="absolute right-2 top-2 text-[10px] opacity-50">远处 · 重步</span>
                         <span class="absolute left-2 bottom-2 text-[10px] opacity-50">近身 · 轻步</span>
@@ -11504,14 +11513,27 @@
                     </select>
                     <button id="recipeResetLayers" class="px-2 py-1 rounded-md ml-auto" style="background: var(--bg-tertiary);">恢复默认配方</button>
                 </div>
-                <div id="recipeTakes" class="hidden px-4 py-2 border-t max-h-32 overflow-y-auto text-xs" style="border-color: var(--border-color);"></div>
-                <div class="flex items-center gap-2 px-4 py-3 border-t" style="border-color: var(--border-color);">
-                    <button id="recipeStopAmbience" class="hidden px-3 py-1.5 rounded-md text-xs" style="background: var(--bg-tertiary);">■ 停止环境音</button>
-                    <button id="recipeRecordBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#ef4444;">● 开始录制</button>
-                    <span id="recipeTimer" class="text-xs font-mono opacity-70">0.0 / 60 秒</span>
-                    <div class="flex-1"></div>
-                    <button id="recipePlayBtn" class="px-3 py-1.5 rounded-md text-xs" style="background:var(--bg-tertiary);" disabled>试听录制</button>
-                    <button id="recipeSaveBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#8b5cf6;" disabled>保存到音效库</button>
+            </div>
+            <!-- 右：试听与录制 -->
+            <div class="w-72 border-l flex flex-col min-h-0 shrink-0" style="border-color: var(--border-color);">
+                <div class="px-4 py-3 border-b shrink-0" style="border-color: var(--border-color);">
+                    <div class="text-sm font-medium">试听与录制</div>
+                    <div class="text-xs opacity-50 mt-1">在左侧触控板上演奏，点录制存成音频</div>
+                </div>
+                <div class="px-4 py-3 border-b shrink-0" style="border-color: var(--border-color);">
+                    <div class="flex items-center gap-2">
+                        <button id="recipeRecordBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#ef4444;">● 开始录制</button>
+                        <span id="recipeTimer" class="text-xs font-mono opacity-70">0.0 / 60 秒</span>
+                    </div>
+                    <button id="recipeStopAmbience" class="hidden mt-2 w-full px-3 py-1.5 rounded-md text-xs" style="background: var(--bg-tertiary);">■ 停止环境音</button>
+                    <div class="flex flex-col gap-2 mt-3">
+                        <button id="recipePlayBtn" class="px-3 py-1.5 rounded-md text-xs" style="background:var(--bg-tertiary);" disabled>试听录制</button>
+                        <button id="recipeSaveBtn" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#8b5cf6;" disabled>保存到音效库</button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto p-2 text-xs" id="recipeTakes"></div>
+                <div class="px-4 py-2 border-t text-[11px] opacity-40 shrink-0 leading-5" style="border-color: var(--border-color);">
+                    单次最长 60 秒；拖动触控板会实时改变远近与强弱
                 </div>
             </div>
         </div>

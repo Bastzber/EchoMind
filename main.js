@@ -1977,10 +1977,10 @@ function setupIpcHandlers() {
   // ===== 检查更新 =====
   // 更新信息放在 Gitee（国内直连，用户不需要 GitHub 也不需要代理）；
   // 下载仍然走百度网盘，这里只负责"告诉用户有没有新版"。
-  // 第一个是主源（Gitee，国内直连）；后两个是兜底，实测只有 gh-proxy 在国内通，
-  // 但它慢（约 6 秒）且是第三方，所以等 Gitee 仓库建好后请把占位符换掉。
+  // 主源是 Gitee（国内直连，0.3 秒级）；后两个是兜底：gh-proxy 是第三方转发，
+  // 实测能用但慢（约 6 秒）；直连 GitHub raw 在国内基本不通，只留给海外用户。
   const UPDATE_FEED_URLS = [
-    'https://gitee.com/<你的Gitee用户名>/echomind-updates/raw/master/update.json',
+    'https://gitee.com/bastzber/echomind-updates/raw/master/update.json',
     'https://gh-proxy.com/https://raw.githubusercontent.com/Bastzber/EchoMind/main/update.json',
     'https://raw.githubusercontent.com/Bastzber/EchoMind/main/update.json'
   ];

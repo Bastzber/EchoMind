@@ -52,7 +52,7 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 
 ## 二、当前版本
 
-- `0.3.0-beta.10`（测试版 V10），health 接口可验证
+- `0.3.0-beta.11`（测试版 V10），health 接口可验证
 - 数据库：`%APPDATA%\EchoMind\db\soundmind.db`
 - 库内 48,648 条音效，音频/文本/波形索引 100% 就绪
 
@@ -165,7 +165,7 @@ $env:ELECTRON_RUN_AS_NODE='1'
 3. 改 Gitee 仓库里的 `update.json`（模板在本仓库根目录）：
 
    ```json
-   { "version": "0.3.0-beta.10", "released_at": "2026-10-25",
+   { "version": "0.3.0-beta.11", "released_at": "2026-10-25",
      "notes": "第一行\n第二行", "url": "https://pan.baidu.com/s/…?pwd=73ca", "code": "73ca" }
    ```
 

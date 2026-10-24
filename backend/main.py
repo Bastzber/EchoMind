@@ -3500,6 +3500,107 @@ def _transcode_one(source: str, target_format: str, bitrate: Optional[str], out_
     }
 
 
+
+@app.post("/api/v1/db/library/repair-paths")
+async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), project_id: str = Query(default="default")):
+    """磁盘上文件夹改名/移动后，把数据库里的旧路径按"同名同大小"修正回来。
+
+    dry_run=True 只返回计划，不动数据库。
+    """
+    from core.database import canonicalize_path
+
+    dry_run = bool(payload.get("dry_run", True))
+    roots = payload.get("roots") or []
+    db_manager = get_db_manager()
+
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            "SELECT file_uuid, path, filename, file_size FROM files WHERE project_id=?",
+            (project_id,),
+        ).fetchall()
+
+    missing = []
+    by_name_size = {}
+    for file_uuid, path, filename, size in rows:
+        if os.path.exists(path):
+            by_name_size.setdefault((str(filename), int(size or 0)), []).append(path)
+        else:
+            missing.append((file_uuid, path, filename, size))
+
+    # 磁盘扫描：在指定根目录（或旧路径的盘符根）下找同名同大小的文件
+    search_roots = [str(item) for item in roots if item]
+    if not search_roots:
+        seen = set()
+        for _uuid, path, _fn, _size in missing:
+            drive = os.path.splitdrive(path)[0]
+            if drive and drive not in seen:
+                seen.add(drive)
+                search_roots.append(drive + os.sep)
+
+    disk_index = {}
+    scanned = 0
+    for search_root in search_roots:
+        if not os.path.isdir(search_root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(search_root):
+            for name in filenames:
+                full = os.path.join(dirpath, name)
+                try:
+                    disk_index.setdefault((name, os.path.getsize(full)), []).append(full)
+                except OSError:
+                    continue
+                scanned += 1
+                if scanned % 20000 == 0:
+                    logger.info("路径修复扫描中: %d", scanned)
+
+    plan = []
+    ambiguous = 0
+    not_found = 0
+    for file_uuid, path, filename, size in missing:
+        candidates = disk_index.get((str(filename), int(size or 0)), [])
+        if not candidates:
+            not_found += 1
+            continue
+        if len(candidates) > 1:
+            # 优先同盘
+            same_drive = [c for c in candidates if os.path.splitdrive(c)[0] == os.path.splitdrive(path)[0]]
+            candidates = same_drive or candidates
+        if len(candidates) > 1:
+            ambiguous += 1
+            continue
+        plan.append({"file_uuid": file_uuid, "old": path, "new": candidates[0]})
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "missing": len(missing),
+            "scanned": scanned,
+            "fixable": len(plan),
+            "ambiguous": ambiguous,
+            "not_found": not_found,
+            "samples": plan[:20],
+        }
+
+    updated = 0
+    with db_manager.get_cursor() as cursor:
+        for item in plan:
+            cursor.execute(
+                "UPDATE files SET path=?, canonical_path=?, updated_at=? WHERE file_uuid=?",
+                (item["new"], canonicalize_path(item["new"]), datetime.now().isoformat(), item["file_uuid"]),
+            )
+            updated += cursor.rowcount
+    return {
+        "success": True,
+        "dry_run": False,
+        "missing": len(missing),
+        "fixable": len(plan),
+        "updated": updated,
+        "ambiguous": ambiguous,
+        "not_found": not_found,
+    }
+
+
 @app.post("/api/v1/transcode")
 async def transcode_files(payload: TranscodeRequest):
     """把一批音频转成 WAV/MP3；坏文件尽量救回能解的部分。"""

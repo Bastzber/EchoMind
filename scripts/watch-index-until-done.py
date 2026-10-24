@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""值守：保证索引一定跑完。
+"""值守索引：只保证"有活干"，绝不因为 HTTP 慢就重启后端。
 
-- 每 120 秒直接读数据库看待办数（后端忙时 HTTP 会超时）
-- 连续 5 次没有进展 -> 杀掉后端重启 + 重新调度对账
-- 待办归零 -> 写入大羽标注 -> 弹置顶窗口 -> 写完成标记
+- 每 2 分钟读数据库看待办
+- 没有在跑的索引任务 -> 立刻重新调度（这是唯一手段）
+- 连续 20 分钟没有任何进展，且重试 3 次无效 -> 才重启后端
 """
 from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -20,165 +21,155 @@ REPO = Path(r'E:\音效库管理软件\EchoMind\EchoMind-main')
 DB = Path(os.environ['APPDATA']) / 'EchoMind' / 'db' / 'soundmind.db'
 LOG = Path(r'E:\AI音效管理器\index-watch.log')
 DONE = Path(r'E:\AI音效管理器\import-done.json')
-KINDS = ('waveform', 'audio_vector', 'text_vector')
 POLL = 120
-STALL_LIMIT = 10
+STALL_LIMIT = 10      # 20 分钟没进展
+KICK_COOLDOWN = 180   # 两次调度至少隔 3 分钟
 
 
-def log(msg: str) -> None:
-    line = time.strftime('%H:%M:%S') + '  ' + msg
+def log(message: str) -> None:
+    line = time.strftime('%H:%M:%S') + '  ' + message
     print(line, flush=True)
-    with LOG.open('a', encoding='utf-8') as handle:
-        handle.write(line + '\n')
-
-
-def pending_counts() -> dict:
-    import sqlite3
-    conn = sqlite3.connect('file:' + str(DB).replace('\\', '/') + '?mode=ro', uri=True, timeout=30)
     try:
-        rows = conn.execute(
-            "SELECT kind, SUM(state IN ('pending','processing')) FROM file_artifacts GROUP BY kind"
-        ).fetchall()
-        return {row[0]: int(row[1] or 0) for row in rows}
+        with LOG.open('a', encoding='utf-8') as handle:
+            handle.write(line + '\n')
+    except Exception:
+        pass
+
+
+def query(sql: str):
+    conn = sqlite3.connect('file:' + str(DB).replace('\\', '/') + '?mode=ro', uri=True, timeout=20)
+    try:
+        return conn.execute(sql).fetchall()
     finally:
         conn.close()
 
 
-def backend_alive() -> bool:
-    # 索引跑满时 /health 也可能几秒才回，别把"忙"当成"挂"
+def pending_counts() -> dict:
+    for _ in range(3):
+        try:
+            rows = query(
+                "SELECT kind, SUM(state IN ('pending','processing','stale')) "
+                "FROM file_artifacts GROUP BY kind"
+            )
+            return {row[0]: int(row[1] or 0) for row in rows}
+        except Exception as exc:
+            log('读库失败（重试）: ' + str(exc)[:80])
+            time.sleep(5)
+    return {}
+
+
+def active_job() -> bool:
     try:
-        with urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=30) as response:
-            return response.status == 200
+        rows = query(
+            "SELECT COUNT(*) FROM jobs WHERE state IN ('running','pending') "
+            "AND kind IN ('index_reconcile','index_rebuild','folder_import')"
+        )
+        return bool(rows and rows[0][0])
     except Exception:
-        pass
-    try:
-        with urllib.request.urlopen('http://127.0.0.1:8000/', timeout=10) as response:
-            return response.status < 500
-    except Exception:
-        return False
+        return True
 
 
-def run_powershell(command: str, timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
-        capture_output=True, text=True, timeout=timeout, encoding='utf-8', errors='replace',
-    )
-
-
-def restart_backend() -> None:
-    log('重启后端…')
-    run_powershell(
-        "Get-CimInstance Win32_Process -Filter \"Name='electron.exe'\" | "
-        "Where-Object { $_.CommandLine -like '*EchoMind-main*' } | "
-        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
-        "Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | "
-        "ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }",
-        timeout=120,
-    )
-    time.sleep(4)
-    subprocess.Popen(
-        ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'scripts' / 'dev.ps1')],
-        cwd=str(REPO), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    deadline = time.time() + 240
-    while time.time() < deadline:
-        if backend_alive():
-            log('后端已恢复')
-            break
-        time.sleep(5)
-    kick_reconcile()
-
-
-def kick_reconcile() -> None:
-    body = json.dumps({'kinds': list(KINDS)}).encode()
+def kick_reconcile() -> bool:
+    body = json.dumps({'kinds': ['waveform', 'audio_vector', 'text_vector']}).encode()
     try:
         request = urllib.request.Request(
             'http://127.0.0.1:8000/api/v1/projects/default/index/reconcile',
             data=body, method='POST', headers={'Content-Type': 'application/json'},
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
-            log('已调度对账: ' + response.read().decode()[:120])
+        with urllib.request.urlopen(request, timeout=90) as response:
+            log('已调度: ' + response.read().decode()[:110])
+            return True
     except Exception as exc:
-        log('调度对账失败: ' + str(exc)[:120])
+        log('调度失败: ' + str(exc)[:110])
+        return False
+
+
+def restart_backend() -> None:
+    log('重启后端（最后的办法）')
+    subprocess.run(
+        ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+         "Get-CimInstance Win32_Process -Filter \"Name='electron.exe'\" | "
+         "Where-Object { $_.CommandLine -like '*EchoMind-main*' } | "
+         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+         "Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | "
+         "ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"],
+        capture_output=True, timeout=120,
+    )
+    time.sleep(5)
+    subprocess.Popen(
+        ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'scripts' / 'dev.ps1')],
+        cwd=str(REPO), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    time.sleep(60)
 
 
 def notify(summary: str) -> None:
-    script = REPO / 'scripts' / 'notify-when-import-done.ps1'
     message = summary.replace("'", "''")
     command = (
-        "Add-Type -AssemblyName System.Windows.Forms; "
-        "Add-Type -AssemblyName System.Drawing; "
-        "$f = New-Object System.Windows.Forms.Form; "
-        "$f.Text='EchoMind - 索引完成'; $f.TopMost=$true; $f.Width=660; $f.Height=320; "
-        "$f.StartPosition='CenterScreen'; $f.BackColor=[System.Drawing.Color]::FromArgb(32,32,36); "
-        "$l = New-Object System.Windows.Forms.Label; $l.Dock='Fill'; "
-        "$l.Text='" + message + "'; $l.ForeColor=[System.Drawing.Color]::White; "
-        "$l.Font=New-Object System.Drawing.Font('Microsoft YaHei',12); $l.TextAlign='MiddleCenter'; "
+        "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
+        "$f = New-Object System.Windows.Forms.Form; $f.Text='EchoMind - 索引完成'; $f.TopMost=$true; "
+        "$f.Width=680; $f.Height=340; $f.StartPosition='CenterScreen'; "
+        "$f.BackColor=[System.Drawing.Color]::FromArgb(32,32,36); "
+        "$l = New-Object System.Windows.Forms.Label; $l.Dock='Fill'; $l.Text='" + message + "'; "
+        "$l.ForeColor=[System.Drawing.Color]::White; $l.Font=New-Object System.Drawing.Font('Microsoft YaHei',12); "
+        "$l.TextAlign='MiddleCenter'; "
         "$b = New-Object System.Windows.Forms.Button; $b.Text='知道了'; $b.Dock='Bottom'; $b.Height=44; "
-        "$b.Add_Click({ $f.Close() }); "
-        "$f.Controls.Add($l); $f.Controls.Add($b); "
+        "$b.Add_Click({ $f.Close() }); $f.Controls.Add($l); $f.Controls.Add($b); "
         "$t = New-Object System.Windows.Forms.Timer; $t.Interval=8000; "
-        "$t.Add_Tick({ $f.TopMost=$true; $f.Activate(); [System.Media.SystemSounds]::Exclamation.Play() }); $t.Start(); "
-        "for ($i=0;$i -lt 3;$i++){ [System.Media.SystemSounds]::Exclamation.Play(); Start-Sleep -Milliseconds 350 }; "
+        "$t.Add_Tick({ $f.TopMost=$true; $f.Activate(); [System.Media.SystemSounds]::Exclamation.Play() }); "
+        "$t.Start(); for ($i=0;$i -lt 3;$i++){ [System.Media.SystemSounds]::Exclamation.Play(); Start-Sleep -Milliseconds 350 }; "
         "[System.Windows.Forms.Application]::Run($f); $t.Stop(); $f.Dispose()"
     )
-    subprocess.run(
-        ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
-        timeout=86400, capture_output=True,
-    )
+    subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], timeout=86400)
 
 
 def main() -> int:
-    log('值守启动')
+    log('值守启动（只按进度判断，不做健康检查重启）')
     last = None
     stall = 0
-    restarts = 0
-    missing = 0
+    last_kick = 0.0
     while True:
         counts = pending_counts()
-        total_pending = sum(counts.values())
-        log('待办 ' + json.dumps(counts, ensure_ascii=False) + '  合计 ' + str(total_pending))
+        total = sum(counts.values())
+        log('待办 ' + json.dumps(counts, ensure_ascii=False) + ' 合计 ' + str(total))
 
-        if total_pending == 0:
-            log('索引已完成，开始写入大羽标注')
+        if counts and total == 0:
+            log('全部完成，写入标注')
             annotate = subprocess.run(
                 [str(REPO / '.venv' / 'Scripts' / 'python.exe'),
-                 str(REPO / 'scripts' / 'apply_annotations_bulk.py'), '--apply'],
-                cwd=str(REPO), capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=7200,
+                 str(REPO / 'scripts' / 'apply_annotations_bulk.py')],
+                cwd=str(REPO), capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3600,
             )
-            tail = '\n'.join((annotate.stdout or '').strip().splitlines()[-3:])
-            log('标注结果: ' + tail)
+            tag = subprocess.run(
+                [str(REPO / '.venv' / 'Scripts' / 'python.exe'),
+                 str(REPO / 'scripts' / 'rebuild_tag_layers.py')],
+                cwd=str(REPO), capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3600,
+            )
+            tail = '\n'.join((annotate.stdout or '').strip().splitlines()[-2:])
             DONE.write_text(json.dumps({
                 'finished_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'pending': counts,
-                'annotate': tail,
+                'counts': counts, 'annotate': tail,
             }, ensure_ascii=False, indent=1), encoding='utf-8')
-            summary = '索引全部完成\n\n' + json.dumps(counts, ensure_ascii=False) + '\n\n' + tail
-            notify(summary)
-            log('通知已弹出，值守结束')
+            notify('索引全部完成\n\n' + json.dumps(counts, ensure_ascii=False) + '\n\n' + tail)
+            log('已通知，值守结束')
             return 0
 
-        if last is not None and total_pending >= last:
+        if not active_job() and time.time() - last_kick > KICK_COOLDOWN:
+            log('没有在跑的索引任务 -> 重新调度')
+            if kick_reconcile():
+                last_kick = time.time()
+
+        if last is not None and total >= last:
             stall += 1
-            log('无进展计数 ' + str(stall) + '/' + str(STALL_LIMIT))
+            log('无进展 ' + str(stall) + '/' + str(STALL_LIMIT))
             if stall >= STALL_LIMIT:
-                restarts += 1
-                log('连续无进展，第 ' + str(restarts) + ' 次重启')
+                log('二十分钟无进展，重启后端')
                 restart_backend()
                 stall = 0
+                last_kick = time.time()
         else:
             stall = 0
-        last = total_pending
-
-        if not backend_alive():
-            missing += 1
-            log('后端无响应 ' + str(missing) + '/3')
-            if missing >= 3:
-                log('后端确实挂了，拉起')
-                restart_backend()
-                missing = 0
-        else:
-            missing = 0
+        last = total
         time.sleep(POLL)
 
 

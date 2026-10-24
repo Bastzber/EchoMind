@@ -8610,6 +8610,14 @@
                 rescanBtn.addEventListener('click', () => rescanLibraryInto(button => rescanBtn.disabled = button));
                 toolbar.appendChild(rescanBtn);
 
+                const repairBtn = document.createElement('button');
+                repairBtn.className = 'px-2 py-1 rounded text-xs border';
+                repairBtn.style.borderColor = 'var(--border-color)';
+                repairBtn.textContent = '修复路径';
+                repairBtn.title = '在磁盘上改了文件夹名/移了位置后，按"同名同大小"把库里的路径修正回来';
+                repairBtn.addEventListener('click', () => repairLibraryPaths(repairBtn));
+                toolbar.appendChild(repairBtn);
+
                 const ignoredBtn = document.createElement('button');
                 ignoredBtn.className = 'px-2 py-1 rounded text-xs border';
                 ignoredBtn.style.borderColor = 'var(--border-color)';
@@ -9035,6 +9043,29 @@
         }
 
         // 扫描库目录：把"磁盘上有、库里没有"的音频补录回来（回收站还原 / 手动拷入）
+        // 目录改名/移动后修库里的路径（同名同大小匹配）
+        const repairLibraryPaths = async (button) => {
+            const setBusy = (busy) => { if (button) button.disabled = busy; };
+            try {
+                setBusy(true);
+                showNotification('正在扫描磁盘，找可修复的路径…', 'info');
+                const preview = await rendererApi.post('/api/v1/db/library/repair-paths?project_id=' + encodeURIComponent(currentProject?.id || 'default'), { dry_run: true }, { timeoutMs: 600000 });
+                if (!preview.fixable) {
+                    showNotification('没有可修复的路径（缺失 ' + preview.missing + ' 条，其中 ' + preview.not_found + ' 条在磁盘上找不到）', 'warning');
+                    return;
+                }
+                if (!confirm('库里有 ' + preview.missing + ' 条记录指向不存在的文件，\n其中 ' + preview.fixable + ' 条能按「同名同大小」找到新位置。\n\n现在修正吗？' + (preview.ambiguous ? '\n（另有 ' + preview.ambiguous + ' 条有多个候选，跳过）' : ''))) return;
+                const result = await rendererApi.post('/api/v1/db/library/repair-paths?project_id=' + encodeURIComponent(currentProject?.id || 'default'), { dry_run: false }, { timeoutMs: 900000 });
+                showNotification('已修正 ' + result.updated + ' 条路径', 'success');
+                await loadFilesFromDatabase({ reset: true });
+                await loadFolderStats(true);
+            } catch (error) {
+                showNotification('修复失败: ' + (error?.message || error), 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
         async function rescanLibraryInto(setBusy) {
             setBusy(true);
             try {

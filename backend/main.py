@@ -477,43 +477,6 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.debug(f"[Warmup] 搜索预热失败: {exc}")
 
-    async def _run_hash_backfill(project_id: str) -> None:
-        """补算 sha256（大文件优先，限速避免打满机械盘）。可重复调用，跑完即退出。"""
-        global _hash_task_running
-        if _hash_task_running:
-            return
-        _hash_task_running = True
-        try:
-            from core.content_hash import sha256_file
-
-            db = get_db_manager()
-            while not _shutting_down:
-                batch = await asyncio.to_thread(db.files_needing_hash, project_id, 60)
-                if not batch:
-                    break
-                for item in batch:
-                    digest = await asyncio.to_thread(sha256_file, item["path"])
-                    await asyncio.to_thread(
-                        db.set_file_hash,
-                        item["file_uuid"],
-                        digest,
-                        1 if digest else 2,
-                    )
-                await asyncio.sleep(0.2)
-            progress = await asyncio.to_thread(db.hash_progress, project_id)
-            logger.info(
-                "[Hash] 内容哈希补算完成：%s/%s",
-                progress.get("done"),
-                progress.get("total"),
-            )
-        except Exception as exc:
-            logger.warning("[Hash] 补算失败: %s", exc)
-        finally:
-            _hash_task_running = False
-
-    async def _backfill_content_hashes() -> None:
-        await asyncio.sleep(12)
-        await _run_hash_backfill(getattr(config, "CURRENT_PROJECT_ID", "default"))
 
     asyncio.create_task(_ensure_fts_ready())
     asyncio.create_task(_backfill_content_hashes())
@@ -3217,6 +3180,45 @@ async def precheck_folder_import(payload: Dict[str, Any], project_id: str = Quer
         "already_imported": ratio >= 0.9,
         "samples": matched[:5],
     }
+
+async def _run_hash_backfill(project_id: str) -> None:
+    """补算 sha256（大文件优先，限速避免打满机械盘）。可重复调用，跑完即退出。"""
+    global _hash_task_running
+    if _hash_task_running:
+        return
+    _hash_task_running = True
+    try:
+        from core.content_hash import sha256_file
+
+        db = get_db_manager()
+        while not _shutting_down:
+            batch = await asyncio.to_thread(db.files_needing_hash, project_id, 60)
+            if not batch:
+                break
+            for item in batch:
+                digest = await asyncio.to_thread(sha256_file, item["path"])
+                await asyncio.to_thread(
+                    db.set_file_hash,
+                    item["file_uuid"],
+                    digest,
+                    1 if digest else 2,
+                )
+            await asyncio.sleep(0.2)
+        progress = await asyncio.to_thread(db.hash_progress, project_id)
+        logger.info(
+            "[Hash] 内容哈希补算完成：%s/%s",
+            progress.get("done"),
+            progress.get("total"),
+        )
+    except Exception as exc:
+        logger.warning("[Hash] 补算失败: %s", exc)
+    finally:
+        _hash_task_running = False
+
+async def _backfill_content_hashes() -> None:
+    await asyncio.sleep(12)
+    await _run_hash_backfill(getattr(config, "CURRENT_PROJECT_ID", "default"))
+
 
 @app.get("/api/v1/index/hash")
 async def get_hash_status(project_id: str = Query(default="default")):

@@ -55,6 +55,9 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ### Added / 新增
 
+- **哈希补算可按需触发**：以前 sha256 只在启动时补算一次就跑完退出，导入的新文件（或从回收站还原后重新导入的）
+  永远拿不到哈希，重复检测自然查不到它们。现在导入完成会自动触发补算，重复检测弹窗也会提示
+  「还有 N 个文件没算哈希」并支持一键计算（带进度，算完自动重新检测）。
 - **重复音效检测：备份改成"复制"+ 可撤回**：备份不再剪切原文件，而是复制到指定目录并写一份清单
   （`%APPDATA%\EchoMind\duplicate-backups\manifests\*.json`）；听完确认后可以「删除这些副本」，
   或者「撤回备份」按清单把文件还原回**原来的目录**。

@@ -8257,6 +8257,7 @@
                         card.appendChild(line);
                     });
                     const dupPaths = group.files.slice(1).map(file => file.path);
+                    const keepName = String(group.files[0].path || '').split(/[\\/]/).pop() || '第一个文件';
                     const actions = document.createElement('div');
                     actions.className = 'mt-1 flex items-center gap-2';
                     const makeBtn = (label, bg, handler) => {
@@ -8269,16 +8270,16 @@
                         return button;
                     };
                     makeBtn('只保留第一个，删库记录', '#ef4444', async () => {
-                        if (!confirm(`删掉该组中 ${dupPaths.length} 条库记录？（磁盘文件保留）`)) return;
+                        if (!confirm(`保留「${keepName}」，删掉其余 ${dupPaths.length} 条库记录？（磁盘文件保留）`)) return;
                         await resolveDuplicates(dupPaths, 'records');
                         card.remove();
                     });
-                    makeBtn('删源文件（回收站）', '#b91c1c', async () => {
-                        if (!confirm(`把该组中 ${dupPaths.length} 个源文件移入回收站并从库中移除？`)) return;
+                    makeBtn('只保留第一个，删源文件（回收站）', '#b91c1c', async () => {
+                        if (!confirm(`保留「${keepName}」，把其余 ${dupPaths.length} 个源文件移入回收站？`)) return;
                         await resolveDuplicates(dupPaths, 'source');
                         card.remove();
                     });
-                    makeBtn('移到备份文件夹…', '#0ea5e9', async () => {
+                    makeBtn('只保留第一个，其余移到备份…', '#0ea5e9', async () => {
                         const picked = await pickBackupFolder();
                         if (!picked) return;
                         await resolveDuplicates(dupPaths, 'backup', picked);

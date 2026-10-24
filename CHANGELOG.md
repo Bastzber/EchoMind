@@ -4,6 +4,22 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ## [Unreleased] / 未发布
 
+## [0.3.0-beta.7] - 2026-10-24 (Prerelease / 预发布)
+
+测试版 V7。借用大羽音效库的两个高频功能。
+
+### Added / 新增
+
+- **收藏（星标）**：列表行和卡片上都有 ★，点击即收藏
+  - 左侧新增「收藏」入口并显示数量，点开即筛选
+- **重复音效检测**：设置 → 工具 → 重复音效检测
+  - 按 sha256 内容哈希分组，显示组数 / 文件数 / 浪费空间
+  - 每组可「只保留第一个，删除其余库记录」（不动磁盘文件）
+
+### Changed / 变更
+
+- 文件列表接口返回 `is_favorite` 字段
+
 ## [0.3.0-beta.6] - 2026-10-24 (Prerelease / 预发布)
 
 测试版 V6。本版本完成标签双层与中文语义检索改造。

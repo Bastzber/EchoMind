@@ -258,6 +258,12 @@
                         <span data-i18n="lang.en">English</span><i data-lucide="check" class="w-4 h-4 check-icon hidden"></i>
                     </button>
                     <div class="border-t my-2" style="border-color: var(--border-color);"></div>
+                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50">工具</div>
+                    <button id="dupCheckBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                        <span>重复音效检测</span>
+                    </button>
+                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
                     <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50" data-i18n="settings.temp.dir">临时文件目录</div>
                     <button id="tempDirBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="folder" class="w-4 h-4"></i>
@@ -2770,6 +2776,19 @@
 
             // 只渲染用户自定义标签；"全部/其他"这类默认分类已取消。
             // 计数优先用后端全库统计（soundData 只是分页加载的一部分）
+            // ===== 收藏夹 =====
+            const favRow = document.createElement('div');
+            favRow.className = 'sidebar-item rounded-md cursor-pointer flex items-center gap-1.5 px-2 py-1 text-sm';
+            favRow.innerHTML = `<span style="color:#f59e0b;">★</span>
+                <span class="flex-1 truncate">收藏</span>
+                <span id="favoriteCount" class="text-[10px] opacity-40">0</span>`;
+            favRow.addEventListener('click', () => {
+                document.querySelectorAll('#categoryTree .sidebar-item').forEach((el) => el.classList.remove('active'));
+                favRow.classList.add('active');
+                showFavorites();
+            });
+            container.appendChild(favRow);
+
             // ===== 我的标签分组 =====
             const tagHeader = document.createElement('div');
             tagHeader.className = 'px-2 pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider opacity-50 flex items-center justify-between';
@@ -2827,6 +2846,7 @@
                     container.appendChild(row);
                 });
             };
+            loadFavoriteCount();
             renderLayerGroup('场景', layered.scene);
             renderLayerGroup('属性', layered.attr);
             if (!layered.scene.length && !layered.attr.length) {
@@ -3506,6 +3526,8 @@
                 card.innerHTML = `
                     <div class="flex items-start justify-between gap-2">
                         <div class="text-sm font-medium truncate flex-1 min-w-0">${escapeHtml(sound.name || '')}</div>
+                        <button class="card-fav shrink-0" title="${sound.favorite ? '取消收藏' : '收藏'}"
+                                style="color: ${sound.favorite ? '#f59e0b' : 'var(--text-secondary)'}; opacity: ${sound.favorite ? 1 : 0.35}; font-size: 14px;">${sound.favorite ? '★' : '☆'}</button>
                         <span class="text-[10px] opacity-50 shrink-0">${formatDuration((sound.duration || 0) / 1000)}</span>
                     </div>
                     <div class="text-xs opacity-60 overflow-hidden" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:2.4em;">
@@ -3514,6 +3536,25 @@
                     <div class="flex flex-wrap gap-1 min-h-[18px]">${tags}</div>
                     <canvas class="mini-waveform w-full" height="28" data-id="${escapeHtml(String(sound.id))}"></canvas>
                 `;
+
+                const cardFav = card.querySelector('.card-fav');
+                if (cardFav) {
+                    cardFav.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const next = !sound.favorite;
+                        sound.favorite = next;
+                        cardFav.textContent = next ? '★' : '☆';
+                        cardFav.style.color = next ? '#f59e0b' : 'var(--text-secondary)';
+                        cardFav.style.opacity = next ? '1' : '0.35';
+                        try {
+                            await rendererApi.post(`/api/v1/files/${encodeURIComponent(sound.id)}/favorite`, { favorite: next }, { timeoutMs: 15000 });
+                            loadFavoriteCount();
+                        } catch (error) {
+                            sound.favorite = !next;
+                            showNotification('收藏失败: ' + error.message, 'error');
+                        }
+                    });
+                }
 
                 card.addEventListener('click', (e) => {
                     if (e.target.closest('.mini-waveform')) {
@@ -3686,7 +3727,11 @@
                         </div>
                     </div>
                     <div class="w-24 text-right text-sm opacity-70 font-mono">${formatTime(sound.duration)}</div>
-                    <div class="w-16 flex justify-center">
+                    <div class="w-16 flex items-center justify-center gap-1">
+                        <button class="favorite-btn w-6 h-6 flex items-center justify-center rounded transition-transform hover:scale-110" data-id="${sound.id}"
+                                title="${sound.favorite ? '取消收藏' : '收藏'}">
+                            <span style="color: ${sound.favorite ? '#f59e0b' : 'var(--text-secondary)'}; opacity: ${sound.favorite ? 1 : 0.35}; font-size: 14px;">${sound.favorite ? '★' : '☆'}</span>
+                        </button>
                         <button class="play-sound-btn w-7 h-7 rounded-full border flex items-center justify-center transition-all hover:scale-110" data-id="${sound.id}"
                                 style="border-color: var(--border-color);">
                             <i data-lucide="${isCurrent && isPlaying ? 'pause' : 'play'}" class="w-3.5 h-3.5"></i>
@@ -3694,6 +3739,28 @@
                     </div>
                 `;
                 
+                const favBtn = row.querySelector('.favorite-btn');
+                if (favBtn) {
+                    favBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const next = !sound.favorite;
+                        sound.favorite = next;
+                        favBtn.innerHTML = `<span style="color: ${next ? '#f59e0b' : 'var(--text-secondary)'}; opacity: ${next ? 1 : 0.35}; font-size: 14px;">${next ? '★' : '☆'}</span>`;
+                        favBtn.title = next ? '取消收藏' : '收藏';
+                        try {
+                            await rendererApi.post(
+                                `/api/v1/files/${encodeURIComponent(sound.id)}/favorite`,
+                                { favorite: next },
+                                { timeoutMs: 15000 }
+                            );
+                            loadFavoriteCount();
+                        } catch (error) {
+                            sound.favorite = !next;
+                            showNotification('收藏失败: ' + error.message, 'error');
+                        }
+                    });
+                }
+
                 row.addEventListener('click', (e) => {
                     if (e.target.closest('.sound-checkbox')) {
                         const checkbox = e.target.closest('.sound-checkbox');
@@ -6539,6 +6606,94 @@
 
         // 用后端返回的「全库目录统计」建树：只靠分页加载的 soundData 反推，
         // 得到的目录既不全也不稳定（实测只显示出 7/8/9 三个子目录）。
+        // ===== 收藏 =====
+        async function loadFavoriteCount() {
+            try {
+                const data = await rendererApi.get('/api/v1/favorites?limit=2000');
+                window.__favoriteCount = (data && data.total) || 0;
+                const badge = document.getElementById('favoriteCount');
+                if (badge) badge.textContent = String(window.__favoriteCount);
+            } catch (_) { }
+        }
+
+        async function showFavorites() {
+            try {
+                const data = await rendererApi.get('/api/v1/favorites?limit=2000');
+                const list = ((data && data.files) || []).map(mapDbFileToSound);
+                allSearchResults = list;
+                renderSoundList('', list);
+                showNotification(`收藏夹共 ${list.length} 个音效`, 'info');
+            } catch (error) {
+                showNotification('读取收藏失败: ' + error.message, 'error');
+            }
+        }
+
+        // ===== 重复音效检测 =====
+        async function showDuplicatesModal() {
+            document.getElementById('dupModal')?.remove();
+            const box = document.createElement('div');
+            box.id = 'dupModal';
+            box.className = 'fixed inset-0 z-[300] flex items-center justify-center';
+            box.style.background = 'rgba(0,0,0,0.55)';
+            box.innerHTML = `<div class="w-[760px] max-h-[80vh] flex flex-col rounded-xl" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                <div class="flex items-center justify-between px-5 py-3 border-b" style="border-color: var(--border-color);">
+                    <div class="text-base font-medium">重复音效检测</div>
+                    <button id="dupClose" class="p-1 rounded hover:bg-white/10">✕</button>
+                </div>
+                <div id="dupBody" class="p-4 overflow-y-auto text-sm opacity-70">正在扫描…</div>
+            </div>`;
+            document.body.appendChild(box);
+            box.querySelector('#dupClose').addEventListener('click', () => box.remove());
+            box.addEventListener('click', (e) => { if (e.target === box) box.remove(); });
+
+            const body = box.querySelector('#dupBody');
+            try {
+                const data = await rendererApi.get('/api/v1/duplicates?limit=100', { timeoutMs: 120000 });
+                const groups = (data && data.groups) || [];
+                if (!groups.length) {
+                    body.textContent = '没有发现重复音效（按 sha256 内容哈希比对）';
+                    return;
+                }
+                const mb = (data.wasted_bytes || 0) / 1024 / 1024;
+                body.innerHTML = `<div class="mb-3">发现 <b>${data.group_count}</b> 组重复，共 <b>${data.file_count}</b> 个文件，约浪费 <b>${mb.toFixed(1)} MB</b></div>`;
+                groups.forEach((group, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'mb-2 p-2 rounded-md';
+                    card.style.background = 'var(--bg-tertiary)';
+                    const head = document.createElement('div');
+                    head.className = 'text-xs opacity-60 mb-1';
+                    head.textContent = `第 ${index + 1} 组 · ${group.count} 个同内容文件`;
+                    card.appendChild(head);
+                    group.files.forEach((file, i) => {
+                        const line = document.createElement('div');
+                        line.className = 'text-xs py-0.5 truncate';
+                        line.style.opacity = i === 0 ? '1' : '0.75';
+                        line.textContent = `${i === 0 ? '[保留] ' : '      '}${file.path}`;
+                        card.appendChild(line);
+                    });
+                    const btn = document.createElement('button');
+                    btn.className = 'mt-1 px-2 py-1 rounded text-xs text-white';
+                    btn.style.background = '#ef4444';
+                    btn.textContent = '只保留第一个，删除其余库记录';
+                    btn.addEventListener('click', async () => {
+                        if (!confirm(`删除该组中 ${group.files.length - 1} 条库记录？（不会删除磁盘文件）`)) return;
+                        for (const file of group.files.slice(1)) {
+                            try {
+                                await rendererApi.delete('/api/v1/db/file/' + encodeURIComponent(file.path));
+                            } catch (_) { }
+                        }
+                        card.remove();
+                        await loadFilesFromDatabase({ reset: true });
+                        showNotification('已删除重复记录', 'success');
+                    });
+                    card.appendChild(btn);
+                    body.appendChild(card);
+                });
+            } catch (error) {
+                body.textContent = '扫描失败: ' + error.message;
+            }
+        }
+
         // 用户文件夹里手动加入的单个音效
         async function loadUserFolderFiles(folderId, baseList) {
             try {
@@ -6681,6 +6836,7 @@
                 waveformSampleRate: file.sample_rate,
                 waveformChannels: file.channels,
                 tags: normalizeTags(file.tags),
+                favorite: Boolean(file.is_favorite || file.favorite),
                 aiDescription: file.ai_description || '',
                 createdAt: file.created_at,
                 folderPath: getParentPath(file.path)
@@ -6782,6 +6938,7 @@
                     waveformSampleRate: file.sample_rate,
                     waveformChannels: file.channels,
                     tags: normalizeTags(file.tags),
+                    favorite: Boolean(file.is_favorite || file.favorite),
                     aiDescription: file.ai_description || '',
                     createdAt: file.created_at,
                     folderPath: getParentPath(file.path)
@@ -6942,6 +7099,10 @@
                 e.preventDefault();
                 e.stopPropagation();
                 runAiSearch();
+            });
+            document.getElementById('dupCheckBtn')?.addEventListener('click', () => {
+                document.getElementById('settingsDropdown').classList.add('hidden');
+                showDuplicatesModal();
             });
             document.getElementById('recipeMenuBtn')?.addEventListener('click', () => openRecipeModal());
             document.getElementById('recipeCloseBtn')?.addEventListener('click', () => {

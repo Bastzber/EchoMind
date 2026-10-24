@@ -2854,6 +2854,39 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
     return {"success": True, "message": "已提交重新分析", "job_id": job_id}
 
 
+# ==================== 收藏 + 重复检测 ====================
+
+@app.post("/api/v1/files/{file_uuid}/favorite")
+async def set_favorite(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+    db_manager = get_db_manager()
+    value = bool(payload.get("favorite", True))
+    ok = db_manager.set_favorite(project_id, file_uuid, value)
+    return {"success": ok, "favorite": value}
+
+
+@app.get("/api/v1/favorites")
+async def list_favorites(project_id: str = Query(default="default"), limit: int = Query(default=500, le=2000)):
+    db_manager = get_db_manager()
+    files = db_manager.list_favorites(project_id, limit=limit)
+    return {"success": True, "files": files, "total": len(files)}
+
+
+@app.get("/api/v1/duplicates")
+async def list_duplicates(project_id: str = Query(default="default"), limit: int = Query(default=100, le=500)):
+    db_manager = get_db_manager()
+    groups = db_manager.duplicate_groups(project_id, limit=limit)
+    total_files = sum(g["count"] for g in groups)
+    return {
+        "success": True,
+        "groups": groups,
+        "group_count": len(groups),
+        "file_count": total_files,
+        "wasted_bytes": sum(
+            (len(g["files"]) - 1) * int(g["files"][0].get("size") or 0) for g in groups
+        ),
+    }
+
+
 # ==================== P3：中文文本向量（BGE-M3） ====================
 
 @app.get("/api/v1/embed/status")

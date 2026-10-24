@@ -623,11 +623,78 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE files ADD COLUMN sha256 TEXT")
             if "hash_state" not in columns:
                 cursor.execute("ALTER TABLE files ADD COLUMN hash_state INTEGER DEFAULT 0")
+            if "is_favorite" not in columns:
+                cursor.execute("ALTER TABLE files ADD COLUMN is_favorite INTEGER DEFAULT 0")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_files_favorite ON files(is_favorite)"
+                )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files(sha256)"
             )
         except Exception as exc:
             _get_logger().warning("添加内容哈希列失败: %s", exc)
+
+    def set_favorite(self, project_id: str, file_uuid: str, value: bool) -> bool:
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET is_favorite=? WHERE project_id=? AND file_uuid=?",
+                (1 if value else 0, str(project_id), str(file_uuid)),
+            )
+            changed = cursor.rowcount > 0
+            cursor.connection.commit()
+        return changed
+
+    def list_favorites(self, project_id: str, limit: int = 500) -> List[Dict[str, Any]]:
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT file_uuid, path, filename, duration, file_size, tags, ai_description "
+                "FROM files WHERE project_id=? AND is_favorite=1 ORDER BY filename LIMIT ?",
+                (str(project_id), int(limit)),
+            ).fetchall()
+        return [
+            {
+                "id": r[0], "file_uuid": r[0], "path": r[1], "file_path": r[1],
+                "filename": r[2], "duration": r[3], "size": r[4],
+                "tags": _parse_tags(r[5]), "ai_description": r[6], "is_favorite": True,
+            }
+            for r in rows
+        ]
+
+    def count_favorites(self, project_id: str) -> int:
+        with self.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT COUNT(*) FROM files WHERE project_id=? AND is_favorite=1",
+                (str(project_id),),
+            ).fetchone()
+        return int(row[0] or 0)
+
+    def duplicate_groups(self, project_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """按 sha256 分组找重复文件。"""
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT sha256, COUNT(*) AS n FROM files "
+                "WHERE project_id=? AND sha256 IS NOT NULL AND sha256 != '' "
+                "GROUP BY sha256 HAVING n > 1 ORDER BY n DESC LIMIT ?",
+                (str(project_id), int(limit)),
+            ).fetchall()
+            groups = []
+            for sha, count in rows:
+                files = cursor.execute(
+                    "SELECT file_uuid, path, filename, file_size FROM files "
+                    "WHERE project_id=? AND sha256=? ORDER BY path",
+                    (str(project_id), sha),
+                ).fetchall()
+                groups.append(
+                    {
+                        "sha256": sha,
+                        "count": count,
+                        "files": [
+                            {"file_uuid": f[0], "path": f[1], "filename": f[2], "size": f[3]}
+                            for f in files
+                        ],
+                    }
+                )
+        return groups
 
     def files_needing_hash(self, project_id: str, limit: int = 200) -> List[Dict[str, str]]:
         """取还没算哈希的文件（大文件优先）。"""
@@ -1771,7 +1838,7 @@ class DatabaseManager:
             sql = """
                 SELECT f.id, f.file_uuid, f.path, f.filename, f.duration,
                        f.sample_rate, f.channels, f.file_size, f.tags,
-                       f.ai_description,
+                       f.ai_description, COALESCE(f.is_favorite, 0) AS is_favorite,
                        f.source_fingerprint, f.waveform_version,
                        MAX(CASE WHEN a.kind='waveform' THEN a.state END) AS waveform_state,
                        MAX(CASE WHEN a.kind='audio_vector' THEN a.state END) AS audio_index_state,
@@ -1811,6 +1878,7 @@ class DatabaseManager:
                 "format": Path(row["path"]).suffix.lower().lstrip("."),
                 "tags": tags,
                 "ai_description": row["ai_description"] or "",
+                "is_favorite": bool(row["is_favorite"]),
                 "source_fingerprint": row["source_fingerprint"],
                 "waveform_version": row["waveform_version"],
                 "waveform_state": row["waveform_state"] or "pending",

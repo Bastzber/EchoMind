@@ -8304,17 +8304,17 @@
                     button.addEventListener('click', () => handler(button));
                     globalBar.appendChild(button);
                 };
-                globalBtn('全部删库记录', '#ef4444', async () => {
-                    if (!confirm(`对全部 ${allPaths.length} 个多余副本删除库记录？（磁盘文件保留）`)) return;
+                globalBtn('全部：只保留一个，删库记录', '#ef4444', async () => {
+                    if (!confirm(`每组保留第一个文件，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
                     await resolveDuplicates(allPaths, 'records');
                     box.remove();
                 });
-                globalBtn('全部删源文件', '#b91c1c', async () => {
-                    if (!confirm(`把 ${allPaths.length} 个多余副本移入回收站？`)) return;
+                globalBtn('全部：只保留一个，删源文件', '#b91c1c', async () => {
+                    if (!confirm(`每组保留第一个文件，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
                     await resolveDuplicates(allPaths, 'source');
                     box.remove();
                 });
-                globalBtn('全部移到备份…', '#0ea5e9', async () => {
+                globalBtn('全部：只保留一个，其余移到备份…', '#0ea5e9', async () => {
                     const picked = await pickBackupFolder();
                     if (!picked) return;
                     await resolveDuplicates(allPaths, 'backup', picked);

@@ -130,7 +130,8 @@ $env:ELECTRON_RUN_AS_NODE='1'
 - **标签有两套存储**：老的 `files.tags`（JSON，列表/搜索/向量都读它）和新的
   `tags`/`file_tags`（分层，侧栏与按标签筛选读它）。以前分层接口只写 file_tags，导致改完标签
   列表里看不到；现在分层写入会回写 `files.tags`（`sync_tags_from_layers`）。改标签/改名/删标签
-  都会标脏这一行的 text_vector 并触发增量对账。反向（老接口写 files.tags）目前**不会**同步到 file_tags。
+  都会标脏这一行的 text_vector 并触发增量对账。反向也补上了：老接口写完 files.tags 会调
+  `sync_layers_from_files_tags` 同步到 tags/file_tags（单文件 / 批量 / 标签改名 / 标签删除四条路径）。
 
 ## 八、发版与检查更新
 

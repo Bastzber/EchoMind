@@ -2690,6 +2690,75 @@ class DatabaseManager:
             _get_logger().error(f"回写标签失败 {file_uuid}: {e}")
             return False
 
+
+    def sync_layers_from_files_tags(
+        self,
+        project_id: str,
+        *,
+        path: Optional[str] = None,
+        file_uuid: Optional[str] = None,
+    ) -> int:
+        """把 files.tags 的标签名同步到 tags/file_tags（老标签入口写完时调用）。
+
+        反方向（分层 → files.tags）在 sync_tags_from_layers 里；两边都跑，
+        列表、搜索、侧栏标签树才不会各看各的。
+        """
+        from core import tag_layers
+
+        try:
+            now = datetime.now().isoformat()
+            with self.get_cursor() as cursor:
+                if file_uuid:
+                    row = cursor.execute(
+                        "SELECT file_uuid, tags FROM files WHERE project_id=? AND file_uuid=?",
+                        (project_id, file_uuid),
+                    ).fetchone()
+                else:
+                    row = cursor.execute(
+                        "SELECT file_uuid, tags FROM files WHERE project_id=? AND canonical_path=?",
+                        (project_id, canonicalize_path(path or "")),
+                    ).fetchone()
+                if not row:
+                    return 0
+
+                target_uuid = row["file_uuid"]
+                try:
+                    raw = json.loads(row["tags"] or "[]")
+                except (TypeError, ValueError):
+                    raw = []
+                names = [str(name).strip() for name in (raw if isinstance(raw, list) else []) if str(name).strip()]
+
+                existing = {
+                    name: tag_id
+                    for tag_id, name in cursor.execute(
+                        "SELECT id, name FROM tags WHERE project_id=?", (project_id,)
+                    ).fetchall()
+                }
+                cursor.execute(
+                    "DELETE FROM file_tags WHERE project_id=? AND file_uuid=?",
+                    (project_id, target_uuid),
+                )
+                for name in names:
+                    tag_id = existing.get(name)
+                    if not tag_id:
+                        tag_id = "tag_" + uuid.uuid4().hex[:10]
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO tags "
+                            "(id, project_id, name, layer, sort_order, created_at) "
+                            "VALUES (?,?,?,?,?,?)",
+                            (tag_id, project_id, name, tag_layers.LAYER_ATTR, 0, now),
+                        )
+                        existing[name] = tag_id
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO file_tags "
+                        "(project_id, file_uuid, tag_id, created_at) VALUES (?,?,?,?)",
+                        (project_id, target_uuid, tag_id, now),
+                    )
+                return len(names)
+        except Exception as exc:
+            _get_logger().error(f"同步标签到分层表失败: {exc}")
+            return 0
+
     def list_file_uuids_by_tag(self, project_id: str, tag_id: str) -> List[str]:
         with self.get_cursor() as cursor:
             return [

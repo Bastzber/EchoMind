@@ -2003,6 +2003,8 @@ async def update_file_tags(
 
         if not success:
             raise HTTPException(status_code=404, detail="文件不存在")
+        # 老入口只写 files.tags；补一层同步到 tags/file_tags，侧栏标签树才看得到
+        db_manager.sync_layers_from_files_tags(current_project_id, path=file_path)
         try:
             await _get_project_searcher(current_project_id).clear_cache()
         except Exception as exc:
@@ -2216,6 +2218,7 @@ async def batch_set_tags(
         applied = 0
         for path in payload.paths:
             if db_manager.update_tags(path, tags, current_project_id):
+                db_manager.sync_layers_from_files_tags(current_project_id, path=path)
                 applied += 1
         try:
             await _get_project_searcher(current_project_id).clear_cache()
@@ -2243,12 +2246,25 @@ async def rename_tag(
     if current_project_id in _projects_deleting:
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
+        affected_uuids = []
+        try:
+            with db_manager.get_cursor() as cursor:
+                affected_uuids = [
+                    row[0] for row in cursor.execute(
+                        "SELECT file_uuid FROM files WHERE project_id=? AND tags LIKE ?",
+                        (current_project_id, f'%"{payload.old}"%'),
+                    ).fetchall()
+                ]
+        except Exception as exc:
+            logger.debug(f"收集改名受影响的文件失败: {exc}")
         changed = db_manager.rename_tag(current_project_id, payload.old, payload.new)
         try:
             await _get_project_searcher(current_project_id).clear_cache()
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         if changed > 0:
+            for file_uuid in affected_uuids:
+                db_manager.sync_layers_from_files_tags(current_project_id, file_uuid=file_uuid)
             job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
             background_tasks.add_task(
                 _repair_index_task,
@@ -2268,12 +2284,25 @@ async def delete_tag(tag: str, background_tasks: BackgroundTasks):
     if current_project_id in _projects_deleting:
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
+        affected_uuids = []
+        try:
+            with db_manager.get_cursor() as cursor:
+                affected_uuids = [
+                    row[0] for row in cursor.execute(
+                        "SELECT file_uuid FROM files WHERE project_id=? AND tags LIKE ?",
+                        (current_project_id, f'%"{tag}"%'),
+                    ).fetchall()
+                ]
+        except Exception as exc:
+            logger.debug(f"收集删标签受影响的文件失败: {exc}")
         changed = db_manager.delete_tag(current_project_id, tag)
         try:
             await _get_project_searcher(current_project_id).clear_cache()
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         if changed > 0:
+            for file_uuid in affected_uuids:
+                db_manager.sync_layers_from_files_tags(current_project_id, file_uuid=file_uuid)
             job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
             background_tasks.add_task(
                 _repair_index_task,

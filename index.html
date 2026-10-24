@@ -8245,6 +8245,29 @@
                     + (processedGroups ? `　<span style="color:#22c55e;">已处理 ${processedGroups} 组 / ${processedFiles} 个副本</span>` : '');
             };
 
+            // 删完之后把列表收成"只剩保留下来的那一份"，避免还显示已经被删的路径
+            const keepOnlyRow = (card, keepPath, originalCount) => {
+                const rows = [...card.querySelectorAll('.dup-panel label')];
+                rows.forEach((row) => {
+                    const span = row.querySelector('span');
+                    const isKeep = span && span.textContent === keepPath;
+                    if (!isKeep) {
+                        row.remove();
+                        return;
+                    }
+                    const radio = row.querySelector('input[type="radio"]');
+                    if (radio) {
+                        radio.disabled = true;
+                        radio.checked = true;
+                    }
+                    row.style.opacity = '1';
+                });
+                const head = card.querySelector('.dup-head-title');
+                const save = card.querySelector('.dup-save');
+                if (head) head.textContent = `第 ${card.dataset.index ? Number(card.dataset.index) + 1 : ''} 组 · 已保留 1 份（原有 ${originalCount} 个）`;
+                if (save) save.textContent = '可省 0 MB';
+            };
+
             const markProcessed = (card, text, files, groupCount = 1, backupDir = '', extra = {}) => {
                 const alreadyDone = card.dataset.done === '1';
                 card.dataset.done = '1';
@@ -8287,8 +8310,9 @@
                         if (!confirm(`把 ${extra.dups.length} 个副本的源文件移入回收站，并从库中移除？（备份目录里还留着一份）`)) return;
                         const result = await resolveDuplicates(extra.dups, 'source');
                         if (result && !result.failed) {
+                            if (extra.keepPath) keepOnlyRow(card, extra.keepPath, extra.originalCount || extra.dups.length + 1);
                             const badge = card.querySelector('.dup-status');
-                            if (badge) badge.textContent = `已删除 ${extra.dups.length} 个副本（备份仍在）`;
+                            if (badge) badge.textContent = `已删除 ${extra.dups.length} 个副本（备份仍在，可撤回）`;
                         }
                     });
                     aftercare.appendChild(delBtn);
@@ -8373,8 +8397,8 @@
                     const header = document.createElement('button');
                     header.className = 'w-full px-2 py-2 flex items-center gap-2 text-left hover:bg-white/5';
                     header.innerHTML = `<span class="dup-arrow inline-block transition-transform" style="width:10px;">▶</span>
-                        <span class="text-xs font-medium">第 ${index + 1} 组 · ${group.files.length} 个同内容文件</span>
-                        <span class="text-xs opacity-50">可省 ${sizeMb} MB</span>
+                        <span class="dup-head-title text-xs font-medium">第 ${index + 1} 组 · ${group.files.length} 个同内容文件</span>
+                        <span class="dup-save text-xs opacity-50">可省 ${sizeMb} MB</span>
                         <span class="dup-status text-xs ml-auto"></span>`;
                     header.addEventListener('click', () => toggleCard(card));
                     card.appendChild(header);
@@ -8422,21 +8446,27 @@
                         actions.appendChild(button);
                     };
                     makeBtn('保留选中的，删库记录', '#ef4444', async () => {
-                        const { keepName, dups } = pickedFiles();
+                        const { keep, keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         if (!confirm(`保留「${keepName}」，删掉其余 ${dups.length} 条库记录？（磁盘文件保留）`)) return;
                         const result = await resolveDuplicates(dups, 'records');
-                        if (result && !result.failed) markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
+                        if (result && !result.failed) {
+                            keepOnlyRow(card, keep.path, group.files.length);
+                            markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
+                        }
                     });
                     makeBtn('保留选中的，删源文件（回收站）', '#b91c1c', async () => {
-                        const { keepName, dups } = pickedFiles();
+                        const { keep, keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个源文件移入回收站？`)) return;
                         const result = await resolveDuplicates(dups, 'source');
-                        if (result && !result.failed) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
+                        if (result && !result.failed) {
+                            keepOnlyRow(card, keep.path, group.files.length);
+                            markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
+                        }
                     });
                     makeBtn('保留选中的，其余移到备份…', '#0ea5e9', async () => {
-                        const { keepName, dups } = pickedFiles();
+                        const { keep, keepName, dups } = pickedFiles();
                         if (!dups.length) return;
                         const picked = await pickBackupFolder();
                         if (!picked) return;
@@ -8446,7 +8476,7 @@
                                 card,
                                 `已备份 ${result.moved} 个副本（原文件仍在，可先试听再决定）`,
                                 dups.length, 1, picked,
-                                { manifest: result.manifest, dups, keepName }
+                                { manifest: result.manifest, dups, keepName, keepPath: keep.path, originalCount: group.files.length }
                             );
                         }
                     });

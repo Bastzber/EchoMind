@@ -3354,6 +3354,20 @@ class DatabaseManager:
                     mapping[path] = file_uuid
         return mapping
 
+    def list_library_roots(self, project_id: str) -> List[str]:
+        """列出库的根目录（取每个路径的前两段，如 D:\资源库 / F:\大羽包）。"""
+        roots = set()
+        with self.get_cursor() as cursor:
+            for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (str(project_id),)):
+                if not path:
+                    continue
+                parts = str(path).replace('/', '\\').split('\\')
+                if len(parts) >= 2:
+                    roots.add(parts[0] + '\\' + parts[1])
+                elif parts:
+                    roots.add(parts[0])
+        return sorted(roots)
+
     def get_folder_counts(self, project_id: str) -> List[tuple]:
         """返回 [(父目录, 直接文件数)]，用于左侧文件夹树。
 

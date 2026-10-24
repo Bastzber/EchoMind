@@ -3220,6 +3220,124 @@ async def _backfill_content_hashes() -> None:
     await _run_hash_backfill(getattr(config, "CURRENT_PROJECT_ID", "default"))
 
 
+
+_rescan_state = {"running": False, "scanned": 0, "added": 0, "roots": [], "error": ""}
+
+
+async def _run_library_rescan(project_id: str, roots: List[str]) -> None:
+    """扫描库目录，把磁盘上有、库里没有的音频补录进来（回收站还原、手动拷贝）。"""
+    import asyncio as _asyncio
+    from pathlib import Path as _Path
+
+    global _rescan_state
+    _rescan_state = {"running": True, "scanned": 0, "added": 0, "roots": roots, "error": ""}
+    try:
+        audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+        db_manager = get_db_manager()
+        known = set()
+        with db_manager.get_cursor() as cursor:
+            for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (project_id,)):
+                if path:
+                    known.add(canonicalize_path(str(path)))
+
+        added = 0
+        scanned = 0
+        for root_dir in roots:
+            base = _Path(root_dir)
+            if not base.is_dir():
+                continue
+            for entry in base.rglob("*"):
+                if not entry.is_file() or entry.suffix.lower() not in audio_exts:
+                    continue
+                scanned += 1
+                _rescan_state["scanned"] = scanned
+                try:
+                    if canonicalize_path(str(entry)) in known:
+                        continue
+                    stat = entry.stat()
+                    record = AudioFileRecord(
+                        path=str(entry),
+                        filename=entry.name,
+                        file_size=stat.st_size,
+                    )
+                    if db_manager.upsert_file(record, project_id):
+                        added += 1
+                        _rescan_state["added"] = added
+                except Exception as exc:
+                    logger.debug("补录失败 %s: %s", entry, exc)
+                if scanned % 500 == 0:
+                    await _asyncio.sleep(0.05)
+        logger.info("[Rescan] 扫描 %d 个音频，补录 %d 个", scanned, added)
+        if added:
+            await _run_hash_backfill(project_id)
+    except Exception as exc:
+        logger.error("[Rescan] 失败: %s", exc)
+        _rescan_state["error"] = str(exc)
+    finally:
+        _rescan_state["running"] = False
+
+
+@app.get("/api/v1/db/library/rescan")
+async def rescan_status():
+    return {"success": True, **_rescan_state}
+
+
+@app.post("/api/v1/db/library/rescan")
+async def start_library_rescan(payload: Dict[str, Any] = None, background_tasks: BackgroundTasks = None,
+                               project_id: str = Query(default="default")):
+    """扫描库目录，找回"磁盘上有、库里没有"的文件（比如从回收站还原的）。
+
+    传 dry_run=true 只统计不写入。
+    """
+    from pathlib import Path as _Path
+
+    payload = payload or {}
+    dry_run = bool(payload.get("dry_run"))
+    roots = [str(item) for item in (payload.get("roots") or []) if str(item).strip()]
+    db_manager = get_db_manager()
+    if not roots:
+        roots = db_manager.list_library_roots(project_id)
+    roots = [item for item in roots if _Path(item).is_dir()]
+    if not roots:
+        raise HTTPException(status_code=404, detail="没有可扫描的库目录")
+
+    if dry_run:
+        audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+        known = set()
+        with db_manager.get_cursor() as cursor:
+            for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (project_id,)):
+                if path:
+                    known.add(canonicalize_path(str(path)))
+        missing = []
+        scanned = 0
+        for root_dir in roots:
+            base = _Path(root_dir)
+            if not base.is_dir():
+                continue
+            for entry in base.rglob("*"):
+                if entry.is_file() and entry.suffix.lower() in audio_exts:
+                    scanned += 1
+                    if canonicalize_path(str(entry)) not in known:
+                        missing.append(str(entry))
+                        if len(missing) >= 50:
+                            break
+            if len(missing) >= 50:
+                break
+        return {
+            "success": True,
+            "dry_run": True,
+            "roots": roots,
+            "scanned": scanned,
+            "missing_sample": missing,
+            "missing_at_least": len(missing),
+        }
+
+    if _rescan_state.get("running"):
+        return {"success": True, "already_running": True}
+    background_tasks.add_task(_run_library_rescan, project_id, roots)
+    return {"success": True, "started": True, "roots": roots}
+
+
 @app.get("/api/v1/index/hash")
 async def get_hash_status(project_id: str = Query(default="default")):
     """内容哈希（sha256）补算进度。重复检测依赖它，没算完就查不全。"""

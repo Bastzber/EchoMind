@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI Sound Effect Manager
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.7)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.9-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.9)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -13,7 +13,7 @@
 >
 > A local-first, AI-powered desktop sound-effect manager.
 
-**Current version: `v0.3.0-beta.7` (Test build V7) · Windows x64** · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.7)
+**Current version: `v0.3.0-beta.9` (Test build V9) · Windows x64** · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.9)
 
 > **This repository is a modified fork of [SoundBot](https://github.com/Huckrick/SoundBot)** (original author Nagisa_Huckrick, GPL-3.0-or-later).
 > The license and attribution are preserved. See [Differences from upstream](#differences-from-upstream) for what changed.
@@ -26,10 +26,10 @@ Electron provides the desktop UI. A local backend built with FastAPI, SQLite, Py
 
 | Asset | Notes | Where |
 | --- | --- | --- |
-| **Full installer** (3.27 GB) | Unzip and run | [Baidu Netdisk](https://pan.baidu.com/s/1vsO7MXvp0kXS-odz2XAcAA?pwd=gbmi)　code: `gbmi` |
+| **Full installer** (~3.3 GB) | Unzip and run | [Baidu Netdisk](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　code: `73ca` |
 | One-sentence description pack | Bundled in the installer root | `win-unpacked\EchoMind-描述包.json` |
 
-> The installer is 3.27 GB, above GitHub's 2 GB per-asset limit, so it is distributed via Baidu Netdisk; the [Releases](https://github.com/Bastzber/EchoMind/releases) page only carries release notes.
+> The installer is ~3.3 GB, above GitHub's 2 GB per-asset limit, so it is distributed via Baidu Netdisk; the [Releases](https://github.com/Bastzber/EchoMind/releases) page only carries release notes.
 >
 > Unzip, then run `win-unpacked\EchoMind.exe`. The first launch loads the CLAP model (30–60 s) and indexes your library.
 
@@ -57,7 +57,7 @@ Electron provides the desktop UI. A local backend built with FastAPI, SQLite, Py
 
 ## ✨ What it does
 
-| Capability | Behaviour in v0.3.0-beta.7 |
+| Capability | Behaviour in v0.3.0-beta.9 |
 | --- | --- |
 | Import | Native file/folder picker through a minimal IPC bridge, plus drag-and-drop of folders or audio files onto the window |
 | Waveforms | 2,000 finite peaks per file fetched on demand; invalidated when the source or algorithm changes |
@@ -154,7 +154,7 @@ python -m pytest                       # tests: testpaths configured in pytest.i
 
 ## ⚖️ Sound assets
 
-**Neither this repository nor the installer contains any audio files.** The repo has 0 audio files; the 3.27 GB installer has 0 as well — only the app, models and UI.
+**Neither this repository nor the installer contains any audio files.** The repo has 0 audio files; the 3.3 GB installer has 0 as well — only the app, models and UI.
 
 - The software only manages and indexes your library; **copyright in the audio belongs to its respective owners** and is unrelated to this project's GPL-3.0 license.
 - Imported sounds stay on your own disk; the app indexes them locally and never uploads them.

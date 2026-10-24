@@ -3641,9 +3641,9 @@
             container.innerHTML = '';
             applyViewMode();
             
-            const filteredSounds = sounds.filter(sound => 
-                sound.name.toLowerCase().includes(filter.toLowerCase()) ||
-                (sound.tags && sound.tags.some(tag => tag.toLowerCase().includes(filter.toLowerCase())))
+            let filteredSounds = sounds.filter(sound => 
+                (sound.name || '').toLowerCase().includes(filter.toLowerCase()) ||
+                (Array.isArray(sound.tags) && sound.tags.some(tag => String(tag).toLowerCase().includes(filter.toLowerCase())))
             );
             filteredSounds = sortSounds(filteredSounds);
             lastRenderedSounds = filteredSounds;

@@ -55,7 +55,9 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ### Added / 新增
 
-- （待填）
+- **匿名使用统计**（默认开启，设置里可关）：每次启动只上报「启动次数 / 当天启动 / 版本 / 平台 / 首次安装」
+  几个计数，不含安装 ID、路径、文件名、标签、描述等任何个人信息。
+  数据用第三方免费计数器，挂了就静默跳过，不影响使用。
 
 ## [0.3.0-beta.9] - 2026-10-24 (Prerelease / 预发布)
 

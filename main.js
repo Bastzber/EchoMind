@@ -2030,6 +2030,77 @@ function setupIpcHandlers() {
     }
   });
 
+  // ===== 匿名使用统计 =====
+  // 只上报「启动次数 / 当天启动 / 版本 / 平台 / 首次安装」这几个计数，
+  // 不带安装 ID、路径、文件名等任何能定位个人的信息；设置里可以关。
+  const telemetryFile = () => path.join(app.getPath('userData'), 'telemetry.json');
+
+  function readTelemetryState() {
+    try {
+      return JSON.parse(fs.readFileSync(telemetryFile(), 'utf8'));
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function writeTelemetryState(state) {
+    try {
+      fs.mkdirSync(path.dirname(telemetryFile()), { recursive: true });
+      fs.writeFileSync(telemetryFile(), JSON.stringify(state, null, 2), 'utf8');
+    } catch (_error) {
+      // 写不进去就算了，统计不能影响使用
+    }
+  }
+
+  let telemetrySent = false;
+
+  async function telemetryTick() {
+    if (telemetrySent) return;
+    telemetrySent = true;
+    try {
+      const { buildPings, normalizeState } = require('./lib/telemetry');
+      const state = normalizeState(readTelemetryState());
+      if (!state.enabled) return;
+      const firstRun = !state.firstRunDone;
+      const urls = buildPings({ version: app.getVersion(), platform: process.platform, firstRun });
+      for (const url of urls) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4000);
+        try {
+          await fetch(url, { signal: controller.signal });
+        } catch (_error) {
+          // 没网也不影响，接着打下一个
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      writeTelemetryState({
+        ...state,
+        firstRunDone: true,
+        createdAt: state.createdAt || new Date().toISOString()
+      });
+    } catch (_error) {
+      // 统计永远不抛错
+    }
+  }
+
+  app.whenReady().then(() => {
+    setTimeout(telemetryTick, 8000);
+  });
+
+  ipcMain.handle('telemetry-get', () => {
+    const { normalizeState } = require('./lib/telemetry');
+    return { success: true, ...normalizeState(readTelemetryState()) };
+  });
+
+  ipcMain.handle('telemetry-set', (_event, enabled) => {
+    const { normalizeState } = require('./lib/telemetry');
+    const state = normalizeState(readTelemetryState());
+    const next = { ...state, enabled: enabled !== false };
+    writeTelemetryState(next);
+    return { success: true, enabled: next.enabled };
+  });
+
   ipcMain.handle('open-external', async (_event, url) => {
     try {
       const target = String(url || '');

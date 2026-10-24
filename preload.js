@@ -96,6 +96,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     renameFileOnDisk: (oldPath, newName) => ipcRenderer.invoke('file-import', 'rename-on-disk', { oldPath, newName })
   },
 
+  // 匿名使用统计（设置里可关）
+  telemetry: {
+    get: () => ipcRenderer.invoke('telemetry-get'),
+    set: (enabled) => ipcRenderer.invoke('telemetry-set', enabled)
+  },
+
   // 检查更新（更新信息走 Gitee，下载走百度网盘）
   updates: {
     check: () => ipcRenderer.invoke('check-update'),

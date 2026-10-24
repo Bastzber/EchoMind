@@ -10230,6 +10230,40 @@
             // ===== 关于与更新 =====
             let updateInfo = null;
 
+            async function loadTelemetryState() {
+                const toggle = document.getElementById('telemetryToggle');
+                const status = document.getElementById('telemetryStatus');
+                if (!toggle || !window.electronAPI?.telemetry) return;
+                try {
+                    const res = await window.electronAPI.telemetry.get();
+                    toggle.checked = res?.enabled !== false;
+                    if (status) {
+                        status.textContent = toggle.checked
+                            ? '已开启：每次启动上报一次启动计数，不含任何个人信息'
+                            : '已关闭：不会再发送任何统计请求';
+                    }
+                } catch (_) {
+                    if (status) status.textContent = '读取统计设置失败（不影响使用）';
+                }
+            }
+
+            document.getElementById('telemetryToggle')?.addEventListener('change', async (event) => {
+                const toggle = event.target;
+                const status = document.getElementById('telemetryStatus');
+                if (!window.electronAPI?.telemetry) return;
+                try {
+                    const res = await window.electronAPI.telemetry.set(toggle.checked);
+                    if (status) {
+                        status.textContent = res?.enabled
+                            ? '已开启：每次启动上报一次启动计数，不含任何个人信息'
+                            : '已关闭：不会再发送任何统计请求';
+                    }
+                } catch (_) {
+                    toggle.checked = !toggle.checked;
+                    if (status) status.textContent = '保存失败，请重试';
+                }
+            });
+
             async function fillCurrentVersion() {
                 const el = document.getElementById('updateCurrentVersion');
                 if (!el || !window.electronAPI?.updates) return;
@@ -10278,7 +10312,10 @@
                 }
             }
 
-            document.getElementById('updateTabBtn')?.addEventListener('click', fillCurrentVersion);
+            document.getElementById('updateTabBtn')?.addEventListener('click', () => {
+                fillCurrentVersion();
+                loadTelemetryState();
+            });
             document.getElementById('updateCheckBtn')?.addEventListener('click', runUpdateCheck);
             document.getElementById('updateOpenBtn')?.addEventListener('click', () => {
                 if (!updateInfo || !updateInfo.url) return;
@@ -11711,6 +11748,14 @@
                             </div>
                         </div>
                     </div>
+                    <label class="flex items-start gap-2 mt-5 cursor-pointer select-none">
+                        <input type="checkbox" id="telemetryToggle" class="mt-0.5">
+                        <span class="text-xs leading-5 opacity-80">
+                            匿名使用统计
+                            <span class="block opacity-60">只上报「启动次数 / 当天启动 / 版本 / 平台 / 首次安装」几个计数，不含安装 ID、路径、文件名等任何个人信息。随时可以关。</span>
+                        </span>
+                    </label>
+                    <div id="telemetryStatus" class="text-xs opacity-50 mt-1"></div>
                     <p class="text-xs opacity-50 mt-4">更新信息放 Gitee，安装包走百度网盘；用户不需要 GitHub，也不需要代理。</p>
                 </div>
             </div>

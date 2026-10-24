@@ -81,6 +81,40 @@ async function main() {
     '位数写 0 时应该退化成不补零'
   );
   assert.strictEqual(rename.applyRules('x.wav', { prefix: '好声音', find: 'x', replace: '雨' }), '好声音雨.wav', '规则组合顺序不对');
+  // ---- 规则进阶：正则替换 / 大小写 ----
+  assert.strictEqual(
+    rename.applyRules('abc_01.wav', { find: '_(\\d+)$', replace: '-$1', regex: true }),
+    'abc-01.wav',
+    '正则分组替换没生效'
+  );
+  assert.strictEqual(
+    rename.applyRules('a1b2.wav', { find: '\\d', replace: '#', regex: true }),
+    'a#b#.wav',
+    '正则没有全局替换'
+  );
+  assert.strictEqual(
+    rename.applyRules('a(b.wav', { find: '(', replace: 'x', regex: true }),
+    'a(b.wav',
+    '非法正则应该原样返回而不是抛异常'
+  );
+  assert.strictEqual(rename.applyRules('abc.wav', { find: '(', replace: 'x', regex: false }), 'abc.wav', '字面量模式下括号应该只是普通字符');
+  assert(rename.validateRules({ find: '(', regex: true }).indexOf('正则表达式无效') === 0, '非法正则没有被拦住');
+  assert.strictEqual(rename.validateRules({ find: '(', regex: false }), '', '字面量模式不该校验正则');
+  assert.strictEqual(rename.validateRules({ find: 'a\\d+', regex: true }), '', '合法正被误判');
+  assert.strictEqual(rename.validateRules({}), '', '空规则不该报错');
+
+  assert.strictEqual(rename.applyRules('ABC_DEF.wav', { caseMode: 'lower' }), 'abc_def.wav', '小写没生效');
+  assert.strictEqual(rename.applyRules('abc.wav', { caseMode: 'upper' }), 'ABC.wav', '大写没生效');
+  assert.strictEqual(rename.applyRules('abc def-ghi.wav', { caseMode: 'title' }), 'Abc Def-Ghi.wav', '首字母大写没生效');
+  assert.strictEqual(rename.applyRules('ABC.WAV', { caseMode: 'lower' }), 'abc.WAV', '大小写改到了扩展名');
+  assert.strictEqual(rename.applyRules('ABC.wav', { prefix: 'P_', caseMode: 'lower' }), 'P_abc.wav', '大小写改到了自己填的前缀');
+  assert.strictEqual(
+    rename.applyRules('AB_C.wav', { find: '_', replace: '-', caseMode: 'lower' }),
+    'ab-c.wav',
+    '大小写应该在查找替换之后做'
+  );
+  assert.strictEqual(rename.applyRules('abc.wav', { caseMode: 'nonsense' }), 'abc.wav', '未知的大小写模式应该按原样处理');
+
 
   const planSounds = [
     { id: 'u1', fileId: 'u1', name: 'a.wav', filePath: 'C:\\x\\a.wav' },
@@ -132,6 +166,10 @@ async function main() {
   assert(/dry_run:\s*false/.test(indexHtml), '执行仍然停在 dry_run');
   assert(indexHtml.includes('showBatchRenameModal('), '批量重命名弹窗入口缺失');
   assert(indexHtml.includes('应用到全部'), '弹窗里没有「应用到全部」');
+  assert(indexHtml.includes('data-rule="regex"'), '规则栏没有正则开关');
+  assert(indexHtml.includes('data-rule="caseMode"'), '规则栏没有大小写选择');
+  assert(indexHtml.includes('批量重命名该标签'), '标签右键没有批量重命名入口');
+  assert(indexHtml.includes('批量重命名此文件夹'), '文件夹右键没有批量重命名入口');
   assert(/rendererRename\.applyRules\(/.test(indexHtml), '批量规则没有接到弹窗上');
   assert(indexHtml.includes('批量重命名'), '右键菜单没有批量重命名文案');
 

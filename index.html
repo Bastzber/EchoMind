@@ -1659,7 +1659,7 @@
             // 右键菜单
             div.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                showFolderContextMenu(e, folder, 'user');
+                showFolderContextMenu(e, folder, 'user', { childFolders });
             });
 
             // 渲染子文件夹和音频文件（始终创建容器，但控制显示/隐藏）
@@ -1681,7 +1681,7 @@
         }
 
         // 显示文件夹右键菜单
-        function showFolderContextMenu(event, folder, type) {
+        function showFolderContextMenu(event, folder, type, extra = {}) {
             // 关闭已存在的菜单
             const existingMenu = document.getElementById('folderContextMenu');
             if (existingMenu) {
@@ -1690,7 +1690,7 @@
 
             const menu = document.createElement('div');
             menu.id = 'folderContextMenu';
-            menu.className = 'fixed z-[200] rounded-lg shadow-xl py-1 w-40';
+            menu.className = 'fixed z-[200] rounded-lg shadow-xl py-1 w-48';
             menu.style.backgroundColor = 'var(--bg-secondary)';
             menu.style.border = '1px solid var(--border-color)';
             menu.style.left = `${event.clientX}px`;
@@ -1701,6 +1701,7 @@
             if (type === 'user') {
                 // 用户文件夹菜单
                 menuItems.push(
+                    { label: '批量重命名此文件夹…', icon: 'files', action: () => renameSoundsInUserFolder(folder, extra.childFolders) },
                     { label: i18n.t('folder.new.sibling'), icon: 'folder-plus', action: () => showInputModal(i18n.t('folder.new.title'), i18n.t('folder.new.placeholder'), (name) => { if (name) createUserFolder(name); }) },
                     { label: i18n.t('folder.rename'), icon: 'edit-3', action: () => showInputModal(i18n.t('folder.rename.title'), i18n.t('folder.rename.placeholder'), (name) => { if (name) renameUserFolder(folder.id, name); }, folder.name) },
                     { label: i18n.t('delete'), icon: 'trash-2', action: () => { if (confirm(i18n.t('confirm.delete.folder', { name: folder.name }))) deleteUserFolder(folder.id); }, danger: true }
@@ -1708,6 +1709,7 @@
             } else if (type === 'imported') {
                 // 导入文件夹菜单
                 menuItems.push(
+                    { label: '批量重命名此文件夹…', icon: 'files', action: () => renameSoundsInFolder(folder.fullPath) },
                     { label: i18n.t('folder.move.to'), icon: 'folder-input', action: () => showMoveToFolderMenu(event, folder) }
                 );
             }
@@ -2966,7 +2968,7 @@
             menu.style.backgroundColor = 'var(--bg-secondary)';
             menu.style.border = '1px solid var(--border-color)';
             menu.style.left = Math.min(event.clientX, window.innerWidth - 190) + 'px';
-            menu.style.top = Math.min(event.clientY, window.innerHeight - 140) + 'px';
+            menu.style.top = Math.min(event.clientY, window.innerHeight - 190) + 'px';
 
             const item = (label, onClick, danger) => {
                 const btn = document.createElement('button');
@@ -2984,6 +2986,10 @@
             item(tag.layer === 'attr' ? '✓ 已是属性标签' : '设为属性标签', async () => {
                 menu.remove();
                 await patchTag(tag.id, { layer: 'attr' });
+            });
+            item('批量重命名该标签…', () => {
+                menu.remove();
+                renameSoundsInTag(tag.name);
             });
             item('删除标签', async () => {
                 menu.remove();
@@ -3481,6 +3487,95 @@
         function previewBatchRename(items) { return postBatchRename(items, { dry_run: true }); }
         function executeBatchRename(items) { return postBatchRename(items, { dry_run: false }); }
 
+        // 按标签 / 文件夹整批改名：先按标签页相同的查询把文件捞出来，再进弹窗
+        function soundsFromFiles(files) {
+            return (files || []).map((file, index) => mapDbFileToSound(
+                Object.assign({}, file, { path: file.path || file.file_path }),
+                index
+            )).filter((sound) => sound && sound.filePath);
+        }
+
+        function dedupeSounds(list) {
+            const seen = new Set();
+            return (list || []).filter((sound) => {
+                const key = sound && (sound.filePath || sound.id);
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        async function openBatchRenameFor(loader, label) {
+            try {
+                showNotification('正在收集' + label + '…', 'info');
+                const sounds = dedupeSounds(await loader());
+                if (!sounds.length) {
+                    showNotification(label + ' 里没有可重命名的音效', 'info');
+                    return;
+                }
+                showBatchRenameModal(sounds);
+            } catch (error) {
+                showNotification('收集失败：' + (error?.message || error), 'error');
+            }
+        }
+
+        function renameSoundsInTag(tagName) {
+            const projectId = currentProject?.id || 'default';
+            openBatchRenameFor(async () => {
+                const page = await rendererApi.get(
+                    '/api/v1/files?limit=500&tag=' + encodeURIComponent(tagName)
+                    + '&project_id=' + encodeURIComponent(projectId)
+                );
+                return soundsFromFiles(page && page.files);
+            }, '标签「' + tagName + '」');
+        }
+
+        function renameSoundsInFolder(folderPath) {
+            const projectId = currentProject?.id || 'default';
+            openBatchRenameFor(async () => {
+                const collected = [];
+                let cursor = null;
+                // 分页取，最多凑够一个批次（MAX_BATCH）
+                do {
+                    let url = '/api/v1/files?project_id=' + encodeURIComponent(projectId)
+                        + '&limit=500&folder=' + encodeURIComponent(folderPath);
+                    if (cursor) url += '&cursor=' + encodeURIComponent(cursor);
+                    const data = await rendererApi.get(url);
+                    collected.push.apply(collected, soundsFromFiles(data && data.files));
+                    cursor = data && data.next_cursor ? data.next_cursor : null;
+                } while (cursor && collected.length < rendererRename.MAX_BATCH);
+                return collected;
+            }, '文件夹「' + rendererRename.basename(folderPath) + '」');
+        }
+
+        function renameSoundsInUserFolder(folder, childFolders) {
+            const projectId = currentProject?.id || 'default';
+            openBatchRenameFor(async () => {
+                const collected = [];
+                for (const child of (childFolders || [])) {
+                    if (collected.length >= rendererRename.MAX_BATCH) break;
+                    try {
+                        const page = await rendererApi.get(
+                            '/api/v1/files?project_id=' + encodeURIComponent(projectId)
+                            + '&limit=500&folder=' + encodeURIComponent(child.path)
+                        );
+                        collected.push.apply(collected, soundsFromFiles(page && page.files));
+                    } catch (error) {
+                        console.warn('[BatchRename] 读取映射目录失败:', error);
+                    }
+                }
+                try {
+                    const data = await rendererApi.get(
+                        '/api/v1/projects/' + encodeURIComponent(projectId)
+                        + '/folders/' + encodeURIComponent(folder.id) + '/files'
+                    );
+                    collected.push.apply(collected, soundsFromFiles(data && data.files));
+                } catch (error) {
+                    console.warn('[BatchRename] 读取文件夹成员失败:', error);
+                }
+                return collected;
+            }, '文件夹「' + folder.name + '」');
+        }
         function showBatchRenameModal(sounds) {
             const picked = (sounds || []).filter(Boolean);
             const targets = picked.slice(0, rendererRename.MAX_BATCH);
@@ -3524,12 +3619,21 @@
                         '<input data-rule="prefix" placeholder="SFX_" class="h-6 w-24 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
                         '<span class="opacity-60 ml-2">后缀</span>' +
                         '<input data-rule="suffix" placeholder="_v2" class="h-6 w-20 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
-                        '<span class="opacity-60 ml-2">查找</span>' +
-                        '<input data-rule="find" placeholder="_" class="h-6 w-20 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                        '<span class="opacity-60 ml-2">大小写</span>' +
+                        '<select data-rule="caseMode" class="h-6 px-1 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
+                            '<option value="">原样</option>' +
+                            '<option value="lower">全小写</option>' +
+                            '<option value="upper">全大写</option>' +
+                            '<option value="title">首字母大写</option>' +
+                        '</select>' +
+                        '<label class="flex items-center gap-1 cursor-pointer ml-2" title="按正则在主名上替换，支持 $1 分组引用">' +
+                            '<input type="checkbox" data-rule="regex" class="w-3.5 h-3.5 rounded">' +
+                            '<span class="opacity-60">正则</span>' +
+                        '</label>' +
+                        '<span class="opacity-60 ml-1">查找</span>' +
+                        '<input data-rule="find" placeholder="_" class="h-6 w-24 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
                         '<span class="opacity-40">→</span>' +
-                        '<input data-rule="replace" placeholder="空格" class="h-6 w-20 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
-                        '<span class="flex-1"></span>' +
-                        '<button data-role="apply-rules" class="px-2 py-1 rounded border hover:bg-white/5" style="border-color: var(--border-color);">应用到全部</button>' +
+                        '<input data-rule="replace" placeholder="空格" class="h-6 w-24 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
                     '</div>' +
                     '<div class="flex items-center gap-1.5 mt-1.5">' +
                         '<label class="flex items-center gap-1 cursor-pointer">' +
@@ -3543,7 +3647,8 @@
                         '<span class="opacity-60">分隔</span>' +
                         '<input data-rule="numbering-separator" value="_" class="h-6 w-10 px-1.5 rounded border" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">' +
                         '<span class="flex-1"></span>' +
-                        '<span class="opacity-40">规则按原名算，重复点不会叠出两层前缀</span>' +
+                        '<span class="opacity-40 mr-1">规则按原名重算，重复应用不会叠加</span>' +
+                        '<button data-role="apply-rules" class="px-2 py-1 rounded border hover:bg-white/5" style="border-color: var(--border-color);">应用到全部</button>' +
                     '</div>' +
                 '</div>' +
                 '<div class="grid items-center gap-2 px-5 py-1.5 text-[11px] uppercase tracking-wider opacity-60 border-b shrink-0" style="border-color: var(--border-color); grid-template-columns: 1fr 16px 1fr 92px;">' +
@@ -3620,6 +3725,8 @@
                     suffix: field('suffix'),
                     find: field('find'),
                     replace: field('replace'),
+                    regex: Boolean(panel.querySelector('[data-rule="regex"]')?.checked),
+                    caseMode: field('caseMode'),
                     numbering: {
                         enabled: Boolean(panel.querySelector('[data-rule="numbering-enabled"]')?.checked),
                         start: field('numbering-start'),
@@ -3632,6 +3739,13 @@
             // 规则一律以「原名」为底稿重算，所以手改过的行也会被覆盖，重复点不会叠前缀
             function applyRulesToAll() {
                 const rules = readRules();
+                const problem = rendererRename.validateRules(rules);
+                if (problem) {
+                    setSummary(problem);
+                    hintEl.textContent = '「查找」里的正则没写对，改好再应用';
+                    showNotification(problem, 'error');
+                    return;
+                }
                 state.rows.forEach((row, index) => {
                     const next = rendererRename.applyRules(row.oldName, rules, index);
                     row.inputEl.value = next;
@@ -3641,6 +3755,7 @@
                     else setStatus(row, 'stale', '待预览');
                 });
                 onDirty();
+                hintEl.textContent = '已按规则更新 ' + state.rows.length + ' 行，预览后再执行';
             }
 
             function countKinds() {

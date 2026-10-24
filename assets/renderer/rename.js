@@ -38,15 +38,46 @@
         return value === undefined || value === null ? '' : String(value);
     }
 
+    function applyCase(stem, mode) {
+        const value = String(stem === undefined || stem === null ? '' : stem);
+        if (mode === 'lower') return value.toLowerCase();
+        if (mode === 'upper') return value.toUpperCase();
+        if (mode === 'title') {
+            return value.replace(/(^|[\s_\-])(\S)/g, (match, separator, char) => separator + char.toUpperCase());
+        }
+        return value;
+    }
+
+    // 正则写错了不该把整个弹窗搞崩：这里只返回错误，调用方决定怎么提示
+    function compileFind(rules) {
+        const config = rules || {};
+        const find = textOf(config.find);
+        if (!find || !config.regex) return { pattern: null, error: '' };
+        try {
+            return { pattern: new RegExp(find, 'g'), error: '' };
+        } catch (error) {
+            return { pattern: null, error: '正则表达式无效：' + (error && error.message ? error.message : '语法错误') };
+        }
+    }
+
+    function validateRules(rules) {
+        return compileFind(rules).error;
+    }
+
     // 批量规则：一律以「原名」为输入，所以重复点不会把前缀叠两层。
     // 扩展名永远放在最后，查找替换也只在主名上做。
     function applyRules(name, rules, index) {
         const config = rules || {};
         const parts = splitExtension(name);
 
+        const compiled = compileFind(config);
+        if (compiled.error) return textOf(name);
+
         let core = parts.stem;
         const find = textOf(config.find);
-        if (find) core = core.split(find).join(textOf(config.replace));
+        if (compiled.pattern) core = core.replace(compiled.pattern, textOf(config.replace));
+        else if (find) core = core.split(find).join(textOf(config.replace));
+        core = applyCase(core, config.caseMode);
 
         let number = '';
         const numbering = config.numbering;
@@ -128,6 +159,7 @@
         basename,
         splitExtension,
         applyRules,
+        validateRules,
         planItems,
         applyResults,
         summarize

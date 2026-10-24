@@ -4629,6 +4629,9 @@ async def get_indexed_files(
     cursor: Optional[int] = Query(default=None, ge=1),
     folder: Optional[str] = Query(default=None, description="只返回该目录（含子目录）下的文件"),
     tag: Optional[str] = Query(default=None, description="只返回带该标签的文件（M4 双层标签）"),
+    source: Optional[str] = Query(default=None, description="ai / user"),
+    sort: Optional[str] = Query(default=None, description="name / duration / size / date"),
+    order: Optional[str] = Query(default="desc"),
 ):
     """获取工程内的分页元数据，波形按可见项另行加载。"""
     try:
@@ -4671,9 +4674,27 @@ async def get_indexed_files(
         files, next_cursor = db_manager.get_files_cursor_page(
             effective_project, limit=limit, before_id=cursor, folder=folder
         )
+        filtered_total = None
+        if source:
+            files = [f for f in files if str(f.get("source") or "user") == source]
+            filtered_total = len(files)
+        if sort:
+            reverse = str(order or "desc").lower() != "asc"
+            key_map = {
+                "name": lambda f: str(f.get("filename") or "").lower(),
+                "duration": lambda f: float(f.get("duration") or 0),
+                "size": lambda f: int(f.get("file_size") or 0),
+                "date": lambda f: int(f.get("id") or 0),
+            }
+            key_func = key_map.get(sort)
+            if key_func:
+                try:
+                    files = sorted(files, key=key_func, reverse=reverse)
+                except Exception:
+                    pass
         for item in files:
             item["size"] = item.pop("file_size")
-        total = (
+        total = filtered_total if filtered_total is not None else (
             db_manager.count_files_in_folder(effective_project, folder)
             if folder
             else db_manager.get_file_count(effective_project)

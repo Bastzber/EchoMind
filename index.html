@@ -444,6 +444,14 @@
                         style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff;">
                     <span>AI</span>
                 </button>
+                <select id="sortSelect" class="h-9 px-2 rounded-lg border text-xs" style="background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">
+                    <option value="date-desc">最近导入</option>
+                    <option value="name-asc">文件名 A→Z</option>
+                    <option value="name-desc">文件名 Z→A</option>
+                    <option value="duration-desc">时长从长到短</option>
+                    <option value="duration-asc">时长从短到长</option>
+                    <option value="size-desc">体积从大到小</option>
+                </select>
                 <div class="flex items-center gap-0.5 rounded-lg border p-0.5" style="border-color: var(--border-color);">
                     <button id="viewListBtn" class="px-2 py-1 rounded-md text-xs opacity-60" title="列表视图">
                         <i data-lucide="list" class="w-3.5 h-3.5"></i>
@@ -3579,6 +3587,30 @@
             try { return localStorage.getItem('echomind.viewMode') || 'list'; } catch (_) { return 'list'; }
         })();
 
+        // 排序：纯前端对当前列表排序，配合“全选当前筛选结果”
+        function currentSortMode() {
+            const el = document.getElementById('sortSelect');
+            const value = (el && el.value) || 'date-desc';
+            const [field, order] = value.split('-');
+            return { field, order };
+        }
+
+        function sortSounds(list) {
+            const { field, order } = currentSortMode();
+            if (!Array.isArray(list) || !list.length) return list;
+            const copy = list.slice();
+            const desc = order === 'desc';
+            copy.sort((a, b) => {
+                let result = 0;
+                if (field === 'name') result = String(a.name || '').localeCompare(String(b.name || ''), 'zh');
+                else if (field === 'duration') result = (a.duration || 0) - (b.duration || 0);
+                else if (field === 'size') result = (a.size || 0) - (b.size || 0);
+                else result = String(a.id || '').localeCompare(String(b.id || ''));
+                return desc ? -result : result;
+            });
+            return copy;
+        }
+
         function applyViewMode() {
             const container = document.getElementById('soundList');
             const header = document.getElementById('listHeader');
@@ -3613,6 +3645,7 @@
                 sound.name.toLowerCase().includes(filter.toLowerCase()) ||
                 (sound.tags && sound.tags.some(tag => tag.toLowerCase().includes(filter.toLowerCase())))
             );
+            filteredSounds = sortSounds(filteredSounds);
             lastRenderedSounds = filteredSounds;
             
             // 空状态提示 - 区分无文件和搜索无结果
@@ -3702,6 +3735,8 @@
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 min-w-0">
                             <span class="text-sm truncate">${escapeHtml(sound.name)}</span>
+                            ${sound.source === 'ai' ? '<span class="px-1 py-0.5 rounded text-[10px] shrink-0" style="background:rgba(139,92,246,.2);color:#a78bfa;">AI</span>' : ''}
+                            ${sound.source === 'ai' ? '<span class="px-1 py-0.5 rounded text-[10px] shrink-0" style="background:rgba(139,92,246,.2);color:#a78bfa;">AI</span>' : ''}
                             ${sound.aiDescription ? `<span class="text-xs truncate opacity-50 shrink-0 max-w-[38%]" style="color: var(--text-secondary);" title="${escapeHtml(sound.aiDescription.replace(/^\[auto\]/,''))}">${escapeHtml(sound.aiDescription.replace(/^\[auto\]/,''))}</span>` : ''}
                             ${isCurrent && isPlaying ? `
                                 <div class="playing-indicator">
@@ -6837,6 +6872,7 @@
                 waveformChannels: file.channels,
                 tags: normalizeTags(file.tags),
                 favorite: Boolean(file.is_favorite || file.favorite),
+                source: file.source || 'user',
                 aiDescription: file.ai_description || '',
                 createdAt: file.created_at,
                 folderPath: getParentPath(file.path)
@@ -6939,6 +6975,7 @@
                     waveformChannels: file.channels,
                     tags: normalizeTags(file.tags),
                     favorite: Boolean(file.is_favorite || file.favorite),
+                source: file.source || 'user',
                     aiDescription: file.ai_description || '',
                     createdAt: file.created_at,
                     folderPath: getParentPath(file.path)
@@ -7103,6 +7140,9 @@
             document.getElementById('dupCheckBtn')?.addEventListener('click', () => {
                 document.getElementById('settingsDropdown').classList.add('hidden');
                 showDuplicatesModal();
+            });
+            document.getElementById('sortSelect')?.addEventListener('change', () => {
+                renderSoundList(document.getElementById('searchInput')?.value || '');
             });
             document.getElementById('recipeMenuBtn')?.addEventListener('click', () => openRecipeModal());
             document.getElementById('recipeCloseBtn')?.addEventListener('click', () => {

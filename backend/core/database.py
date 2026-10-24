@@ -623,6 +623,11 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE files ADD COLUMN sha256 TEXT")
             if "hash_state" not in columns:
                 cursor.execute("ALTER TABLE files ADD COLUMN hash_state INTEGER DEFAULT 0")
+            if "source" not in columns:
+                cursor.execute("ALTER TABLE files ADD COLUMN source TEXT DEFAULT 'user'")
+                cursor.execute(
+                    "UPDATE files SET source='ai' WHERE path LIKE '%AI生成音效%' OR path LIKE '%AI生成%'"
+                )
             if "is_favorite" not in columns:
                 cursor.execute("ALTER TABLE files ADD COLUMN is_favorite INTEGER DEFAULT 0")
                 cursor.execute(
@@ -1839,6 +1844,7 @@ class DatabaseManager:
                 SELECT f.id, f.file_uuid, f.path, f.filename, f.duration,
                        f.sample_rate, f.channels, f.file_size, f.tags,
                        f.ai_description, COALESCE(f.is_favorite, 0) AS is_favorite,
+                       COALESCE(f.source, 'user') AS source,
                        f.source_fingerprint, f.waveform_version,
                        MAX(CASE WHEN a.kind='waveform' THEN a.state END) AS waveform_state,
                        MAX(CASE WHEN a.kind='audio_vector' THEN a.state END) AS audio_index_state,
@@ -1879,6 +1885,7 @@ class DatabaseManager:
                 "tags": tags,
                 "ai_description": row["ai_description"] or "",
                 "is_favorite": bool(row["is_favorite"]),
+                "source": row["source"] or "user",
                 "source_fingerprint": row["source_fingerprint"],
                 "waveform_version": row["waveform_version"],
                 "waveform_state": row["waveform_state"] or "pending",

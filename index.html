@@ -1435,16 +1435,29 @@
             return result;
         }
 
+        // 源目录板块自己的搜索：和顶部「搜索文件夹」互不干扰
+        let sourceSearchOpen = false;
+        let sourceFolderQuery = '';
+        // 左侧当前高亮的是哪个「非文件夹」视图：all / favorites / null
+        let sidebarView = null;
+
+        function setSidebarView(view) {
+            sidebarView = view;
+            const fav = document.getElementById('favoriteRow');
+            if (fav) fav.classList.toggle('active', view === 'favorites');
+            const all = document.getElementById('allSoundsRow');
+            if (all) all.classList.toggle('active', view === 'all');
+        }
+
         function renderFolderTree() {
             const container = document.getElementById('folderTree');
             container.innerHTML = '';
 
             const query = (document.getElementById('folderSearchInput')?.value || '').trim().toLowerCase();
             const forceExpand = Boolean(query);
-            const roots = filterFolderNodes(importedFolderData, query);
 
-            // 如果没有用户文件夹，显示提示
-            if (userFolders.length === 0 && roots.length === 0) {
+            // 一个文件夹都没有时给个提示（「全部音效」那一行也一并省掉）
+            if (userFolders.length === 0 && importedFolderData.length === 0) {
                 const emptyTip = document.createElement('div');
                 emptyTip.className = 'text-xs opacity-50 px-4 py-2 i18n-empty-folder';
                 emptyTip.setAttribute('data-i18n', 'empty.folder.create');
@@ -1458,25 +1471,86 @@
                 container.appendChild(createUserFolderItem(folder));
             });
 
-            if (userFolders.length === 0) {
-                // 没有自定义分类时，直接铺开导入的目录树（不再套一层"未分类"）
-                roots.forEach(folder => {
-                    container.appendChild(createImportedFolderItem(folder, 0, false, forceExpand));
+            // ===== 源目录板块：全部音效 + 还没归类的库目录 =====
+            // 这里的目录来自磁盘，名字不能改；要改名就先拖进「我的文件夹」再改。
+            const unclassifiedFolders = importedFolderData.filter(f => !folderMappings[f.fullPath]);
+            const dirQuery = (sourceFolderQuery.trim() || query).toLowerCase();
+            const visibleDirs = filterFolderNodes(unclassifiedFolders, dirQuery);
+
+            const sourceSection = document.createElement('div');
+            sourceSection.className = userFolders.length ? 'mt-4' : 'mt-1';
+
+            const sourceHeader = document.createElement('div');
+            sourceHeader.className = 'flex items-center gap-1 px-2 py-1';
+            const sourceTitle = document.createElement('span');
+            sourceTitle.className = 'text-[10px] font-medium uppercase tracking-wider opacity-50 flex-1 truncate';
+            sourceTitle.textContent = '音效库目录 · 名称不可改';
+            sourceTitle.title = '这些目录直接来自磁盘，名字不能在这里改；需要自定义名字就先归到「我的文件夹」';
+            sourceHeader.appendChild(sourceTitle);
+
+            const sourceSearchBtn = document.createElement('button');
+            sourceSearchBtn.className = 'p-1 rounded hover:bg-white/10 transition-colors';
+            sourceSearchBtn.title = '在本板块里搜索文件夹';
+            sourceSearchBtn.innerHTML = '<i data-lucide="search" class="w-3 h-3 opacity-70"></i>';
+            sourceSearchBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                sourceSearchOpen = !sourceSearchOpen;
+                renderFolderTree();
+                const box = document.getElementById('sourceFolderSearchInput');
+                if (box) box.focus();
+            });
+            sourceHeader.appendChild(sourceSearchBtn);
+            sourceSection.appendChild(sourceHeader);
+
+            if (sourceSearchOpen) {
+                const searchWrap = document.createElement('div');
+                searchWrap.className = 'px-2 pb-1';
+                const box = document.createElement('input');
+                box.id = 'sourceFolderSearchInput';
+                box.type = 'text';
+                box.placeholder = '搜索这里的文件夹…';
+                box.className = 'w-full px-2 py-1 rounded-md border text-xs';
+                box.style.cssText = 'background-color: var(--bg-secondary); border-color: var(--border-color); color: var(--text-primary);';
+                box.value = sourceFolderQuery;
+                box.addEventListener('input', () => {
+                    const caret = box.selectionStart;
+                    sourceFolderQuery = box.value;
+                    renderFolderTree();   // 整棵树会重建，焦点得自己还回去
+                    const again = document.getElementById('sourceFolderSearchInput');
+                    if (again) {
+                        again.focus();
+                        try { again.setSelectionRange(caret, caret); } catch (_) { }
+                    }
                 });
-            } else {
-                const unclassifiedFolders = importedFolderData.filter(f => !folderMappings[f.fullPath]);
-                if (unclassifiedFolders.length > 0) {
-                    const unclassifiedDiv = document.createElement('div');
-                    unclassifiedDiv.className = 'mt-4';
-                    unclassifiedDiv.innerHTML = `
-                        <div class="text-xs opacity-50 px-2 py-1 mb-1">未分类</div>
-                    `;
-                    unclassifiedFolders.forEach(folder => {
-                        unclassifiedDiv.appendChild(createImportedFolderItem(folder, 0, true, forceExpand));
-                    });
-                    container.appendChild(unclassifiedDiv);
-                }
+                searchWrap.appendChild(box);
+                sourceSection.appendChild(searchWrap);
             }
+
+            // 「全部音效」：任何时候都能一键回到整个库（点了「常用」之后也不例外）
+            const allRow = document.createElement('div');
+            allRow.id = 'allSoundsRow';
+            allRow.className = 'sidebar-item rounded-md cursor-pointer flex items-center gap-2 px-2 py-1.5 text-sm'
+                + (sidebarView === 'all' ? ' active' : '');
+            allRow.innerHTML = '<i data-lucide="library" class="w-3.5 h-3.5 opacity-70"></i>'
+                + '<span class="flex-1 truncate">全部音效</span>'
+                + '<span id="allSoundsCount" class="text-[10px] opacity-40">' + (fileListTotal || '') + '</span>';
+            allRow.addEventListener('click', () => {
+                document.querySelectorAll('#folderTree .sidebar-item').forEach(el => el.classList.remove('active'));
+                allRow.classList.add('active');
+                showAllSounds();
+            });
+            sourceSection.appendChild(allRow);
+
+            visibleDirs.forEach(folder => {
+                sourceSection.appendChild(createImportedFolderItem(folder, 0, true, forceExpand || Boolean(dirQuery)));
+            });
+            if (visibleDirs.length === 0 && dirQuery) {
+                const noMatch = document.createElement('div');
+                noMatch.className = 'text-xs opacity-40 px-3 py-1';
+                noMatch.textContent = '没有匹配的文件夹';
+                sourceSection.appendChild(noMatch);
+            }
+            container.appendChild(sourceSection);
 
             lucide.createIcons();
         }
@@ -1682,6 +1756,7 @@
             }
 
             allSearchResults = list;
+            setSidebarView(null);
             activeUserFolder = {
                 id: folder.id,
                 name: folder.name,
@@ -2841,13 +2916,21 @@
             // 计数优先用后端全库统计（soundData 只是分页加载的一部分）
             // ===== 收藏夹 =====
             const favRow = document.createElement('div');
-            favRow.className = 'sidebar-item rounded-md cursor-pointer flex items-center gap-1.5 px-2 py-1 text-sm';
+            favRow.id = 'favoriteRow';
+            favRow.className = 'sidebar-item rounded-md cursor-pointer flex items-center gap-1.5 px-2 py-1 text-sm'
+                + (sidebarView === 'favorites' ? ' active' : '');
             favRow.innerHTML = `<span style="color:#f59e0b;">★</span>
                 <span class="flex-1 truncate">收藏</span>
                 <span id="favoriteCount" class="text-[10px] opacity-40">0</span>`;
             favRow.addEventListener('click', () => {
-                document.querySelectorAll('#categoryTree .sidebar-item').forEach((el) => el.classList.remove('active'));
+                // 再点一次就退出收藏，回到全部音效 —— 之前选了就取消不掉
+                if (sidebarView === 'favorites') {
+                    showAllSounds();
+                    return;
+                }
+                document.querySelectorAll('#categoryTree .sidebar-item, #folderTree .sidebar-item').forEach((el) => el.classList.remove('active'));
                 favRow.classList.add('active');
+                setSidebarView('favorites');
                 showFavorites();
             });
             container.appendChild(favRow);
@@ -2887,6 +2970,7 @@
                     row.addEventListener('click', async () => {
                         activeCategory = 'mytag:' + item.name;
                         activeUserFolder = null; // 换视图了，移出入口不再适用
+                        setSidebarView(null);
                         document.querySelectorAll('#categoryTree .sidebar-item').forEach((el) => el.classList.remove('active'));
                         row.classList.add('active');
                         try {
@@ -2965,6 +3049,7 @@
                 div.addEventListener('click', () => {
                     activeCategory = 'mytag:' + tag;
                     activeUserFolder = null; // 换视图了，移出入口不再适用
+                    setSidebarView(null);
                     document.querySelectorAll('#categoryTree .sidebar-item').forEach(item => item.classList.remove('active'));
                     div.classList.add('active');
                     filterByCategory('mytag:' + tag);
@@ -7290,6 +7375,23 @@
             } catch (_) { }
         }
 
+        // 回到「全部音效」：清掉文件夹 / 标签 / 搜索的过滤，重新拉第一页
+        async function showAllSounds() {
+            activeUserFolder = null;
+            activeCategory = 'tag-all';
+            folderFilter.path = '';
+            folderFilter.cursor = null;
+            aiResultMode = false;
+            allSearchResults = [];
+            currentSearchQuery = '';
+            const searchBox = document.getElementById('searchInput');
+            if (searchBox) searchBox.value = '';
+            document.querySelectorAll('#folderTree .sidebar-item, #categoryTree .sidebar-item')
+                .forEach((el) => el.classList.remove('active'));
+            setSidebarView('all');
+            await loadFilesFromDatabase({ reset: true });
+        }
+
         async function showFavorites() {
             try {
                 activeUserFolder = null;
@@ -7538,6 +7640,7 @@
 
         async function renderFolderFiles(folderPath) {
             activeUserFolder = null; // 看的是磁盘目录，不是「我的文件夹」
+            setSidebarView(null);
             folderFilter.path = folderPath;
             folderFilter.cursor = null;
             folderFilter.total = 0;
@@ -7630,6 +7733,9 @@
                 }
                 fileListNextCursor = result?.next_cursor || null;
                 fileListTotal = Number(result?.total || soundData.length);
+                // 「全部音效」的数字要等这一页回来才知道，树上可能已经渲染过了
+                const allCount = document.getElementById('allSoundsCount');
+                if (allCount) allCount.textContent = fileListTotal ? String(fileListTotal) : '';
                 // 从数据库加载的文件重建文件夹树：这样重开软件后，
                 // 左侧文件夹结构、每个文件夹的数量都还在。
                 // 文件是分页加载的，节流重建，避免每页都重排整棵树。
@@ -8123,6 +8229,7 @@
             const runKeywordSearch = async () => {
                 const query = searchInputEl.value.trim();
                 activeUserFolder = null; // 搜索/清空都会换列表，移出入口不再适用
+                setSidebarView(null);
                 // M4：tag:标签名 → 直接按标签筛选
                 if (/^tag[:：]/i.test(query)) {
                     const name = query.replace(/^tag[:：]/i, '').trim();

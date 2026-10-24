@@ -26,9 +26,10 @@ Electron provides the desktop UI. A local backend built with FastAPI, SQLite, Py
 
 | Asset | Notes | Where |
 | --- | --- | --- |
-| **Full installer** (~3.3 GB) | Unzip and run | [Baidu Netdisk](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　code: `73ca` |
+| **Full installer (V6)** (~3.3 GB) | Unzip and run | [Baidu Netdisk](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　code: `73ca` |
 | One-sentence description pack | Bundled in the installer root | `win-unpacked\EchoMind-描述包.json` |
 
+> ⚠ **The source tree is at `v0.3.0-beta.9` (Test build V9), but the Netdisk copy is still the V6 build.** The V9 installer has not been uploaded yet.
 > The installer is ~3.3 GB, above GitHub's 2 GB per-asset limit, so it is distributed via Baidu Netdisk; the [Releases](https://github.com/Bastzber/EchoMind/releases) page only carries release notes.
 >
 > Unzip, then run `win-unpacked\EchoMind.exe`. The first launch loads the CLAP model (30–60 s) and indexes your library.

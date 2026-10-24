@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI Sound Effect Manager
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.6)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -13,7 +13,7 @@
 >
 > A local-first, AI-powered desktop sound-effect manager.
 
-**Current version: `v0.3.0-beta.5` (Test build V5) · Windows x64** · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
+**Current version: `v0.3.0-beta.6` (Test build V6) · Windows x64** · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.6)
 
 > **This repository is a modified fork of [SoundBot](https://github.com/Huckrick/SoundBot)** (original author Nagisa_Huckrick, GPL-3.0-or-later).
 > The license and attribution are preserved. See [Differences from upstream](#differences-from-upstream) for what changed.
@@ -57,7 +57,7 @@ Electron provides the desktop UI. A local backend built with FastAPI, SQLite, Py
 
 ## ✨ What it does
 
-| Capability | Behaviour in v0.3.0-beta.5 |
+| Capability | Behaviour in v0.3.0-beta.6 |
 | --- | --- |
 | Import | Native file/folder picker through a minimal IPC bridge, plus drag-and-drop of folders or audio files onto the window |
 | Waveforms | 2,000 finite peaks per file fetched on demand; invalidated when the source or algorithm changes |

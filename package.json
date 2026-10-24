@@ -1,6 +1,6 @@
 {
   "name": "echomind",
-  "version": "0.3.0-beta.5",
+  "version": "0.3.0-beta.6",
   "description": "回声 EchoMind - 个人专属 AI 音效管理器（语义搜索 + AI 生成）",
   "main": "main.js",
   "scripts": {

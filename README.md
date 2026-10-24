@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI 音效管理器
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.5-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.6)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -13,7 +13,7 @@
 >
 > 本地优先、AI 驱动的桌面音效管理器。
 
-**本仓库当前版本：`v0.3.0-beta.5`（测试版 V5）** · [发布页](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.5)
+**本仓库当前版本：`v0.3.0-beta.6`（测试版 V6）** · [发布页](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.6)
 
 > **本项目基于 [SoundBot](https://github.com/Huckrick/SoundBot) 修改而来**（原作者 Nagisa_Huckrick / 胡杨，GPL-3.0-or-later）。
 > 本仓库保留原许可证与署名，在其基础上做了中文本地化、检索链路与索引稳定性的调整，
@@ -25,7 +25,7 @@
 
 ## 📥 下载
 
-**最新测试版本：v0.3.0-beta.5（测试版 V5）· Windows x64**
+**最新测试版本：v0.3.0-beta.6（测试版 V6）· Windows x64**
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
@@ -60,7 +60,7 @@
 
 ## ✨ 功能特性
 
-| 能力 | v0.3.0-beta.5 行为 |
+| 能力 | v0.3.0-beta.6 行为 |
 | --- | --- |
 | 文件导入 | 沙箱化 preload 通过最小 IPC bridge 调用原生文件/文件夹选择器并只提交绝对路径；后端先写入 SQLite，再由可取消、可轮询的持久化作业生成波形和两个向量 |
 | 音频解码 | 固定版本 `av==18.0.0`（PyAV）及其 wheel 内 FFmpeg 动态库统一解码，不依赖系统 `ffmpeg` 命令 |

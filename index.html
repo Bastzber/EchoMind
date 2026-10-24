@@ -21,6 +21,7 @@
     <script src="./assets/renderer/search.js"></script>
     <script src="./assets/renderer/projects.js"></script>
     <script src="./assets/renderer/settings.js"></script>
+    <script src="./assets/renderer/rename.js"></script>
 
     <style>
         /* 使用系统字体栈，离线环境下也能正常显示 */
@@ -701,6 +702,7 @@
         const rendererSearch = rendererModules.search;
         const rendererProjects = rendererModules.projects;
         const rendererSettings = rendererModules.settings;
+        const rendererRename = rendererModules.rename;
         const UNSUPPORTED_LLM_PROVIDERS = rendererSettings.unsupportedProviders;
         const getApiKeyForRequest = rendererSettings.getApiKeyForRequest;
         const setSecretInputState = (inputId, config) => rendererSettings.setSecretInputState(
@@ -3246,6 +3248,17 @@
 
             // 文件操作组（Billfish 式）
             menu.appendChild(makeMenuItem('在资源管理器中打开', 'folder-open', () => openInExplorer(sound)));
+            // 多选时给「批量重命名」，单选还是原来的单文件重命名
+            if (multi && selectedSounds.size > 1) {
+                const batchSounds = resolveSoundsForIds([...selectedSounds]);
+                if (batchSounds.length > 1) {
+                    menu.appendChild(makeMenuItem(
+                        '批量重命名… (' + batchSounds.length + ')',
+                        'files',
+                        () => showBatchRenameModal(batchSounds)
+                    ));
+                }
+            }
             menu.appendChild(makeMenuItem('重命名', 'edit-3', () => renameSoundFile(sound)));
             menu.appendChild(makeMenuItem('复制文件', 'file-copy', () => copySoundFile(sound)));
             menu.appendChild(makeMenuItem('重新分析该素材', 'refresh-cw', () => reanalyzeSound(sound)));
@@ -3434,6 +3447,375 @@
                 .catch((err) => showNotification('提交失败: ' + (err.message || err), 'error'));
         }
 
+        // ---- 批量重命名 ----
+        // 选中 id → sound（列表 / 卡片 / AI 结果里都可能躺着同一个 id）
+        function resolveSoundsForIds(ids) {
+            const wanted = new Set((ids || []).map(String));
+            const found = [];
+            const seen = new Set();
+            const consider = (sound) => {
+                if (!sound || sound.id === undefined || sound.id === null) return;
+                const key = String(sound.id);
+                if (!wanted.has(key) || seen.has(key)) return;
+                seen.add(key);
+                found.push(sound);
+            };
+            (soundData || []).forEach(consider);
+            (lastRenderedSounds || []).forEach(consider);
+            (allSearchResults || []).forEach(consider);
+            return found;
+        }
+
+        const BATCH_RENAME_PATH = '/api/v1/files/rename';
+
+        function postBatchRename(items, extra) {
+            const projectId = currentProject?.id || 'default';
+            return rendererApi.post(
+                BATCH_RENAME_PATH + '?project_id=' + encodeURIComponent(projectId),
+                Object.assign({ items: items }, extra),
+                { timeoutMs: 180000 }
+            );
+        }
+
+        // 预览只问不动盘；执行才真改名
+        function previewBatchRename(items) { return postBatchRename(items, { dry_run: true }); }
+        function executeBatchRename(items) { return postBatchRename(items, { dry_run: false }); }
+
+        function showBatchRenameModal(sounds) {
+            const picked = (sounds || []).filter(Boolean);
+            const targets = picked.slice(0, rendererRename.MAX_BATCH);
+            if (targets.length === 0) {
+                showNotification('没有可重命名的音效', 'info');
+                return;
+            }
+            if (picked.length > targets.length) {
+                showNotification('一次最多重命名 ' + rendererRename.MAX_BATCH + ' 个，本次只处理前 ' + targets.length + ' 个', 'info');
+            }
+
+            document.getElementById('batchRenameModal')?.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'batchRenameModal';
+            overlay.className = 'fixed inset-0 z-[300] flex items-center justify-center';
+            overlay.style.backgroundColor = 'rgba(0,0,0,0.55)';
+
+            const panel = document.createElement('div');
+            panel.className = 'rounded-lg shadow-2xl flex flex-col overflow-hidden w-[880px] max-w-[94vw] max-h-[82vh]';
+            panel.style.backgroundColor = 'var(--bg-secondary)';
+            panel.style.border = '1px solid var(--border-color)';
+            panel.innerHTML =
+                '<div class="flex items-start justify-between gap-4 px-5 py-4 border-b shrink-0" style="border-color: var(--border-color);">' +
+                    '<div class="min-w-0">' +
+                        '<h3 class="text-base font-semibold">批量重命名</h3>' +
+                        '<div class="text-xs opacity-60 mt-1">共 ' + targets.length + ' 个文件 · 改「新文件名」那一列，回车可预览</div>' +
+                    '</div>' +
+                    '<button data-role="close" class="p-1 rounded hover:bg-white/10 transition-colors shrink-0"><i data-lucide="x" class="w-4 h-4"></i></button>' +
+                '</div>' +
+                '<div class="flex items-center gap-2 px-5 py-2 border-b shrink-0 text-xs" style="border-color: var(--border-color);">' +
+                    '<span class="opacity-60">已改 <span data-role="changed" class="font-mono">0</span> 个</span>' +
+                    '<span class="opacity-20">|</span>' +
+                    '<span data-role="summary" class="truncate opacity-70"></span>' +
+                    '<span class="flex-1"></span>' +
+                    '<button data-role="reset" class="px-2 py-1 rounded border hover:bg-white/5" style="border-color: var(--border-color);">全部还原</button>' +
+                '</div>' +
+                '<div class="grid items-center gap-2 px-5 py-1.5 text-[11px] uppercase tracking-wider opacity-60 border-b shrink-0" style="border-color: var(--border-color); grid-template-columns: 1fr 16px 1fr 92px;">' +
+                    '<div>原名</div><div></div><div>新名</div><div>状态</div>' +
+                '</div>' +
+                '<div data-role="rows" class="flex-1 overflow-y-auto min-h-[160px]"></div>' +
+                '<div class="flex items-center gap-2 px-5 py-3 border-t shrink-0" style="border-color: var(--border-color);">' +
+                    '<div data-role="hint" class="flex-1 text-xs opacity-60 truncate">先「预览」确认可改范围，再「执行」动磁盘</div>' +
+                    '<button data-role="cancel" class="px-3 py-1.5 rounded text-sm border hover:bg-white/5" style="border-color: var(--border-color);">取消</button>' +
+                    '<button data-role="preview" class="px-3 py-1.5 rounded text-sm hover:opacity-90" style="background: var(--bg-tertiary);">预览</button>' +
+                    '<button data-role="execute" class="px-3 py-1.5 rounded text-sm text-white" style="background: #22c55e; opacity: 0.4; cursor: not-allowed;" disabled>执行</button>' +
+                '</div>';
+
+            overlay.appendChild(panel);
+            document.body.appendChild(overlay);
+
+            const rowsEl = panel.querySelector('[data-role="rows"]');
+            const changedEl = panel.querySelector('[data-role="changed"]');
+            const summaryEl = panel.querySelector('[data-role="summary"]');
+            const hintEl = panel.querySelector('[data-role="hint"]');
+            const previewBtn = panel.querySelector('[data-role="preview"]');
+            const executeBtn = panel.querySelector('[data-role="execute"]');
+
+            const state = { rows: [], previewOk: null, previewItems: [], busy: false, armed: false, armTimer: null };
+            const STATUS_COLORS = { idle: 'var(--text-secondary)', stale: '#f59e0b', ok: '#22c55e', error: '#ef4444', done: '#22c55e' };
+
+            function setStatus(row, kind, text) {
+                row.kind = kind;
+                row.statusEl.textContent = text;
+                row.statusEl.style.color = STATUS_COLORS[kind] || 'var(--text-secondary)';
+                row.statusEl.style.opacity = kind === 'idle' ? '0.5' : '1';
+                row.statusEl.title = text;
+            }
+
+            function setExecuteEnabled(enabled) {
+                executeBtn.disabled = !enabled;
+                executeBtn.style.opacity = enabled ? '1' : '0.4';
+                executeBtn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+            }
+
+            function setPreviewBusy(busy) {
+                previewBtn.disabled = busy;
+                previewBtn.textContent = busy ? '预览中…' : '预览';
+                previewBtn.style.opacity = busy ? '0.5' : '1';
+            }
+
+            function disarm() {
+                state.armed = false;
+                if (state.armTimer) { clearTimeout(state.armTimer); state.armTimer = null; }
+                executeBtn.textContent = '执行';
+                executeBtn.style.background = '#22c55e';
+            }
+
+            function collectPlan() {
+                const names = {};
+                state.rows.forEach((row) => { names[String(row.sound.id)] = row.inputEl.value; });
+                return rendererRename.planItems(state.rows.map((row) => row.sound), names);
+            }
+
+            function countKinds() {
+                const tally = { ok: 0, error: 0, idle: 0, stale: 0 };
+                state.rows.forEach((row) => { tally[row.kind] = (tally[row.kind] || 0) + 1; });
+                return tally;
+            }
+
+            // 任何一处编辑都会让上一次预览作废：强制重看一遍再执行
+            function onDirty() {
+                changedEl.textContent = String(collectPlan().length);
+                summaryEl.textContent = '';
+                state.previewOk = null;
+                state.previewItems = [];
+                disarm();
+                setExecuteEnabled(false);
+            }
+
+            function closeModal() {
+                if (state.armTimer) { clearTimeout(state.armTimer); state.armTimer = null; }
+                document.removeEventListener('keydown', onKeydown);
+                overlay.remove();
+            }
+
+            function onKeydown(event) {
+                if (event.key === 'Escape') {
+                    event.stopPropagation();
+                    closeModal();
+                }
+            }
+
+            function nameOf(row) {
+                return row.inputEl.value.trim();
+            }
+
+            async function runPreview() {
+                if (state.busy) return;
+                const plan = collectPlan();
+                changedEl.textContent = String(plan.length);
+
+                // 先在本地把能判定的错误标出来，别让它们白跑一次接口
+                const sendable = [];
+                state.rows.forEach((row) => {
+                    const value = nameOf(row);
+                    if (!value) { setStatus(row, 'error', rendererRename.EMPTY_MESSAGE); return; }
+                    if (value === row.oldName) { setStatus(row, 'idle', '未改动'); return; }
+                    const reason = rendererRename.validateName(value);
+                    if (reason) { setStatus(row, 'error', reason); return; }
+                    setStatus(row, 'stale', '检查中…');
+                });
+                plan.forEach((item) => {
+                    if (!rendererRename.validateName(item.new_name)) sendable.push(item);
+                });
+                if (sendable.length === 0) {
+                    const tally = countKinds();
+                    summaryEl.textContent = '可改 0 / 失败 ' + tally.error + ' / 未改动 ' + tally.idle;
+                    hintEl.textContent = tally.error > 0
+                        ? '先把上面标红的改好，再来预览'
+                        : '改几行「新文件名」再来预览';
+                    setExecuteEnabled(false);
+                    return;
+                }
+
+                state.busy = true;
+                setPreviewBusy(true);
+                try {
+                    const data = await previewBatchRename(sendable.map((item) => ({ file_uuid: item.file_uuid, new_name: item.new_name })));
+                    const results = Array.isArray(data?.results) ? data.results : [];
+                    const byId = new Map(results.map((item) => [String(item.file_uuid), item]));
+                    state.previewItems = [];
+                    state.rows.forEach((row) => {
+                        const uuid = String(row.sound.fileId || row.sound.id);
+                        const result = byId.get(uuid);
+                        const value = nameOf(row);
+                        if (!result) {
+                            if (value && value !== row.oldName) {
+                                const reason = rendererRename.validateName(value);
+                                if (reason) setStatus(row, 'error', reason);
+                            }
+                            return;
+                        }
+                        if (result.ok) {
+                            setStatus(row, 'ok', '可改');
+                            state.previewItems.push({ file_uuid: result.file_uuid, new_name: result.new_name || value });
+                        } else {
+                            setStatus(row, 'error', result.message || '不能改');
+                        }
+                    });
+                    const tally = countKinds();
+                    state.previewOk = tally.ok;
+                    summaryEl.textContent = '可改 ' + tally.ok + ' / 失败 ' + tally.error + ' / 未改动 ' + tally.idle;
+                    hintEl.textContent = tally.ok > 0
+                        ? '确认无误后点「执行」，会真的改动 ' + tally.ok + ' 个文件'
+                        : '没有可改的文件，先看看上面标红的原因';
+                    setExecuteEnabled(tally.ok > 0);
+                } catch (error) {
+                    summaryEl.textContent = '预览失败：' + (error?.message || error);
+                    hintEl.textContent = '后端不可用时无法预览（不会动到文件）';
+                    setExecuteEnabled(false);
+                } finally {
+                    state.busy = false;
+                    setPreviewBusy(false);
+                }
+            }
+
+            async function runExecute() {
+                if (state.busy || !state.previewItems.length) return;
+                if (!state.armed) {
+                    // 两步确认：改名不可撤销，手滑一次不该动磁盘
+                    state.armed = true;
+                    executeBtn.textContent = '确认执行 ' + state.previewItems.length + ' 个？';
+                    executeBtn.style.background = '#dc2626';
+                    hintEl.textContent = '再点一次就真的改名，无法撤销';
+                    state.armTimer = setTimeout(() => { state.armTimer = null; disarm(); }, 5000);
+                    return;
+                }
+                disarm();
+                state.busy = true;
+                setPreviewBusy(true);
+                executeBtn.textContent = '执行中…';
+                try {
+                    const data = await executeBatchRename(state.previewItems);
+                    const results = Array.isArray(data?.results) ? data.results : [];
+                    const byId = new Map(results.map((item) => [String(item.file_uuid), item]));
+                    state.rows.forEach((row) => {
+                        const result = byId.get(String(row.sound.fileId || row.sound.id));
+                        if (!result) return;
+                        if (result.ok) {
+                            setStatus(row, 'done', '已改名');
+                            // 原名基准跟着一起更新，否则「全部还原」会把刚改好的名字又改回去
+                            const nextName = rendererRename.basename(result.new_path) || result.new_name;
+                            if (nextName) {
+                                row.oldName = nextName;
+                                row.oldEl.textContent = nextName;
+                                row.oldEl.title = result.new_path || nextName;
+                            }
+                        } else {
+                            setStatus(row, 'error', result.message || '失败');
+                        }
+                    });
+                    rendererRename.applyResults(state.rows.map((row) => row.sound), results);
+                    const summary = rendererRename.summarize(results);
+                    if (typeof rendererAudio.clearPlaybackSourceCache === 'function') rendererAudio.clearPlaybackSourceCache();
+                    renderSoundList();
+                    renderCategoryTree();
+                    showNotification(
+                        '批量重命名完成：成功 ' + summary.ok + ' 个' + (summary.failed ? '，失败 ' + summary.failed + ' 个' : ''),
+                        summary.failed ? 'info' : 'success'
+                    );
+                    state.previewItems = [];
+                    state.previewOk = null;
+                    setExecuteEnabled(false);
+                    const leftover = countKinds();
+                    if (leftover.error === 0) {
+                        closeModal();
+                    } else {
+                        // 还有没改成的那几行，留在弹窗里让用户接着修
+                        summaryEl.textContent = '可改 0 / 失败 ' + leftover.error + ' / 未改动 ' + leftover.idle;
+                        hintEl.textContent = '已完成 ' + summary.ok + ' 个，还有 ' + leftover.error + ' 个没处理，改好可以再来一次';
+                    }
+                } catch (error) {
+                    showNotification('执行失败：' + (error?.message || error), 'error');
+                } finally {
+                    state.busy = false;
+                    setPreviewBusy(false);
+                    executeBtn.textContent = '执行';
+                }
+            }
+
+            targets.forEach((sound) => {
+                const oldName = sound.name || rendererRename.basename(sound.filePath) || '';
+
+                const rowEl = document.createElement('div');
+                rowEl.className = 'grid items-center gap-2 px-5 py-1 border-b';
+                rowEl.style.borderColor = 'var(--border-color)';
+                rowEl.style.gridTemplateColumns = '1fr 16px 1fr 92px';
+
+                const oldEl = document.createElement('div');
+                oldEl.className = 'text-xs truncate';
+                oldEl.style.color = 'var(--text-secondary)';
+                oldEl.textContent = oldName;
+                oldEl.title = sound.filePath || oldName;
+
+                const arrowEl = document.createElement('div');
+                arrowEl.className = 'text-xs text-center opacity-30';
+                arrowEl.textContent = '→';
+
+                const inputEl = document.createElement('input');
+                inputEl.type = 'text';
+                inputEl.className = 'h-7 px-2 rounded border text-xs w-full focus:outline-none';
+                inputEl.style.backgroundColor = 'var(--bg-tertiary)';
+                inputEl.style.borderColor = 'var(--border-color)';
+                inputEl.style.color = 'var(--text-primary)';
+                inputEl.value = oldName;
+                inputEl.spellcheck = false;
+
+                const statusEl = document.createElement('div');
+                statusEl.className = 'text-[11px] truncate';
+
+                rowEl.appendChild(oldEl);
+                rowEl.appendChild(arrowEl);
+                rowEl.appendChild(inputEl);
+                rowEl.appendChild(statusEl);
+                rowsEl.appendChild(rowEl);
+
+                const row = { sound: sound, inputEl: inputEl, statusEl: statusEl, oldEl: oldEl, oldName: oldName, kind: 'idle' };
+                state.rows.push(row);
+                setStatus(row, 'idle', '未改动');
+
+                inputEl.addEventListener('input', () => {
+                    const reason = rendererRename.validateName(inputEl.value);
+                    if (reason) setStatus(row, 'error', reason);
+                    else if (inputEl.value.trim() === row.oldName) setStatus(row, 'idle', '未改动');
+                    else setStatus(row, 'stale', '待预览');
+                    onDirty();
+                });
+                inputEl.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        runPreview();
+                    }
+                });
+            });
+
+            panel.querySelector('[data-role="close"]').addEventListener('click', closeModal);
+            panel.querySelector('[data-role="cancel"]').addEventListener('click', closeModal);
+            panel.querySelector('[data-role="reset"]').addEventListener('click', () => {
+                state.rows.forEach((row) => {
+                    row.inputEl.value = row.oldName;
+                    setStatus(row, 'idle', '未改动');
+                });
+                onDirty();
+            });
+            previewBtn.addEventListener('click', runPreview);
+            executeBtn.addEventListener('click', runExecute);
+            overlay.addEventListener('mousedown', (event) => {
+                if (event.target === overlay) closeModal();
+            });
+            document.addEventListener('keydown', onKeydown);
+
+            setExecuteEnabled(false);
+            lucide.createIcons();
+        }
         // ---- 标签管理面板 ----
         function showTagManagerModal() {
             closeSoundContextMenu();

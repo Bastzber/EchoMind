@@ -1608,52 +1608,7 @@
 
                 document.querySelectorAll('#folderTree .sidebar-item').forEach(item => item.classList.remove('active'));
                 div.classList.add('active');
-
-                // 统一走「后端按路径取文件」的成熟通道：
-                // 映射目录用 /files?folder=，手动加入的用 /folders/{id}/files
-                const projectId = currentProject?.id || 'default';
-                const seen = new Set();
-                const list = [];
-                const pushAll = (files) => {
-                    (files || []).forEach((file, index) => {
-                        try {
-                            const mappedSound = mapDbFileToSound(
-                                { ...file, path: file.path || file.file_path },
-                                index
-                            );
-                            if (!mappedSound.filePath || seen.has(mappedSound.filePath)) return;
-                            seen.add(mappedSound.filePath);
-                            list.push(mappedSound);
-                        } catch (error) {
-                            console.warn('[Folder] 成员映射失败:', error);
-                        }
-                    });
-                };
-
-                for (const child of childFolders) {
-                    try {
-                        const page = await rendererApi.get(
-                            '/api/v1/files?project_id=' + encodeURIComponent(projectId)
-                            + '&limit=300&folder=' + encodeURIComponent(child.path)
-                        );
-                        pushAll((page && page.files) || []);
-                    } catch (error) {
-                        console.warn('[Folder] 读取映射目录失败:', error);
-                    }
-                }
-                try {
-                    const data = await rendererApi.get(
-                        `/api/v1/projects/${encodeURIComponent(projectId)}`
-                        + `/folders/${encodeURIComponent(folder.id)}/files`
-                    );
-                    pushAll((data && data.files) || []);
-                } catch (error) {
-                    console.warn('[Folder] 读取文件夹成员失败:', error);
-                }
-
-                allSearchResults = list;
-                renderSoundList('', list);
-                showNotification(`「${folder.name}」共 ${list.length} 个音效`, list.length ? 'success' : 'info');
+                await openUserFolder(folder, childFolders);
             });
 
             // 右键菜单
@@ -1680,6 +1635,102 @@
             return div;
         }
 
+        // 当前正在看的「我的文件夹」：只有在这个视图下，右键才提供「移出」
+        let activeUserFolder = null;   // { id, name, childFolders, sounds }
+
+        // 统一走「后端按路径取文件」的成熟通道：
+        // 映射目录用 /files?folder=，手动加入的用 /folders/{id}/files
+        async function openUserFolder(folder, childFolders, options = {}) {
+            const projectId = currentProject?.id || 'default';
+            const seen = new Set();
+            const list = [];
+            const pushAll = (files) => {
+                (files || []).forEach((file, index) => {
+                    try {
+                        const mappedSound = mapDbFileToSound(
+                            Object.assign({}, file, { path: file.path || file.file_path }),
+                            index
+                        );
+                        if (!mappedSound.filePath || seen.has(mappedSound.filePath)) return;
+                        seen.add(mappedSound.filePath);
+                        list.push(mappedSound);
+                    } catch (error) {
+                        console.warn('[Folder] 成员映射失败:', error);
+                    }
+                });
+            };
+
+            for (const child of (childFolders || [])) {
+                try {
+                    const page = await rendererApi.get(
+                        '/api/v1/files?project_id=' + encodeURIComponent(projectId)
+                        + '&limit=300&folder=' + encodeURIComponent(child.path)
+                    );
+                    pushAll(page && page.files);
+                } catch (error) {
+                    console.warn('[Folder] 读取映射目录失败:', error);
+                }
+            }
+            try {
+                const data = await rendererApi.get(
+                    '/api/v1/projects/' + encodeURIComponent(projectId)
+                    + '/folders/' + encodeURIComponent(folder.id) + '/files'
+                );
+                pushAll(data && data.files);
+            } catch (error) {
+                console.warn('[Folder] 读取文件夹成员失败:', error);
+            }
+
+            allSearchResults = list;
+            activeUserFolder = {
+                id: folder.id,
+                name: folder.name,
+                childFolders: childFolders || [],
+                sounds: list
+            };
+            renderSoundList('', list);
+            if (options.notify !== false) {
+                showNotification('「' + folder.name + '」共 ' + list.length + ' 个音效', list.length ? 'success' : 'info');
+            }
+            return list;
+        }
+
+        // 从「我的文件夹」里移出成员：只取消归类，不动磁盘文件
+        async function removeSoundsFromUserFolder(folder, sounds) {
+            const projectId = currentProject?.id || 'default';
+            const targets = (sounds || []).filter((sound) => sound && sound.id);
+            if (!targets.length) return;
+
+            let removed = 0;
+            let failed = 0;
+            for (const sound of targets) {
+                try {
+                    await rendererApi.delete(
+                        '/api/v1/projects/' + encodeURIComponent(projectId)
+                        + '/folders/' + encodeURIComponent(folder.id)
+                        + '/files/' + encodeURIComponent(sound.id)
+                    );
+                    removed += 1;
+                } catch (error) {
+                    failed += 1;
+                }
+            }
+
+            // 刷新这个文件夹的列表；顺带看看有没有「移不掉」的（来自目录映射，不是手动加入的）
+            let stillThere = 0;
+            if (activeUserFolder && activeUserFolder.id === folder.id) {
+                const list = await openUserFolder(folder, activeUserFolder.childFolders, { notify: false });
+                const kept = new Set((list || []).map((sound) => String(sound.id)));
+                stillThere = targets.filter((sound) => kept.has(String(sound.id))).length;
+            }
+            await loadUserFolders();
+            renderFolderTree();
+
+            let message = '已从「' + folder.name + '」移出 ' + removed + ' 个';
+            if (failed) message += '，' + failed + ' 个失败';
+            if (stillThere) message += '；还有 ' + stillThere + ' 个来自目录映射，需先在文件夹右键里解除映射';
+            showNotification(message, failed ? 'error' : (stillThere ? 'info' : 'success'));
+        }
         // 显示文件夹右键菜单
         function showFolderContextMenu(event, folder, type, extra = {}) {
             // 关闭已存在的菜单
@@ -2835,6 +2886,7 @@
                         <span class="text-[10px] opacity-40">${item.count || 0}</span>`;
                     row.addEventListener('click', async () => {
                         activeCategory = 'mytag:' + item.name;
+                        activeUserFolder = null; // 换视图了，移出入口不再适用
                         document.querySelectorAll('#categoryTree .sidebar-item').forEach((el) => el.classList.remove('active'));
                         row.classList.add('active');
                         try {
@@ -2912,6 +2964,7 @@
                 `;
                 div.addEventListener('click', () => {
                     activeCategory = 'mytag:' + tag;
+                    activeUserFolder = null; // 换视图了，移出入口不再适用
                     document.querySelectorAll('#categoryTree .sidebar-item').forEach(item => item.classList.remove('active'));
                     div.classList.add('active');
                     filterByCategory('mytag:' + tag);
@@ -3250,6 +3303,20 @@
                         : [sound];
                     showAddToUserFolderMenu(targets);
                 }));
+            }
+
+            // 正在「我的文件夹」视图里：给一条直接移出的入口（单选 / 多选都行）
+            if (activeUserFolder && activeUserFolder.sounds === allSearchResults) {
+                const removeTargets = (multi && selectedSounds.has(sound.id))
+                    ? resolveSoundsForIds([...selectedSounds])
+                    : [sound];
+                if (removeTargets.length) {
+                    menu.appendChild(makeMenuItem(
+                        '从「' + activeUserFolder.name + '」移出' + (removeTargets.length > 1 ? ' (' + removeTargets.length + ')' : ''),
+                        'folder-minus',
+                        () => removeSoundsFromUserFolder(activeUserFolder, removeTargets)
+                    ));
+                }
             }
 
             // 文件操作组（Billfish 式）
@@ -7225,6 +7292,7 @@
 
         async function showFavorites() {
             try {
+                activeUserFolder = null;
                 const data = await rendererApi.get('/api/v1/favorites?limit=2000');
                 const list = ((data && data.files) || []).map(mapDbFileToSound);
                 allSearchResults = list;
@@ -7469,6 +7537,7 @@
         }
 
         async function renderFolderFiles(folderPath) {
+            activeUserFolder = null; // 看的是磁盘目录，不是「我的文件夹」
             folderFilter.path = folderPath;
             folderFilter.cursor = null;
             folderFilter.total = 0;
@@ -8053,6 +8122,7 @@
             const searchInputEl = document.getElementById('searchInput');
             const runKeywordSearch = async () => {
                 const query = searchInputEl.value.trim();
+                activeUserFolder = null; // 搜索/清空都会换列表，移出入口不再适用
                 // M4：tag:标签名 → 直接按标签筛选
                 if (/^tag[:：]/i.test(query)) {
                     const name = query.replace(/^tag[:：]/i, '').trim();

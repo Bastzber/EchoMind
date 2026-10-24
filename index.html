@@ -3001,6 +3001,7 @@
                 okBtn.textContent = '删除中…';
                 let removed = 0;
                 let failed = 0;
+                const outcomes = [];
                 for (const item of list) {
                     const path = item.fullPath || item.path;
                     if (!path) continue;
@@ -3009,13 +3010,19 @@
                             '/api/v1/db/folder/delete?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
                             { path, delete_source: deleteSource }
                         );
-                        removed += Number(result?.removed || 0);
-                        pruneImportedFolders([path]);
+                        const count = Number(result?.removed || 0);
+                        removed += count;
+                        outcomes.push({ path, removed: count, error: '' });
+                        // 只有真的有记录被删掉，才把节点从树里摘掉；
+                        // 否则界面和服务器会打架（摘了又被拉回来）
+                        if (count > 0) pruneImportedFolders([path]);
                     } catch (error) {
                         failed += 1;
+                        outcomes.push({ path, removed: 0, error: error?.message || String(error) });
                         console.warn('[Folder] 批量删除失败:', path, error);
                     }
                 }
+                console.info('[Folder] 批量删除结果:', outcomes);
                 modal.remove();
                 folderMultiSelection.clear();
                 applyFolderMultiSelection();
@@ -3023,9 +3030,11 @@
                 await loadFilesFromDatabase({ reset: true });
                 await loadFolderStats(true);
                 loadTagStats();
+                const empty = outcomes.filter(o => o.removed === 0 && !o.error).length;
                 showNotification(
                     '已删除 ' + (list.length - failed) + ' 个文件夹，共 ' + removed + ' 条记录'
                     + (deleteSource ? '（源文件已移入回收站）' : '')
+                    + (empty ? '；' + empty + ' 个目录本来就没有库内记录（可能已删过）' : '')
                     + (failed ? '，' + failed + ' 个失败' : ''),
                     failed ? 'warning' : 'success'
                 );

@@ -8073,7 +8073,40 @@
                 // 目录树按后端全库统计重建（导入后立刻刷新，不受节流限制）
                 loadFolderStats(true);
                 loadTagStats();
+
+                // 导入完成后提醒一次：库里还有多少重复没处理
+                setTimeout(() => { maybeHintDuplicates(); }, 2500);
             }
+        }
+
+        // 导入结束后提示重复情况（点「去处理」直接打开重复检测）
+        async function maybeHintDuplicates() {
+            if (document.getElementById('dupHintCard')) return;
+            let data = null;
+            try {
+                data = await rendererApi.get('/api/v1/duplicates?limit=1', { timeoutMs: 120000 });
+            } catch (_) {
+                return;
+            }
+            if (!data || !data.group_count) return;
+
+            const card = document.createElement('div');
+            card.id = 'dupHintCard';
+            card.className = 'fixed z-[260] rounded-lg shadow-xl p-3';
+            card.style.cssText = 'right: 20px; bottom: 90px; width: 300px; background: var(--bg-secondary); border: 1px solid var(--border-color);';
+            card.innerHTML = `
+                <div class="text-sm font-medium mb-1">导入完成，发现重复音效</div>
+                <div class="text-xs opacity-70 leading-5 mb-3">库里现有 <b>${data.group_count}</b> 组重复，共 <b>${data.file_count}</b> 个文件（约 ${((data.wasted_bytes || 0) / 1024 / 1024).toFixed(1)} MB）。多数是素材包本身就重复收录。</div>
+                <div class="flex items-center gap-2">
+                    <button id="dupHintOpen" class="px-3 py-1.5 rounded-md text-xs text-white" style="background:#8b5cf6;">去处理</button>
+                    <button id="dupHintLater" class="px-3 py-1.5 rounded-md text-xs border" style="border-color: var(--border-color);">以后再说</button>
+                </div>`;
+            document.body.appendChild(card);
+            card.querySelector('#dupHintOpen').addEventListener('click', () => {
+                card.remove();
+                showDuplicatesModal();
+            });
+            card.querySelector('#dupHintLater').addEventListener('click', () => card.remove());
         }
 
         function handleScanError(data) {

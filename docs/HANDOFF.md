@@ -6,7 +6,7 @@
 
 ```
 E:\音效库管理软件\EchoMind\EchoMind-main     ← 代码
-E:\音效库管理软件\EchoMind\EchoMind-main\dist-electron-v5\EchoMind测试版V9.zip   ← 最新安装包
+E:\音效库管理软件\EchoMind\EchoMind-main\dist-electron-v5\EchoMind测试版V10.zip  ← 最新安装包
 ```
 
 **开发模式（改完 Ctrl+R 生效，不用打包）**
@@ -43,7 +43,7 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 
 ## 二、当前版本
 
-- `0.3.0-beta.9`（测试版 V9），health 接口可验证
+- `0.3.0-beta.10`（测试版 V10），health 接口可验证
 - 数据库：`%APPDATA%\EchoMind\db\soundmind.db`
 - 库内 48,648 条音效，音频/文本/波形索引 100% 就绪
 
@@ -58,6 +58,11 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 - 拟音工坊：修复林间鸟鸣静音（音轨接口白名单漏了 forest，四条音轨全被 400）
 - 「我的文件夹」移出：在「常用」这类自定义文件夹视图里右键，单条或多选都能「从「X」移出」
 - 拟音工坊改成三栏：配方列表 / 触控板+配方 / 试听与录制（历史录音在右栏常驻）
+- 应用内检查更新：⚙ 菜单 + 设置「关于与更新」，更新源在 Gitee（`main.js` 的 `UPDATE_FEED_URLS`）
+- 新图标（E + 回声弧）：`build/icon.ico|icns|png` + `assets/audio-icon.png`
+- 音效库目录支持 Shift/Ctrl 多选 + 右键批量删除（逐目录回报结果）
+- 删目录时同时清「我的文件夹」映射，树立刻摘节点（不再残留空目录）
+- 详情面板保存标签后左侧标签树立刻刷新
 - 左侧栏：源目录板块改名「音效库目录 · 名称不可改」+ 板块内搜索；新增「全部音效」一键回全库；收藏可再点取消
 - 右侧「详情」面板（工具栏「详情」按钮）：看/改文件名（会改磁盘源文件）、标签、一句话描述 + 文件信息；
   三个保存按钮都有就地反馈（保存中… / ✓ 已保存 / 保存失败），描述与标签先改界面再等接口

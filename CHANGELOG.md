@@ -2,7 +2,9 @@
 
 All notable changes to SoundBot are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/). / 本文件记录 SoundBot 的重要变更，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased] / 未发布
+## [0.3.0-beta.10] - 2026-10-24
+
+> 测试版 V10。这一版把所有 UI 修复和「应用内检查更新」都打进来了。
 
 ### Added / 新增
 
@@ -48,6 +50,12 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
   回写到 `files.tags`（以前只写 file_tags，列表和搜索都看不到），并标脏文本向量、触发增量重建
 - **左侧两个搜索框分家**：顶部「搜索文件夹」只筛「我的文件夹」，源目录板块标题旁的搜索只筛
   「音效库目录」；板块搜索框修好了中文输入（输入法合成期间不重建 DOM），并加了 200ms 防抖
+
+## [Unreleased] / 未发布
+
+### Added / 新增
+
+- （待填）
 
 ## [0.3.0-beta.9] - 2026-10-24 (Prerelease / 预发布)
 

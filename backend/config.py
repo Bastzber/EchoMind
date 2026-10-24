@@ -159,7 +159,7 @@ def get_chroma_db_path(project_id: str = "default") -> Path:
 # ==================== 项目基础配置 ====================
 
 APP_NAME = "EchoMind"
-APP_VERSION = "0.3.0-beta.9"
+APP_VERSION = "0.3.0-beta.10"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # ==================== 服务器配置 ====================

@@ -3548,18 +3548,19 @@
             if (inputEl) inputEl.value = current;
         }
 
-        async function setSoundTags(sound, tags) {
+        async function setSoundTags(sound, tags, options = {}) {
             if (!window.electronAPI || !window.electronAPI.backendAPI) {
-                showNotification('后端不可用', 'error');
-                return;
+                if (!options.silent) showNotification('后端不可用', 'error');
+                throw new Error('后端不可用');
             }
             try {
                 await window.electronAPI.backendAPI.updateFileTags(sound.filePath, tags);
                 sound.tags = tags;
                 renderSoundList();
                 renderCategoryTree();
-                showNotification(`已保存 ${tags.length} 个标签`, 'success');
+                if (!options.silent) showNotification(`已保存 ${tags.length} 个标签`, 'success');
             } catch (err) {
+                if (options.silent) throw err;
                 showNotification('保存标签失败: ' + (err.message || err), 'error');
             }
         }
@@ -4251,57 +4252,61 @@
             btn.className = 'mt-1 px-2 py-1 rounded text-xs border hover:bg-white/5';
             btn.style.borderColor = 'var(--border-color)';
             btn.textContent = text;
-            btn.addEventListener('click', onClick);
+            btn.dataset.idleText = text;
+            if (onClick) btn.addEventListener('click', onClick);
             return btn;
+        }
+
+        // 保存按钮就地反馈：保存中… → ✓ 已保存（2 秒后复原）/ 保存失败
+        async function withButtonFeedback(button, busyText, successText, task) {
+            if (button.dataset.busy === '1') return;
+            button.dataset.busy = '1';
+            button.disabled = true;
+            button.style.opacity = '0.55';
+            button.textContent = busyText;
+            button.style.color = '';
+            button.style.borderColor = '';
+            try {
+                await task();
+                button.textContent = successText;
+                button.style.color = '#22c55e';
+                button.style.borderColor = '#22c55e';
+            } catch (error) {
+                button.textContent = '保存失败，再点重试';
+                button.style.color = '#ef4444';
+                button.style.borderColor = '#ef4444';
+                showNotification('保存失败: ' + (error?.message || error), 'error');
+            } finally {
+                delete button.dataset.busy;
+                button.disabled = false;
+                button.style.opacity = '';
+                setTimeout(() => {
+                    button.textContent = button.dataset.idleText || '保存';
+                    button.style.color = '';
+                    button.style.borderColor = '';
+                }, 2200);
+            }
         }
 
         async function saveSoundDescription(sound, value) {
             const text = String(value || '').trim().slice(0, 500);
-            try {
-                const result = await rendererApi.post(
-                    '/api/v1/files/' + encodeURIComponent(sound.id) + '/description',
-                    { description: text }
-                );
-                sound.aiDescription = text;
-                renderSoundList();
-                renderSoundDetail(sound);
-                showNotification(
-                    result && result.reindex_job ? '已保存描述，正在更新语义索引' : '已保存一句话描述',
-                    'success'
-                );
-            } catch (error) {
-                showNotification('保存描述失败: ' + (error?.message || error), 'error');
-            }
+            await rendererApi.post(
+                '/api/v1/files/' + encodeURIComponent(sound.id) + '/description',
+                { description: text }
+            );
+            return text;
         }
 
+        // 失败要抛出去，按钮才能显示「保存失败」
         async function renameSoundViaBackend(sound, newName) {
             const next = String(newName || '').trim();
-            if (!next || next === sound.name) {
-                showNotification('文件名没有变化', 'info');
-                return;
-            }
             const problem = rendererRename.validateName(next);
-            if (problem) {
-                showNotification(problem, 'error');
-                return;
-            }
-            try {
-                const data = await postBatchRename([{ file_uuid: sound.id, new_name: next }], { dry_run: false });
-                const result = (data && data.results && data.results[0]) || null;
-                if (!result || !result.ok) {
-                    showNotification((result && result.message) || '重命名失败', 'error');
-                    return;
-                }
-                rendererRename.applyResults([sound], [result]);
-                renderSoundList();
-                renderSoundDetail(sound);
-                showNotification(
-                    data && data.reindex_job ? '文件已重命名，正在更新语义索引' : '文件已重命名',
-                    'success'
-                );
-            } catch (error) {
-                showNotification('重命名失败: ' + (error?.message || error), 'error');
-            }
+            if (problem) throw new Error(problem);
+            const data = await postBatchRename([{ file_uuid: sound.id, new_name: next }], { dry_run: false });
+            const result = (data && data.results && data.results[0]) || null;
+            if (!result || !result.ok) throw new Error((result && result.message) || '重命名失败');
+            rendererRename.applyResults([sound], [result]);
+            return result;
         }
 
         function renderSoundDetail(sound) {
@@ -4317,74 +4322,100 @@
                 return;
             }
 
-            const title = document.createElement('div');
-            title.className = 'text-sm font-medium break-all';
-            title.textContent = sound.name || '';
-            body.appendChild(title);
+            const titleEl = document.createElement('div');
+            titleEl.className = 'text-sm font-medium break-all';
+            titleEl.textContent = sound.name || '';
+            body.appendChild(titleEl);
 
-            if (sound.filePath) {
-                const path = document.createElement('div');
-                path.className = 'text-[11px] opacity-40 break-all mt-1 mb-2';
-                path.textContent = sound.filePath;
-                body.appendChild(path);
-            }
+            const pathEl = document.createElement('div');
+            pathEl.className = 'text-[11px] opacity-40 break-all mt-1 mb-2';
+            pathEl.textContent = sound.filePath || '';
+            body.appendChild(pathEl);
 
             // ---- 文件名（会真的改磁盘上的源文件）----
             body.appendChild(detailSectionTitle('文件名'));
             const nameInput = detailInput('detail-name');
             nameInput.value = sound.name || '';
             body.appendChild(nameInput);
-            const nameSave = detailSaveButton('重命名文件', async () => {
-                // 两步确认：第二次点击才动磁盘
-                if (!nameSave.dataset.armed) {
-                    nameSave.dataset.armed = '1';
-                    nameSave.textContent = '再点一次确认重命名';
-                    nameSave.style.color = '#ef4444';
-                    setTimeout(() => {
-                        delete nameSave.dataset.armed;
-                        nameSave.textContent = '重命名文件';
-                        nameSave.style.color = '';
-                    }, 5000);
-                    return;
-                }
-                delete nameSave.dataset.armed;
-                nameSave.textContent = '重命名文件';
-                nameSave.style.color = '';
-                await renameSoundViaBackend(sound, nameInput.value);
-            });
+            const nameSave = detailSaveButton('重命名文件', null);
             body.appendChild(nameSave);
             const nameHint = document.createElement('div');
             nameHint.className = 'text-[11px] opacity-40 mt-1';
             nameHint.textContent = '会同步改磁盘上的源文件名；扩展名可以省略';
             body.appendChild(nameHint);
+            nameSave.addEventListener('click', () => {
+                // 两步确认：第二次点击才动磁盘
+                if (nameSave.dataset.armed !== '1') {
+                    nameSave.dataset.armed = '1';
+                    nameSave.textContent = '再点一次确认重命名';
+                    nameSave.style.color = '#ef4444';
+                    setTimeout(() => {
+                        if (nameSave.dataset.armed !== '1') return;
+                        delete nameSave.dataset.armed;
+                        nameSave.textContent = nameSave.dataset.idleText || '重命名文件';
+                        nameSave.style.color = '';
+                    }, 5000);
+                    return;
+                }
+                delete nameSave.dataset.armed;
+                nameSave.textContent = nameSave.dataset.idleText || '重命名文件';
+                nameSave.style.color = '';
+                const next = nameInput.value.trim();
+                if (!next || next === sound.name) {
+                    showNotification('文件名没有变化', 'info');
+                    return;
+                }
+                withButtonFeedback(nameSave, '重命名中…', '✓ 已重命名', async () => {
+                    await renameSoundViaBackend(sound, next);
+                    titleEl.textContent = sound.name || '';
+                    pathEl.textContent = sound.filePath || '';
+                    nameInput.value = sound.name || '';
+                    renderSoundList();
+                });
+            });
 
             // ---- 标签 ----
             body.appendChild(detailSectionTitle('标签'));
-            const tags = Array.isArray(sound.tags) ? sound.tags : [];
-            const chips = document.createElement('div');
-            chips.className = 'flex flex-wrap gap-1 mb-1';
-            if (!tags.length) {
-                const none = document.createElement('span');
-                none.className = 'text-xs opacity-40';
-                none.textContent = '（暂无）';
-                chips.appendChild(none);
-            }
-            tags.forEach(tag => {
-                const chip = document.createElement('span');
-                chip.className = 'px-1.5 py-0.5 rounded text-[11px]';
-                chip.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary);';
-                chip.textContent = tag;
-                chips.appendChild(chip);
-            });
-            body.appendChild(chips);
-
+            const chipsEl = document.createElement('div');
+            chipsEl.className = 'flex flex-wrap gap-1 mb-1';
+            body.appendChild(chipsEl);
+            const renderChips = () => {
+                chipsEl.innerHTML = '';
+                const list = Array.isArray(sound.tags) ? sound.tags : [];
+                if (!list.length) {
+                    const none = document.createElement('span');
+                    none.className = 'text-xs opacity-40';
+                    none.textContent = '（暂无）';
+                    chipsEl.appendChild(none);
+                    return;
+                }
+                list.forEach(tag => {
+                    const chip = document.createElement('span');
+                    chip.className = 'px-1.5 py-0.5 rounded text-[11px]';
+                    chip.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary);';
+                    chip.textContent = tag;
+                    chipsEl.appendChild(chip);
+                });
+            };
+            renderChips();
             const tagsInput = detailInput('detail-tags');
             tagsInput.placeholder = '逗号分隔，如：城市, 环境';
-            tagsInput.value = tags.join(', ');
+            tagsInput.value = (Array.isArray(sound.tags) ? sound.tags : []).join(', ');
             body.appendChild(tagsInput);
-            body.appendChild(detailSaveButton('保存标签', async () => {
-                await setSoundTags(sound, parseTagsInput(tagsInput.value));
-                renderSoundDetail(sound);
+            const tagsSave = detailSaveButton('保存标签', null);
+            body.appendChild(tagsSave);
+            tagsSave.addEventListener('click', () => withButtonFeedback(tagsSave, '保存中…', '✓ 已保存', async () => {
+                const nextTags = parseTagsInput(tagsInput.value);
+                const previous = Array.isArray(sound.tags) ? sound.tags.slice() : [];
+                sound.tags = nextTags;
+                renderChips();          // 先把界面改了，别等接口
+                try {
+                    await setSoundTags(sound, nextTags, { silent: true });
+                } catch (error) {
+                    sound.tags = previous;
+                    renderChips();
+                    throw error;
+                }
             }));
 
             // ---- 一句话描述 ----
@@ -4396,7 +4427,21 @@
             descInput.placeholder = '一句话说清这是什么声音';
             descInput.value = String(sound.aiDescription || '').replace(/^\[auto\]/, '');
             body.appendChild(descInput);
-            body.appendChild(detailSaveButton('保存描述', () => saveSoundDescription(sound, descInput.value)));
+            const descSave = detailSaveButton('保存描述', null);
+            body.appendChild(descSave);
+            descSave.addEventListener('click', () => withButtonFeedback(descSave, '保存中…', '✓ 已保存', async () => {
+                const text = descInput.value.trim().slice(0, 500);
+                const previous = sound.aiDescription || '';
+                sound.aiDescription = text;
+                renderSoundList();      // 列表里的描述立刻跟着变
+                try {
+                    await saveSoundDescription(sound, text);
+                } catch (error) {
+                    sound.aiDescription = previous;
+                    renderSoundList();
+                    throw error;
+                }
+            }));
 
             // ---- 文件信息 ----
             const attrs = document.createElement('div');

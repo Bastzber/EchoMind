@@ -2857,7 +2857,11 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
 # ==================== 批量重命名 ====================
 
 @app.post("/api/v1/files/rename")
-async def batch_rename(payload: Dict[str, Any], project_id: str = Query(default="default")):
+async def batch_rename(
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(default="default"),
+):
     """批量重命名：先 dry_run 预览，确认后再动磁盘。"""
     import os as _os
 
@@ -2944,9 +2948,10 @@ async def batch_rename(payload: Dict[str, Any], project_id: str = Query(default=
             entry["message"] = "数据库更新失败（文件已改名）: " + str(exc)
         results.append(entry)
 
-    reindex_job = None
+    reindex_queued = False
     if not dry_run and any(r["ok"] for r in results):
-        reindex_job = _schedule_project_reconcile(project_id, ["text_vector"], reason="rename")
+        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "rename")
+        reindex_queued = True
 
     return {
         "success": all(r["ok"] for r in results),
@@ -2954,7 +2959,7 @@ async def batch_rename(payload: Dict[str, Any], project_id: str = Query(default=
         "total": len(results),
         "done": sum(1 for r in results if r["ok"]),
         "results": results,
-        "reindex_job": reindex_job,
+        "reindex_queued": reindex_queued,
     }
 
 
@@ -3084,7 +3089,12 @@ async def create_tag(payload: Dict[str, Any], project_id: str = Query(default="d
 
 
 @app.patch("/api/v1/tags/{tag_id}")
-async def update_tag(tag_id: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+async def update_tag(
+    tag_id: str,
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(default="default"),
+):
     from core import tag_layers
 
     db_manager = get_db_manager()
@@ -3097,17 +3107,20 @@ async def update_tag(tag_id: str, payload: Dict[str, Any], project_id: str = Que
         if payload.get("layer") is not None:
             ok = tag_layers.set_layer(cursor, project_id, tag_id, payload["layer"]) and ok
         cursor.connection.commit()
-    job_id = None
     if ok and named:
         # 标签名变了，成员文件的 files.tags 也得跟着改
         for file_uuid in affected:
             db_manager.sync_tags_from_layers(project_id, file_uuid)
-        job_id = _schedule_project_reconcile(project_id, ["text_vector"], reason="tags")
-    return {"success": ok, "job_id": job_id}
+        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
+    return {"success": ok}
 
 
 @app.delete("/api/v1/tags/{tag_id}")
-async def delete_tag(tag_id: str, project_id: str = Query(default="default")):
+async def delete_tag(
+    tag_id: str,
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(default="default"),
+):
     from core import tag_layers
 
     db_manager = get_db_manager()
@@ -3115,16 +3128,20 @@ async def delete_tag(tag_id: str, project_id: str = Query(default="default")):
     with db_manager.get_cursor() as cursor:
         ok = tag_layers.delete_tag(cursor, project_id, tag_id)
         cursor.connection.commit()
-    job_id = None
     if ok:
         for file_uuid in affected:
             db_manager.sync_tags_from_layers(project_id, file_uuid)
-        job_id = _schedule_project_reconcile(project_id, ["text_vector"], reason="tags")
-    return {"success": ok, "job_id": job_id}
+        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
+    return {"success": ok}
 
 
 @app.post("/api/v1/files/{file_uuid}/description")
-async def set_file_description(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+async def set_file_description(
+    file_uuid: str,
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(default="default"),
+):
     """单条改「一句话描述」：写库 + 同步 FTS，并把这条的文本向量标脏。"""
     description = str(payload.get("description") or "").strip()[:500]
     db_manager = get_db_manager()
@@ -3139,12 +3156,17 @@ async def set_file_description(file_uuid: str, payload: Dict[str, Any], project_
     # 描述变了，这一行的 text_vector 已经被标脏。关键词搜索（FTS）当场就更新了，
     # 但语义检索用的是向量，得让增量对账把这一条重新算一遍 —— 只跑 stale 的行，
     # 不是全库重建。同一工程并发触发会自动合并成一个任务。
-    reindex_job = _schedule_project_reconcile(project_id, ["text_vector"], reason="description")
-    return {"success": True, "description": description, "reindex_job": reindex_job}
+    background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "description")
+    return {"success": True, "description": description, "reindex_queued": True}
 
 
 @app.post("/api/v1/files/{file_uuid}/tags")
-async def set_file_tags(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
+async def set_file_tags(
+    file_uuid: str,
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(default="default"),
+):
     from core import tag_layers
 
     tag_ids = payload.get("tag_ids") or []
@@ -3159,8 +3181,9 @@ async def set_file_tags(file_uuid: str, payload: Dict[str, Any], project_id: str
         cursor.connection.commit()
     # 分层标签只写在 file_tags 里，列表/搜索/向量读的是 files.tags，这里回写并标脏
     changed = db_manager.sync_tags_from_layers(project_id, file_uuid)
-    job_id = _schedule_project_reconcile(project_id, ["text_vector"], reason="tags") if changed else None
-    return {"success": True, "job_id": job_id}
+    if changed:
+        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
+    return {"success": True, "reindex_queued": bool(changed)}
 
 
 @app.get("/api/v1/db/folder/stats")
@@ -4136,6 +4159,18 @@ def _schedule_project_reconcile(
     )
     _automatic_index_tasks[project_id] = {"job_id": job_id, "task": task}
     return job_id
+
+
+async def _deferred_reconcile(project_id: str, kinds: List[str], reason: str) -> None:
+    """响应已经发出之后再去创建对账任务。
+
+    直接在保存接口里调度会把 4.8 万行的扫描算在请求里，实测保存描述要等 17 秒
+    才拿到响应；丢进 BackgroundTasks 之后接口 <300ms 返回，索引照样在后台补。
+    """
+    try:
+        _schedule_project_reconcile(project_id, kinds, reason=reason)
+    except Exception as exc:  # 后台失败不能影响用户已经保存的数据
+        logger.debug(f"调度索引对账失败({reason}): {exc}")
 
 
 def _schedule_model_ready_reconcile() -> None:

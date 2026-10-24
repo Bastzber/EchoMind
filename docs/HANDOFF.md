@@ -59,7 +59,9 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 - 「我的文件夹」移出：在「常用」这类自定义文件夹视图里右键，单条或多选都能「从「X」移出」
 - 左侧栏：源目录板块改名「音效库目录 · 名称不可改」+ 板块内搜索；新增「全部音效」一键回全库；收藏可再点取消
 - 右侧「详情」面板（工具栏「详情」按钮）：看/改选中音效的标签与一句话描述 + 文件信息
-  （描述接口 `POST /api/v1/files/{uuid}/description`，会同步 FTS 并把该行文本向量标脏）
+  （描述接口 `POST /api/v1/files/{uuid}/description`：同步 FTS + 标脏该行文本向量，
+  并自动调度 `_schedule_project_reconcile(["text_vector"], reason="description")` 做增量对账，
+  只重算 stale 行；实测 processed 1/1、全库 ready 数不变）
 
 ## 四、已完成：批量重命名
 

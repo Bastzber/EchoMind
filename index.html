@@ -4258,14 +4258,17 @@
         async function saveSoundDescription(sound, value) {
             const text = String(value || '').trim().slice(0, 500);
             try {
-                await rendererApi.post(
+                const result = await rendererApi.post(
                     '/api/v1/files/' + encodeURIComponent(sound.id) + '/description',
                     { description: text }
                 );
                 sound.aiDescription = text;
                 renderSoundList();
                 renderSoundDetail(sound);
-                showNotification('已保存一句话描述', 'success');
+                showNotification(
+                    result && result.reindex_job ? '已保存描述，正在更新语义索引' : '已保存一句话描述',
+                    'success'
+                );
             } catch (error) {
                 showNotification('保存描述失败: ' + (error?.message || error), 'error');
             }

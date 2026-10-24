@@ -3115,7 +3115,11 @@ async def set_file_description(file_uuid: str, payload: Dict[str, Any], project_
         raise HTTPException(status_code=500, detail="文件路径缺失")
     if not db_manager.update_ai_description(path, description, project_id):
         raise HTTPException(status_code=500, detail="写入描述失败")
-    return {"success": True, "description": description}
+    # 描述变了，这一行的 text_vector 已经被标脏。关键词搜索（FTS）当场就更新了，
+    # 但语义检索用的是向量，得让增量对账把这一条重新算一遍 —— 只跑 stale 的行，
+    # 不是全库重建。同一工程并发触发会自动合并成一个任务。
+    reindex_job = _schedule_project_reconcile(project_id, ["text_vector"], reason="description")
+    return {"success": True, "description": description, "reindex_job": reindex_job}
 
 
 @app.post("/api/v1/files/{file_uuid}/tags")

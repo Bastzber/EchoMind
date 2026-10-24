@@ -3151,18 +3151,19 @@
                     '/api/v1/db/folder/delete?project_id=' + encodeURIComponent(currentProject?.id || 'default'),
                     { path, delete_source: deleteSource }
                 );
-                // 先把节点摘掉再弹提示：否则提示一出现，左边还是旧树
+                // 先把节点摘掉（立刻可见），再等目录统计真正刷新完，最后才弹提示
+                console.info('[Folder] 删除目录:', path, 'removed=', result.removed);
                 pruneImportedFolders([path]);
+                await loadUserFolders();
+                await loadFolderStats(true);
+                await loadFilesFromDatabase({ reset: true });
+                loadTagStats();
                 showNotification(
                     deleteSource
                         ? `已删除 ${result.removed} 条记录及磁盘文件`
                         : `已从库中移除 ${result.removed} 条记录（源文件保留）`,
                     'success'
                 );
-                await loadUserFolders();
-                await loadFilesFromDatabase({ reset: true });
-                await loadFolderStats(true);
-                loadTagStats();
             } catch (error) {
                 showNotification('删除失败: ' + error.message, 'error');
             }

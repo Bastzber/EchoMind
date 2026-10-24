@@ -1,0 +1,121 @@
+﻿<meta charset='utf-8'><title>EchoMind-V6-安装指南</title>
+<style>body{font-family:'Microsoft YaHei',sans-serif;max-width:900px;margin:32px auto;line-height:1.75;color:#222;padding:0 16px}
+h1{font-size:26px;border-bottom:2px solid #8b5cf6;padding-bottom:8px}
+h2{font-size:20px;margin-top:28px;color:#5b21b6}h3{font-size:16px;margin-top:18px}
+pre{background:#f5f3ff;padding:12px;border-radius:6px;overflow:auto;font-size:13px}
+table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid #ddd;padding:6px 10px;font-size:14px}
+code{background:#f1f1f5;padding:1px 4px;border-radius:3px}blockquote{border-left:4px solid #ddd;margin:12px 0;padding:4px 12px;color:#555}</style>
+<h1>EchoMind 测试版 V6 安装指南</h1>
+<blockquote>版本号：`0.3.0-beta.6`</blockquote>
+<blockquote>安装包：`EchoMind测试版V6.zip`（3.33 GB）</blockquote>
+<blockquote>适用系统：Windows 10 / 11（64 位）</blockquote>
+<p>---</p>
+<h2>一、安装包在哪</h2>
+<pre>E:\音效库管理软件\EchoMind\EchoMind-main\dist-electron-v5\EchoMind测试版V6.zip</pre>
+<p>这是个**免安装压缩包**，解压即用，不需要安装程序、不需要管理员权限。</p>
+<p>---</p>
+<h2>二、电脑要求</h2>
+<table>
+<tr><th>项目</th><th>最低</th><th>建议</th></tr>
+<tr><td>系统</td><td>Windows 10 x64</td><td>Windows 11 x64</td></tr>
+<tr><td>内存</td><td>8 GB</td><td>16 GB 以上</td></tr>
+<tr><td>可用磁盘</td><td>10 GB</td><td>40 GB 以上（音效库另算）</td></tr>
+<tr><td>显卡</td><td>无要求</td><td>有 NVIDIA 显卡更快（自动启用 CUDA）</td></tr>
+</table>
+<blockquote>程序自带 Python 运行时和全部依赖，**不需要装 Python、不需要联网**。</blockquote>
+<p>---</p>
+<h2>三、安装步骤</h2>
+<h3>1. 解压</h3>
+<p>右键 <code>EchoMind测试版V6.zip</code> → 解压到你想放的目录，例如：</p>
+<pre>D:\软件\EchoMind</pre>
+<blockquote>⚠️ 建议放在**非系统盘**，不要放在 C 盘根目录或带中文空格的深层路径下。</blockquote>
+<blockquote>解压后应看到 `EchoMind.exe` 和 `resources` 文件夹。</blockquote>
+<h3>2. 第一次启动</h3>
+<p>双击 <code>EchoMind.exe</code>。</p>
+<p>首次启动会发生这些事：</p>
+<li>解压模型文件（约 30 秒）</li>
+<li>后台加载 CLAP 音频模型</li>
+<li>后台建中文检索索引</li>
+<p>窗口可能短暂白屏或未响应，**属于正常现象**，等 30~60 秒即可。</p>
+<h3>3. 建桌面快捷方式（可选）</h3>
+<p>右键 <code>EchoMind.exe</code> → 发送到 → 桌面快捷方式。</p>
+<p>---</p>
+<h2>四、首次使用</h2>
+<h3>1. 导入音效库</h3>
+<p>点顶部 **导入** → **导入文件夹**，选择你的音效目录。</p>
+<li>支持 `.wav` `.mp3` `.flac` `.ogg` 等常见格式</li>
+<li>导入后会**自动**提取波形、生成 AI 一句话描述、建立索引</li>
+<li>5 万条素材大约需要 2~4 小时（后台跑，可以正常使用）</li>
+<p>右下角 / 顶部状态栏可以看到进度：</p>
+<pre>Audio 已索引 48648 · 待处理 0 · 失败 0
+Text  已索引 48648 · 待处理 0 · 失败 0</pre>
+<h3>2. 配置大模型（可选，但推荐）</h3>
+<p>设置 → AI 设置 → 自定义 API</p>
+<pre>API 地址：https://api.deepseek.com/v1
+API Key：你的 key
+模型名称：deepseek-flash</pre>
+<p>点「测试连接」确认可用，再「保存配置」。</p>
+<p>**不配置也能用**：搜索、标签、拟音工坊都不依赖大模型，只是描述质量会差一些。</p>
+<p>---</p>
+<h2>五、主要功能怎么用</h2>
+<h3>搜索</h3>
+<p>搜索框在主列表最上方，**按回车**才搜：</p>
+<li>短词（如「玻璃」）：0.05 秒</li>
+<li>长句（如「像玻璃被击碎那种清脆的声音」）：0.3 秒，自动走语义</li>
+<h3>标签</h3>
+<p>左侧标签面板分「场景 / 属性」两组：</p>
+<li>右键音效 →「设置标签…」→ 场景单选、属性多选</li>
+<li>右键标签 → 设为场景 / 设为属性 / 删除</li>
+<h3>拟音工坊</h3>
+<p>顶部「拟音工坊」→ 选环境（风 / 雨 / 鸟鸣 / 海浪 / 篝火）→ **按住左键**拖动触控板：</p>
+<pre>远处·细雨          远处·暴雨
+        ● 拖动点
+近处·细雨          近处·暴雨</pre>
+<li>左右 = 远近，上下 = 强度</li>
+<li>点「开始录制」→ 拖动 → 「完成录制」</li>
+<li>每条录音可单独试听 / 保存到库 / 复制路径</li>
+<h3>文件夹管理</h3>
+<li>右键文件夹 →「删除文件夹…」，可选只删库内记录或连源文件一起删</li>
+<li>右键音效 →「添加到文件夹…」→ 常用，之后点左侧「常用」查看</li>
+<p>---</p>
+<h2>六、数据存在哪</h2>
+<table>
+<tr><th>内容</th><th>路径</th></tr>
+<tr><td>数据库</td><td>`%APPDATA%\EchoMind\db\soundmind.db`</td></tr>
+<tr><td>向量索引</td><td>`%APPDATA%\EchoMind\chroma_projects\default\`</td></tr>
+<tr><td>日志</td><td>`%APPDATA%\EchoMind\logs\`</td></tr>
+<tr><td>自定义环境音素材</td><td>`%APPDATA%\EchoMind\ambience\`</td></tr>
+</table>
+<p>**备份**：直接复制整个 <code>%APPDATA%\EchoMind</code> 文件夹。</p>
+<p>**清空重来**：删除该文件夹，下次启动会重建（音效文件本身不受影响）。</p>
+<p>---</p>
+<h2>七、卸载</h2>
+<p>1. 关闭软件（任务管理器确认没有 <code>EchoMind.exe</code> 和 <code>soundbot-backend.exe</code>）</p>
+<p>2. 删除解压出来的程序目录</p>
+<p>3. 需要彻底清理时，再删除 <code>%APPDATA%\EchoMind</code></p>
+<p>---</p>
+<h2>八、常见问题</h2>
+<h3>启动后白屏 / 黑屏</h3>
+<p>先等 60 秒（模型在加载）。若一直黑屏，在窗口里按 <code>Ctrl+R</code> 刷新界面。</p>
+<h3>提示端口被占用 / 后端未就绪</h3>
+<p>可能是上次进程没退干净：</p>
+<p>1. 任务管理器结束所有 <code>EchoMind.exe</code>、<code>soundbot-backend.exe</code></p>
+<p>2. 重新启动</p>
+<h3>杀毒软件报毒</h3>
+<p>免安装包用了 PyInstaller 打包，常被误报。加入白名单即可。</p>
+<h3>第一次搜索很慢（约 8 秒）</h3>
+<p>后台在建检索快照，之后都在 0.1 秒内，属正常。</p>
+<h3>导入后没有描述</h3>
+<p>检查 AI 设置里的 API Key 是否可用；也可以先在设置里「测试连接」。</p>
+<p>---</p>
+<h2>九、已知问题（V6）</h2>
+<table>
+<tr><th>问题</th><th>状态</th></tr>
+<tr><td>林间鸟鸣可能没声音</td><td>待修，其余四类环境音正常</td></tr>
+<tr><td>标签数据为空</td><td>需手动新建场景/属性标签</td></tr>
+<tr><td>首次搜索约 8 秒</td><td>正常现象</td></tr>
+</table>
+<p>---</p>
+<h2>十、说明</h2>
+<p>本安装包**不包含任何音效素材**，仅提供软件本身。请使用自己拥有合法授权的音效库。</p>
+<p>详细说明见 <code>docs/disclaimer.md</code>。</p>

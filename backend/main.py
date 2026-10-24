@@ -477,14 +477,16 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.debug(f"[Warmup] 搜索预热失败: {exc}")
 
-    async def _backfill_content_hashes() -> None:
-        """后台补算 sha256（大文件优先，限速避免打满机械盘）。"""
-        await asyncio.sleep(12)
+    async def _run_hash_backfill(project_id: str) -> None:
+        """补算 sha256（大文件优先，限速避免打满机械盘）。可重复调用，跑完即退出。"""
+        global _hash_task_running
+        if _hash_task_running:
+            return
+        _hash_task_running = True
         try:
             from core.content_hash import sha256_file
 
             db = get_db_manager()
-            project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
             while not _shutting_down:
                 batch = await asyncio.to_thread(db.files_needing_hash, project_id, 60)
                 if not batch:
@@ -506,6 +508,12 @@ async def lifespan(app: FastAPI):
             )
         except Exception as exc:
             logger.warning("[Hash] 补算失败: %s", exc)
+        finally:
+            _hash_task_running = False
+
+    async def _backfill_content_hashes() -> None:
+        await asyncio.sleep(12)
+        await _run_hash_backfill(getattr(config, "CURRENT_PROJECT_ID", "default"))
 
     asyncio.create_task(_ensure_fts_ready())
     asyncio.create_task(_backfill_content_hashes())
@@ -3026,6 +3034,8 @@ async def list_duplicates(project_id: str = Query(default="default"), limit: int
 
 
 
+_hash_task_running = False
+
 DUPLICATE_BACKUP_DIRNAME = "duplicate-backups"
 
 
@@ -3207,6 +3217,30 @@ async def precheck_folder_import(payload: Dict[str, Any], project_id: str = Quer
         "already_imported": ratio >= 0.9,
         "samples": matched[:5],
     }
+
+@app.get("/api/v1/index/hash")
+async def get_hash_status(project_id: str = Query(default="default")):
+    """内容哈希（sha256）补算进度。重复检测依赖它，没算完就查不全。"""
+    db_manager = get_db_manager()
+    progress = db_manager.hash_progress(project_id)
+    pending = max(0, progress["total"] - progress["done"])
+    return {
+        "success": True,
+        "total": progress["total"],
+        "done": progress["done"],
+        "pending": pending,
+        "running": _hash_task_running,
+    }
+
+
+@app.post("/api/v1/index/hash")
+async def start_hash_backfill(background_tasks: BackgroundTasks, project_id: str = Query(default="default")):
+    """手动触发哈希补算（导入完成后、或想立刻查重时调用）。"""
+    if _hash_task_running:
+        return {"success": True, "already_running": True}
+    background_tasks.add_task(_run_hash_backfill, project_id)
+    return {"success": True, "started": True}
+
 
 @app.get("/api/v1/db/duplicates/backups")
 async def list_duplicate_backups(limit: int = Query(default=20, le=100)):

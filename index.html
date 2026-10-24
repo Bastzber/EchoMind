@@ -8074,6 +8074,10 @@
                 loadFolderStats(true);
                 loadTagStats();
 
+                // 导入的新文件还没算 sha256 —— 先触发补算，否则重复检测查不到它们
+                rendererApi.post('/api/v1/index/hash?project_id=' + encodeURIComponent(currentProject?.id || 'default'), {}, { timeoutMs: 60000 })
+                    .catch(() => { });
+
                 // 导入完成后提醒一次：库里还有多少重复没处理
                 setTimeout(() => { maybeHintDuplicates(); }, 2500);
             }
@@ -8379,6 +8383,41 @@
             };
 
             try {
+                // 哈希没算完，重复检测就查不全 —— 先看看还剩多少
+                try {
+                    const hashStatus = await rendererApi.get('/api/v1/index/hash', { timeoutMs: 30000 });
+                    if (hashStatus && hashStatus.pending > 0) {
+                        const hint = document.createElement('div');
+                        hint.className = 'mb-3 p-2 rounded-md text-xs';
+                        hint.style.cssText = 'background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4);';
+                        hint.innerHTML = `还有 <b>${hashStatus.pending}</b> / ${hashStatus.total} 个文件没算内容哈希，
+                            它们暂时不会出现在重复列表里。<span class="opacity-70">（刚导入或从回收站还原的文件需要先算哈希）</span>`;
+                        const startBtn = document.createElement('button');
+                        startBtn.className = 'ml-2 px-2 py-1 rounded text-xs text-white';
+                        startBtn.style.background = '#f59e0b';
+                        startBtn.textContent = '立即计算';
+                        startBtn.addEventListener('click', async () => {
+                            startBtn.disabled = true;
+                            startBtn.textContent = '计算中…';
+                            await rendererApi.post('/api/v1/index/hash?project_id=' + encodeURIComponent(currentProject?.id || 'default'), {}, { timeoutMs: 60000 }).catch(() => { });
+                            const poll = async () => {
+                                const status = await rendererApi.get('/api/v1/index/hash', { timeoutMs: 30000 }).catch(() => null);
+                                if (!status) return;
+                                startBtn.textContent = `计算中… ${status.done}/${status.total}`;
+                                if (status.pending > 0) {
+                                    setTimeout(poll, 3000);
+                                } else {
+                                    hint.innerHTML = '哈希已算完，正在重新检测…';
+                                    setTimeout(() => { box.remove(); showDuplicatesModal(); }, 600);
+                                }
+                            };
+                            setTimeout(poll, 1500);
+                        });
+                        hint.appendChild(startBtn);
+                        body.appendChild(hint);
+                    }
+                } catch (_) { /* 拿不到进度就照常检测 */ }
+
                 const data = await rendererApi.get('/api/v1/duplicates?limit=20000', { timeoutMs: 240000 });
                 groups = (data && data.groups) || [];
                 if (!groups.length) {

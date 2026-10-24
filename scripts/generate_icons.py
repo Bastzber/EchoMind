@@ -12,7 +12,7 @@ from PIL import Image
 # 项目路径
 PROJECT_ROOT = Path(__file__).parent.parent
 BUILD_DIR = PROJECT_ROOT / "build"
-SOURCE_IMAGE = PROJECT_ROOT / "SoundBot.png"
+SOURCE_IMAGE = PROJECT_ROOT / "build" / "icon.png"
 
 # 图标尺寸配置
 ICON_SIZES = {

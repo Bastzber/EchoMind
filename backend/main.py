@@ -3326,6 +3326,8 @@ async def delete_folder_records(payload: Dict[str, Any], project_id: str = Query
 
     records = db_manager.delete_files_in_folder(project_id, folder)
     removed = len(records)
+    # 顺带清掉「我的文件夹」里指向这个目录的映射，否则左侧还会挂着一个空目录
+    mappings_removed = db_manager.remove_mappings_under(project_id, folder)
     try:
         await _get_project_searcher(project_id).clear_cache()
     except Exception as exc:
@@ -3337,6 +3339,7 @@ async def delete_folder_records(payload: Dict[str, Any], project_id: str = Query
         "deleted_source": delete_source,
         "deleted_files": deleted_files,
         "failed": failed,
+        "mappings_removed": mappings_removed,
         "stats": stats,
     }
 

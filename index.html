@@ -3019,6 +3019,7 @@
                 modal.remove();
                 folderMultiSelection.clear();
                 applyFolderMultiSelection();
+                await loadUserFolders();
                 await loadFilesFromDatabase({ reset: true });
                 await loadFolderStats(true);
                 loadTagStats();
@@ -3131,6 +3132,7 @@
                     'success'
                 );
                 pruneImportedFolders([path]);
+                await loadUserFolders();
                 await loadFilesFromDatabase({ reset: true });
                 await loadFolderStats(true);
                 loadTagStats();

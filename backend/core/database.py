@@ -1762,6 +1762,27 @@ class DatabaseManager:
         except Exception as exc:
             logger.debug("同步 FTS 行失败 %s: %s", file_uuid, exc)
 
+    def remove_mappings_under(self, project_id: str, folder: str) -> int:
+        """删掉目录（含子目录）在「我的文件夹」里的映射。
+
+        只删记录不删源文件时，映射行会留下，左侧「我的文件夹」还挂着一个空目录，
+        看起来就像"删了没生效"。
+        """
+        base = str(folder).rstrip('\\/')
+        if not base:
+            return 0
+        try:
+            with self.get_cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM imported_folder_mappings "
+                    "WHERE project_id=? AND (folder_path=? OR folder_path LIKE ? OR folder_path LIKE ?)",
+                    (str(project_id), base, base + '\\%', base + '/%'),
+                )
+                return cursor.rowcount or 0
+        except Exception as exc:
+            _get_logger().error(f"清理目录映射失败: {exc}")
+            return 0
+
     def folder_stats(self, project_id: str, folder: str) -> Dict[str, int]:
         """统计某目录（含子目录）的文件数、有描述数、有标签数、总大小。"""
         prefix = str(folder).rstrip('\\/') + '\\'

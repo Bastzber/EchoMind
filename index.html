@@ -8275,6 +8275,7 @@
                 const totalFiles = groups.reduce((sum, group) => sum + group.files.length, 0);
                 const wasted = groups.reduce((sum, group) => sum + (group.files.length - 1) * Number(group.files[0]?.size || 0), 0);
                 summaryEl.innerHTML = `发现 <b>${groups.length}</b> 组重复，共 <b>${totalFiles}</b> 个文件，约浪费 <b>${(wasted / 1024 / 1024).toFixed(1)} MB</b>`
+                    + (groups.length >= 5000 ? '　<span style="color:#f59e0b;">（已达 5000 组上限，处理完后重新扫描可看到剩余的）</span>' : '')
                     + (processedGroups ? `　<span style="color:#22c55e;">已处理 ${processedGroups} 组 / ${processedFiles} 个副本</span>` : '');
             };
 
@@ -8378,7 +8379,7 @@
             };
 
             try {
-                const data = await rendererApi.get('/api/v1/duplicates?limit=100', { timeoutMs: 120000 });
+                const data = await rendererApi.get('/api/v1/duplicates?limit=5000', { timeoutMs: 180000 });
                 groups = (data && data.groups) || [];
                 if (!groups.length) {
                     body.textContent = '没有发现重复音效（按 sha256 内容哈希比对）';
@@ -8446,87 +8447,100 @@
                         <span class="dup-head-title text-xs font-medium">第 ${index + 1} 组 · ${group.files.length} 个同内容文件</span>
                         <span class="dup-save text-xs opacity-50">可省 ${sizeMb} MB</span>
                         <span class="dup-status text-xs ml-auto"></span>`;
-                    header.addEventListener('click', () => toggleCard(card));
-                    card.appendChild(header);
 
                     const panel = document.createElement('div');
                     panel.className = 'dup-panel px-2 pb-2';
                     panel.style.display = 'none';
 
-                    const radioName = 'dupKeep-' + index;
-                    group.files.forEach((file, i) => {
-                        const row = document.createElement('label');
-                        row.className = 'flex items-start gap-2 text-xs py-0.5 cursor-pointer hover:bg-white/5 rounded px-1';
-                        const radio = document.createElement('input');
-                        radio.type = 'radio';
-                        radio.name = radioName;
-                        radio.checked = i === 0;
-                        radio.className = 'mt-0.5 shrink-0';
-                        const text = document.createElement('span');
-                        text.className = 'truncate';
-                        text.textContent = file.path;
-                        row.appendChild(radio);
-                        row.appendChild(text);
-                        panel.appendChild(row);
-                    });
+                    // 内容懒加载：700+ 组时如果一开始就把每行都建出来会很卡，
+                    // 展开哪组才建哪组。
+                    let built = false;
+                    const buildBody = () => {
+                        if (built) return;
+                        built = true;
+                        const radioName = 'dupKeep-' + index;
+                        group.files.forEach((file, i) => {
+                            const row = document.createElement('label');
+                            row.className = 'flex items-start gap-2 text-xs py-0.5 cursor-pointer hover:bg-white/5 rounded px-1';
+                            const radio = document.createElement('input');
+                            radio.type = 'radio';
+                            radio.name = radioName;
+                            radio.checked = i === 0;
+                            radio.className = 'mt-0.5 shrink-0';
+                            const text = document.createElement('span');
+                            text.className = 'truncate';
+                            text.textContent = file.path;
+                            row.appendChild(radio);
+                            row.appendChild(text);
+                            panel.appendChild(row);
+                        });
 
-                    const pickedFiles = () => {
-                        const radios = [...panel.querySelectorAll('input[type="radio"]')];
-                        const at = radios.findIndex(radio => radio.checked);
-                        const keep = group.files[at >= 0 ? at : 0];
-                        return {
-                            keep,
-                            keepName: String(keep.path || '').split(/[\\/]/).pop() || '第一个文件',
-                            dups: group.files.filter(file => file.path !== keep.path).map(file => file.path),
+                        const pickedFiles = () => {
+                            const radios = [...panel.querySelectorAll('input[type="radio"]')];
+                            const at = radios.findIndex(radio => radio.checked);
+                            const keep = group.files[at >= 0 ? at : 0];
+                            return {
+                                keep,
+                                keepName: String(keep.path || '').split(/[\\\\/]/).pop() || '第一个文件',
+                                dups: group.files.filter(file => file.path !== keep.path).map(file => file.path),
+                            };
                         };
+
+                        const actions = document.createElement('div');
+                        actions.className = 'mt-1 flex flex-wrap items-center gap-2';
+                        const makeBtn = (label, bg, handler) => {
+                            const button = document.createElement('button');
+                            button.className = 'dup-action px-2 py-1 rounded text-xs text-white';
+                            button.style.background = bg;
+                            button.textContent = label;
+                            button.addEventListener('click', () => handler(button));
+                            actions.appendChild(button);
+                        };
+                        makeBtn('保留选中的，删库记录', '#ef4444', async () => {
+                            const { keep, keepName, dups } = pickedFiles();
+                            if (!dups.length) return;
+                            if (!confirm(`保留「${keepName}」，删掉其余 ${dups.length} 条库记录？（磁盘文件保留）`)) return;
+                            const result = await resolveDuplicates(dups, 'records');
+                            if (result && !result.failed) {
+                                keepOnlyRow(card, keep.path, group.files.length);
+                                markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
+                            }
+                        });
+                        makeBtn('保留选中的，删源文件（回收站）', '#b91c1c', async () => {
+                            const { keep, keepName, dups } = pickedFiles();
+                            if (!dups.length) return;
+                            if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个源文件移入回收站？`)) return;
+                            const result = await resolveDuplicates(dups, 'source');
+                            if (result && !result.failed) {
+                                keepOnlyRow(card, keep.path, group.files.length);
+                                markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
+                            }
+                        });
+                        makeBtn('保留选中的，其余移到备份…', '#0ea5e9', async () => {
+                            const { keep, keepName, dups } = pickedFiles();
+                            if (!dups.length) return;
+                            const picked = await pickBackupFolder();
+                            if (!picked) return;
+                            const result = await resolveDuplicates(dups, 'backup', picked);
+                            if (result && !result.failed) {
+                                markProcessed(
+                                    card,
+                                    `已备份 ${result.moved} 个副本（原文件仍在，可先试听再决定）`,
+                                    dups.length, 1, picked,
+                                    { manifest: result.manifest, dups, keepName, keepPath: keep.path, originalCount: group.files.length }
+                                );
+                            }
+                        });
+                        panel.appendChild(actions);
                     };
 
-                    const actions = document.createElement('div');
-                    actions.className = 'mt-1 flex flex-wrap items-center gap-2';
-                    const makeBtn = (label, bg, handler) => {
-                        const button = document.createElement('button');
-                        button.className = 'dup-action px-2 py-1 rounded text-xs text-white';
-                        button.style.background = bg;
-                        button.textContent = label;
-                        button.addEventListener('click', () => handler(button));
-                        actions.appendChild(button);
-                    };
-                    makeBtn('保留选中的，删库记录', '#ef4444', async () => {
-                        const { keep, keepName, dups } = pickedFiles();
-                        if (!dups.length) return;
-                        if (!confirm(`保留「${keepName}」，删掉其余 ${dups.length} 条库记录？（磁盘文件保留）`)) return;
-                        const result = await resolveDuplicates(dups, 'records');
-                        if (result && !result.failed) {
-                            keepOnlyRow(card, keep.path, group.files.length);
-                            markProcessed(card, `已处理：保留「${keepName}」，删了 ${dups.length} 条记录`, dups.length);
-                        }
+                    header.addEventListener('click', () => {
+                        const opening = panel.style.display === 'none';
+                        if (opening) buildBody();
+                        toggleCard(card);
                     });
-                    makeBtn('保留选中的，删源文件（回收站）', '#b91c1c', async () => {
-                        const { keep, keepName, dups } = pickedFiles();
-                        if (!dups.length) return;
-                        if (!confirm(`保留「${keepName}」，把其余 ${dups.length} 个源文件移入回收站？`)) return;
-                        const result = await resolveDuplicates(dups, 'source');
-                        if (result && !result.failed) {
-                            keepOnlyRow(card, keep.path, group.files.length);
-                            markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个源文件进回收站`, dups.length);
-                        }
-                    });
-                    makeBtn('保留选中的，其余移到备份…', '#0ea5e9', async () => {
-                        const { keep, keepName, dups } = pickedFiles();
-                        if (!dups.length) return;
-                        const picked = await pickBackupFolder();
-                        if (!picked) return;
-                        const result = await resolveDuplicates(dups, 'backup', picked);
-                        if (result && !result.failed) {
-                            markProcessed(
-                                card,
-                                `已备份 ${result.moved} 个副本（原文件仍在，可先试听再决定）`,
-                                dups.length, 1, picked,
-                                { manifest: result.manifest, dups, keepName, keepPath: keep.path, originalCount: group.files.length }
-                            );
-                        }
-                    });
-                    panel.appendChild(actions);
+
+                    card.appendChild(header);
                     card.appendChild(panel);
                     body.appendChild(card);
                 });
@@ -8628,7 +8642,7 @@
             const total = paths.length;
             const actionLabel = action === 'records' ? '删除记录' : (action === 'source' ? '移入回收站' : '复制到备份');
             // 备份走一次请求（要在同一份清单里）；其它动作分块，边删边报进度
-            const chunkSize = action === 'backup' ? total : 40;
+            const chunkSize = action === 'backup' ? total : 100;
 
             const progressBox = document.getElementById('dupProgress');
             const bar = progressBox?.querySelector('.dup-progress-bar');

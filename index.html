@@ -8275,7 +8275,7 @@
                 const totalFiles = groups.reduce((sum, group) => sum + group.files.length, 0);
                 const wasted = groups.reduce((sum, group) => sum + (group.files.length - 1) * Number(group.files[0]?.size || 0), 0);
                 summaryEl.innerHTML = `发现 <b>${groups.length}</b> 组重复，共 <b>${totalFiles}</b> 个文件，约浪费 <b>${(wasted / 1024 / 1024).toFixed(1)} MB</b>`
-                    + (groups.length >= 5000 ? '　<span style="color:#f59e0b;">（已达 5000 组上限，处理完后重新扫描可看到剩余的）</span>' : '')
+                    + (groups.length >= 20000 ? '　<span style="color:#f59e0b;">（已达 20000 组上限，处理完后重新扫描可看到剩余的）</span>' : '')
                     + (processedGroups ? `　<span style="color:#22c55e;">已处理 ${processedGroups} 组 / ${processedFiles} 个副本</span>` : '');
             };
 
@@ -8379,7 +8379,7 @@
             };
 
             try {
-                const data = await rendererApi.get('/api/v1/duplicates?limit=5000', { timeoutMs: 180000 });
+                const data = await rendererApi.get('/api/v1/duplicates?limit=20000', { timeoutMs: 240000 });
                 groups = (data && data.groups) || [];
                 if (!groups.length) {
                     body.textContent = '没有发现重复音效（按 sha256 内容哈希比对）';

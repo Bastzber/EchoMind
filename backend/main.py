@@ -3010,7 +3010,7 @@ async def list_favorites(project_id: str = Query(default="default"), limit: int 
 
 
 @app.get("/api/v1/duplicates")
-async def list_duplicates(project_id: str = Query(default="default"), limit: int = Query(default=5000, le=5000)):
+async def list_duplicates(project_id: str = Query(default="default"), limit: int = Query(default=20000, le=20000)):
     db_manager = get_db_manager()
     groups = db_manager.duplicate_groups(project_id, limit=limit)
     total_files = sum(g["count"] for g in groups)

@@ -8245,10 +8245,13 @@
                     + (processedGroups ? `　<span style="color:#22c55e;">已处理 ${processedGroups} 组 / ${processedFiles} 个副本</span>` : '');
             };
 
-            const markProcessed = (card, text, files, groupCount = 1) => {
+            const markProcessed = (card, text, files, groupCount = 1, backupDir = '') => {
+                const alreadyDone = card.dataset.done === '1';
                 card.dataset.done = '1';
-                processedGroups += groupCount;
-                processedFiles += files;
+                if (!alreadyDone) {
+                    processedGroups += groupCount;
+                    processedFiles += files;
+                }
                 const status = card.querySelector('.dup-status');
                 if (status) {
                     status.textContent = text;
@@ -8259,6 +8262,38 @@
                     button.style.opacity = '0.35';
                     button.style.pointerEvents = 'none';
                 });
+                card.querySelector('.dup-aftercare')?.remove();
+
+                // 处理完之后给两个出口：打开备份目录 / 重新处理
+                const aftercare = document.createElement('div');
+                aftercare.className = 'dup-aftercare flex items-center gap-2 mt-1';
+                if (backupDir) {
+                    const openBtn = document.createElement('button');
+                    openBtn.className = 'px-2 py-1 rounded text-xs border';
+                    openBtn.style.borderColor = 'var(--border-color)';
+                    openBtn.textContent = '打开备份目录';
+                    openBtn.addEventListener('click', () => {
+                        try { window.electronAPI?.fileImport?.revealInExplorer?.(backupDir); } catch (_) { }
+                    });
+                    aftercare.appendChild(openBtn);
+                }
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'px-2 py-1 rounded text-xs border';
+                retryBtn.style.borderColor = 'var(--border-color)';
+                retryBtn.textContent = '重新处理';
+                retryBtn.addEventListener('click', () => {
+                    card.dataset.done = '';
+                    card.querySelectorAll('button.dup-action').forEach((button) => {
+                        button.disabled = false;
+                        button.style.opacity = '';
+                        button.style.pointerEvents = '';
+                    });
+                    const badge = card.querySelector('.dup-status');
+                    if (badge) { badge.textContent = ''; badge.style.color = ''; }
+                    aftercare.remove();
+                });
+                aftercare.appendChild(retryBtn);
+                card.appendChild(aftercare);
                 updateSummary();
             };
 
@@ -8383,7 +8418,7 @@
                         const picked = await pickBackupFolder();
                         if (!picked) return;
                         const ok = await resolveDuplicates(dups, 'backup', picked);
-                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个副本移到备份`, dups.length);
+                        if (ok) markProcessed(card, `已处理：保留「${keepName}」，${dups.length} 个副本移到备份`, dups.length, 1, picked);
                     });
                     panel.appendChild(actions);
                     card.appendChild(panel);

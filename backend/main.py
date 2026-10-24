@@ -2854,6 +2854,103 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
     return {"success": True, "message": "已提交重新分析", "job_id": job_id}
 
 
+# ==================== 批量重命名 ====================
+
+@app.post("/api/v1/files/rename")
+async def batch_rename(payload: Dict[str, Any], project_id: str = Query(default="default")):
+    """批量重命名：先 dry_run 预览，确认后再动磁盘。"""
+    import os as _os
+
+    items = payload.get("items") or []
+    dry_run = bool(payload.get("dry_run", True))
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=422, detail="items 不能为空")
+
+    db_manager = get_db_manager()
+    results = []
+    seen_targets = set()
+
+    for item in items:
+        file_uuid = str(item.get("file_uuid") or "").strip()
+        new_name = str(item.get("new_name") or "").strip()
+        entry = {"file_uuid": file_uuid, "new_name": new_name, "ok": False, "message": ""}
+
+        if not file_uuid or not new_name:
+            entry["message"] = "参数缺失"
+            results.append(entry)
+            continue
+        if any(ch in new_name for ch in '\\/:*?"<>|'):
+            entry["message"] = "文件名包含非法字符"
+            results.append(entry)
+            continue
+
+        with db_manager.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT path, filename FROM files WHERE project_id=? AND file_uuid=?",
+                (project_id, file_uuid),
+            ).fetchone()
+        if not row:
+            entry["message"] = "文件不存在"
+            results.append(entry)
+            continue
+
+        old_path = row[0]
+        folder = _os.path.dirname(old_path)
+        old_name = row[1] or _os.path.basename(old_path)
+        ext = _os.path.splitext(old_name)[1]
+        if not _os.path.splitext(new_name)[1]:
+            new_name = new_name + ext
+        new_path = _os.path.join(folder, new_name)
+        entry["old_path"] = old_path
+        entry["new_path"] = new_path
+
+        if _os.path.normcase(new_path) in seen_targets:
+            entry["message"] = "目标文件名重复"
+            results.append(entry)
+            continue
+        seen_targets.add(_os.path.normcase(new_path))
+
+        if _os.path.exists(new_path) and _os.path.normcase(new_path) != _os.path.normcase(old_path):
+            entry["message"] = "目标文件已存在"
+            results.append(entry)
+            continue
+
+        if dry_run:
+            entry["ok"] = True
+            entry["message"] = "可重命名"
+            results.append(entry)
+            continue
+
+        try:
+            _os.rename(old_path, new_path)
+        except Exception as exc:
+            entry["message"] = "磁盘重命名失败: " + str(exc)
+            results.append(entry)
+            continue
+
+        try:
+            with db_manager.get_cursor() as cursor:
+                cursor.execute(
+                    "UPDATE files SET path=?, filename=? WHERE project_id=? AND file_uuid=?",
+                    (new_path, new_name, project_id, file_uuid),
+                )
+                cursor.connection.commit()
+            db_manager.update_fts_row(file_uuid, project_id)
+            entry["ok"] = True
+            entry["message"] = "已重命名"
+        except Exception as exc:
+            entry["message"] = "数据库更新失败（文件已改名）: " + str(exc)
+        results.append(entry)
+
+    return {
+        "success": all(r["ok"] for r in results),
+        "dry_run": dry_run,
+        "total": len(results),
+        "done": sum(1 for r in results if r["ok"]),
+        "results": results,
+    }
+
+
 # ==================== 收藏 + 重复检测 ====================
 
 @app.post("/api/v1/files/{file_uuid}/favorite")

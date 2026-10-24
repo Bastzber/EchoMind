@@ -132,6 +132,31 @@ $env:ELECTRON_RUN_AS_NODE='1'
   列表里看不到；现在分层写入会回写 `files.tags`（`sync_tags_from_layers`）。改标签/改名/删标签
   都会标脏这一行的 text_vector 并触发增量对账。反向（老接口写 files.tags）目前**不会**同步到 file_tags。
 
+## 八、发版与检查更新
+
+发一版只需要四步：
+
+1. 改版本号（`package.json` + `backend/config.py` 的 `APP_VERSION`，两处必须一致）
+2. 打包（见「打包发版」）→ 上传 zip 到百度网盘 → 拿到分享链接
+3. 改 Gitee 仓库里的 `update.json`（模板在本仓库根目录）：
+
+   ```json
+   { "version": "0.3.0-beta.10", "released_at": "2026-10-25",
+     "notes": "第一行\n第二行", "url": "https://pan.baidu.com/s/…?pwd=73ca", "code": "73ca" }
+   ```
+
+4. 软件里「设置 → 关于与更新 → 检查更新」立刻能看到；启动时也会静默查一次（24 小时节流）
+
+细节：
+
+- 更新源在 `main.js` 的 `UPDATE_FEED_URLS`，第一项是 Gitee（**要把占位符换成你的真实仓库路径**），
+  第二项是 jsDelivr 的 GitHub 镜像（兜底）。两个都失败就静默跳过，不弹错误。
+- 用户全程不需要 GitHub、不需要代理。
+- 目前只做「检查 + 引导下载」（打开网盘链接 / 复制提取码），不做全自动安装：
+  包 3.3 GB，自动更新需要对象存储直链 + 分段续传，等包瘦身（把 2.8 GB 的 CUDA 运行时拆出去）再说。
+- 版本比较与 feed 解析在 `lib/update-feed.js`，测试是 `node tests/frontend/check_update_feed.js`。
+
+
 ## 七、文档
 
 - `docs/EchoMind-V6-更新说明.md/.docx`（面向用户）

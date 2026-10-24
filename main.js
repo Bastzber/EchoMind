@@ -1973,6 +1973,68 @@ function setupIpcHandlers() {
     return { success: !error, error: error || null, path: logDir };
   });
   ipcMain.handle('get-app-path', () => getAppRootDir());
+
+  // ===== 检查更新 =====
+  // 更新信息放在 Gitee（国内直连，用户不需要 GitHub 也不需要代理）；
+  // 下载仍然走百度网盘，这里只负责"告诉用户有没有新版"。
+  const UPDATE_FEED_URLS = [
+    'https://gitee.com/<你的Gitee用户名>/echomind-updates/raw/master/update.json',
+    'https://cdn.jsdelivr.net/gh/Bastzber/EchoMind@main/update.json'
+  ];
+
+  async function fetchUpdateFeed() {
+    for (const url of UPDATE_FEED_URLS) {
+      if (!/^https?:\/\//i.test(url) || url.includes('<')) continue;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+        if (!response.ok) continue;
+        return await response.json();
+      } catch (_error) {
+        // 换下一个源；全部失败就当"没有更新"，绝不打扰用户
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return null;
+  }
+
+  ipcMain.handle('app-version', () => app.getVersion());
+
+  ipcMain.handle('check-update', async () => {
+    const current = app.getVersion();
+    const result = { ok: false, current, hasUpdate: false, latest: null, error: '' };
+    try {
+      const raw = await fetchUpdateFeed();
+      if (!raw) {
+        result.error = '更新信息源不可用（可能没联网）';
+        return result;
+      }
+      const { normalizeFeed, isNewer } = require('./lib/update-feed');
+      const latest = normalizeFeed(raw);
+      result.ok = true;
+      result.latest = latest;
+      result.hasUpdate = isNewer(latest.version, current);
+      return result;
+    } catch (error) {
+      result.error = (error && error.message) || '检查更新失败';
+      return result;
+    }
+  });
+
+  ipcMain.handle('open-external', async (_event, url) => {
+    try {
+      const target = String(url || '');
+      if (!/^https?:\/\//i.test(target)) {
+        return { success: false, error: '只允许打开 http(s) 链接' };
+      }
+      await shell.openExternal(target);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: (error && error.message) || '打开失败' };
+    }
+  });
   ipcMain.handle('check-full-disk-access', async () => {
     if (process.platform !== 'darwin') {
       return true;

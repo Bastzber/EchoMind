@@ -55,6 +55,7 @@
       "lucide.min.js",
       "assets/**/*",
       "config/**/*",
+      "lib/**/*",
       "!backend/**",
       "!scripts/**",
       "!**/*.pyc",

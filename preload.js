@@ -96,6 +96,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     renameFileOnDisk: (oldPath, newName) => ipcRenderer.invoke('file-import', 'rename-on-disk', { oldPath, newName })
   },
 
+  // 检查更新（更新信息走 Gitee，下载走百度网盘）
+  updates: {
+    check: () => ipcRenderer.invoke('check-update'),
+    version: () => ipcRenderer.invoke('app-version'),
+    openExternal: (url) => ipcRenderer.invoke('open-external', url)
+  },
+
   // 菜单事件监听
   onMenuEvent: (callback) => {
     ipcRenderer.on('menu-new-project', (event, ...args) => callback(event, 'menu-new-project', ...args));

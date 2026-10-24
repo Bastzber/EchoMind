@@ -9805,6 +9805,89 @@
 
             document.getElementById('windowTabBtn')?.addEventListener('click', loadWindowPrefs);
 
+            // ===== 关于与更新 =====
+            let updateInfo = null;
+
+            async function fillCurrentVersion() {
+                const el = document.getElementById('updateCurrentVersion');
+                if (!el || !window.electronAPI?.updates) return;
+                try {
+                    el.textContent = 'v' + await window.electronAPI.updates.version();
+                } catch (_) { }
+            }
+
+            async function runUpdateCheck() {
+                const btn = document.getElementById('updateCheckBtn');
+                const status = document.getElementById('updateStatus');
+                const result = document.getElementById('updateResult');
+                if (!btn || !status || !result) return;
+                if (!window.electronAPI?.updates) {
+                    status.textContent = '当前环境不支持检查更新';
+                    return;
+                }
+                btn.disabled = true;
+                btn.textContent = '检查中…';
+                try {
+                    const res = await window.electronAPI.updates.check();
+                    await fillCurrentVersion();
+                    if (!res || !res.ok) {
+                        status.textContent = (res && res.error) || '检查失败';
+                        result.classList.add('hidden');
+                        return;
+                    }
+                    if (!res.hasUpdate) {
+                        status.textContent = '已是最新版本';
+                        result.classList.add('hidden');
+                        return;
+                    }
+                    updateInfo = res.latest;
+                    status.textContent = '发现新版本';
+                    document.getElementById('updateLatestVersion').textContent =
+                        'v' + res.latest.version + (res.latest.releasedAt ? '（' + res.latest.releasedAt + '）' : '');
+                    document.getElementById('updateNotes').textContent =
+                        (res.latest.notes || []).join('\n') || '这个版本没有写更新说明';
+                    document.getElementById('updateCodeHint').textContent =
+                        res.latest.code ? ('提取码 ' + res.latest.code) : '';
+                    document.getElementById('updateOpenBtn').disabled = !res.latest.url;
+                    result.classList.remove('hidden');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '检查更新';
+                }
+            }
+
+            document.getElementById('updateTabBtn')?.addEventListener('click', fillCurrentVersion);
+            document.getElementById('updateCheckBtn')?.addEventListener('click', runUpdateCheck);
+            document.getElementById('updateOpenBtn')?.addEventListener('click', () => {
+                if (!updateInfo || !updateInfo.url) return;
+                window.electronAPI?.updates?.openExternal(updateInfo.url);
+            });
+            document.getElementById('updateCopyCodeBtn')?.addEventListener('click', async () => {
+                if (!updateInfo || !updateInfo.code) return;
+                try {
+                    await navigator.clipboard.writeText(updateInfo.code);
+                    showNotification('提取码已复制：' + updateInfo.code, 'success');
+                } catch (_) {
+                    showNotification('提取码：' + updateInfo.code, 'info');
+                }
+            });
+
+            // 启动后静默查一次（24 小时节流），有新版才提示，失败就当没网
+            setTimeout(async () => {
+                if (!window.electronAPI?.updates) return;
+                let last = 0;
+                try { last = Number(localStorage.getItem('echomind.lastUpdateCheck') || 0); } catch (_) { }
+                if (Date.now() - last < 24 * 3600 * 1000) return;
+                try {
+                    const res = await window.electronAPI.updates.check();
+                    if (!res || !res.ok) return;
+                    try { localStorage.setItem('echomind.lastUpdateCheck', String(Date.now())); } catch (_) { }
+                    if (res.hasUpdate) {
+                        showNotification('发现新版本 v' + res.latest.version + '，设置 → 关于与更新 可查看', 'info');
+                    }
+                } catch (_) { }
+            }, 6000);
+
             // ===== 左侧分隔条：文件夹 / 标签 可拖拽 =====
             (function initSideSplitter() {
                 const splitter = document.getElementById('sideSplitter');
@@ -9856,7 +9939,8 @@
                         embeddingTabBtn: 'embeddingConfigContent',
                         sfxConfigTabBtn: 'sfxConfigContent',
                         descTabBtn: 'descConfigContent',
-                        windowTabBtn: 'windowConfigContent'
+                        windowTabBtn: 'windowConfigContent',
+                        updateTabBtn: 'updateConfigContent'
                     };
                     Object.entries(map).forEach(([id, contentId]) => {
                         document.getElementById(contentId)?.classList.toggle('hidden', id !== btn.id);
@@ -10476,6 +10560,9 @@
                 </button>
                 <button id="windowTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);">
                     窗口与托盘
+                </button>
+                <button id="updateTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);">
+                    关于与更新
                 </button>
             </div>
             
@@ -11178,6 +11265,28 @@
                         </label>
                         <div id="windowPrefsStatus" class="text-xs opacity-60 mt-3"></div>
                     </div>
+                </div>
+                <div id="updateConfigContent" class="settings-tab-content hidden">
+                    <div class="mb-6">
+                        <h4 class="text-sm font-medium mb-1">关于与更新</h4>
+                        <p class="text-xs opacity-60">回声 EchoMind <span id="updateCurrentVersion" class="font-mono">—</span></p>
+                    </div>
+                    <div class="rounded-lg border p-4" style="border-color: var(--border-color);">
+                        <div class="flex items-center gap-3">
+                            <button id="updateCheckBtn" class="px-3 py-1.5 rounded-md text-sm text-white" style="background:#8b5cf6;">检查更新</button>
+                            <span id="updateStatus" class="text-xs opacity-60">点一下看看有没有新版本</span>
+                        </div>
+                        <div id="updateResult" class="hidden mt-4 rounded-md border p-3" style="border-color: var(--border-color);">
+                            <div id="updateLatestVersion" class="text-sm font-medium mb-2"></div>
+                            <div id="updateNotes" class="text-xs opacity-70 whitespace-pre-line leading-6 mb-3"></div>
+                            <div class="flex items-center gap-2">
+                                <button id="updateOpenBtn" class="px-2.5 py-1 rounded text-xs text-white" style="background:#22c55e;">打开下载页</button>
+                                <button id="updateCopyCodeBtn" class="px-2.5 py-1 rounded text-xs border" style="border-color: var(--border-color);">复制提取码</button>
+                                <span id="updateCodeHint" class="text-xs opacity-50"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-xs opacity-50 mt-4">更新信息放 Gitee，安装包走百度网盘；用户不需要 GitHub，也不需要代理。</p>
                 </div>
             </div>
             

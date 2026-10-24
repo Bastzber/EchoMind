@@ -6,7 +6,7 @@
 
 ```
 E:\音效库管理软件\EchoMind\EchoMind-main     ← 代码
-E:\音效库管理软件\EchoMind\EchoMind-main\dist-electron-v5\EchoMind测试版V8.zip   ← 最新安装包
+E:\音效库管理软件\EchoMind\EchoMind-main\dist-electron-v5\EchoMind测试版V9.zip   ← 最新安装包
 ```
 
 **开发模式（改完 Ctrl+R 生效，不用打包）**
@@ -19,13 +19,27 @@ powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 **打包发版**
 
 ```powershell
+# 1) 后端，约 4 分钟
 .venv\Scripts\python.exe -m PyInstaller backend\main.spec --distpath dist\backend --workpath dist\build --noconfirm --clean
+
+# 2) 安装包，约 5 分钟（产出 dist-electron-v5\EchoMind-<版本>-win.zip）
 npx --no-install electron-builder --win --x64 --config.directories.output=dist-electron-v5
 ```
 
+**本机没有 node/npm**（PATH 里没有，只有 DSH 自带的 node）时，第 2 步改成：
+
+```powershell
+$env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
+& '<DSH node>\node.exe' node_modules\electron-builder\out\cli\cli.js --win --x64 --config.directories.output=dist-electron-v5
+```
+
+垫片（`npm.cmd`）只需要回一行"空依赖树"的 JSON：本项目零生产依赖，`main.js` 只
+`require('electron')` + 内置模块，所以那是真实结果，不是糊弄 electron-builder。
+跑完 zip 名是 `EchoMind-<版本>-win.zip`，按习惯改名成 `EchoMind测试版V9.zip` 即可。
+
 ## 二、当前版本
 
-- `0.3.0-beta.8`（测试版 V8），health 接口可验证
+- `0.3.0-beta.9`（测试版 V9），health 接口可验证
 - 数据库：`%APPDATA%\EchoMind\db\soundmind.db`
 - 库内 48,648 条音效，音频/文本/波形索引 100% 就绪
 
@@ -37,6 +51,7 @@ npx --no-install electron-builder --win --x64 --config.directories.output=dist-e
 - 星标收藏、重复音效检测、排序、来源标记
 - 文件夹右键删除（可选删源文件 + 回收站）
 - 批量重命名（多选右键 →「批量重命名…」→ 预览 → 执行）
+- 拟音工坊：修复林间鸟鸣静音（音轨接口白名单漏了 forest，四条音轨全被 400）
 
 ## 四、已完成：批量重命名
 
@@ -72,7 +87,6 @@ $env:ELECTRON_RUN_AS_NODE='1'
 
 | 优先级 | 项 |
 |---|---|
-| P0 | 林间鸟鸣无声（音频有内容，播放链路待查） |
 | P1 | 拟音工坊试听面板移到右侧（三栏布局） |
 | P2 | 各环境音细节区分度调参 |
 | P2 | 描述包导入未匹配 CSV 导出 |

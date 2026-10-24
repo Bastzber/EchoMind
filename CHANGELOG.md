@@ -4,6 +4,10 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ## [Unreleased] / 未发布
 
+## [0.3.0-beta.9] - 2026-10-24 (Prerelease / 预发布)
+
+测试版 V9。批量重命名全链路（预览 / 批量规则 / 多入口），顺带修掉开发模式的隐藏坑。
+
 ### Added / 新增
 
 - **批量重命名（前端界面）**：多选音效后右键「批量重命名… (N)」
@@ -13,6 +17,8 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
   - 规则栏：前缀 / 后缀 / 查找替换（可切正则、支持 $1 分组）/ 大小写（小写、大写、首字母大写）/
     自动编号（起始、位数、分隔符），「应用到全部」按原名重算（重复应用不会叠加），
     查找替换与大小写只动主名不动扩展名；正则写错只提示不改名
+  - 空文件名、非法字符前端先拦；改动任意一行会自动作废上一次预览
+  - 一次最多 500 行，超出部分不会进入本次批处理
 - **批量重命名入口**：除多选右键外，标签右键「批量重命名该标签…」、
   文件夹右键「批量重命名此文件夹…」也能整批打开弹窗
 
@@ -23,8 +29,19 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
   `dist\backend` 里的旧打包后端，新接口全部 404。已改为 UTF-8 带 BOM 且环境变量前置。
 - **dev.ps1 留下旧实例**：只杀 `EchoMind`/`soundbot-backend` 不杀 `electron.exe`，
   旧窗口占着单实例锁，新启动瞬间退出、旧进程又把打包后端拉回来。现会一并清掉本仓库的 electron.exe。
-  - 空文件名、非法字符前端先拦；改动任意一行会自动作废上一次预览
-  - 一次最多 500 行，超出部分不会进入本次批处理
+- **林间鸟鸣整条链路静音**：`/api/v1/temp-audio/stems/{name}` 的白名单写死成
+  `wind|rain|sea|fire`，漏了 `forest`。四条音轨正常合成、也正常落盘，请求却被 400 拒掉；
+  前端 `new Audio(url).play().catch(() => {})` 把 rejection 吞了，于是「音频有内容但完全没声音」。
+  现在白名单以 `STEM_MIX` 为准（新增环境音种类不会再漏），`forest` 也进了启动预热。
+
+## [0.3.0-beta.8] - 2026-10-24 (Prerelease / 预发布)
+
+测试版 V8。补两条音效库的日常管理能力。
+
+### Added / 新增
+
+- **排序**：列表顶部下拉，可按文件名 / 时长 / 体积 / 导入时间正反排序
+- **来源标记**：区分 AI 生成与用户导入，并可按住来源筛选
 
 ## [0.3.0-beta.7] - 2026-10-24 (Prerelease / 预发布)
 

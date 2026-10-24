@@ -2583,9 +2583,9 @@ async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
 async def serve_stem_audio(name: str):
     """回传音轨；带上 CORS 头，方便前端用 WebAudio/audio 标签播放。"""
     from fastapi.responses import FileResponse
-    import re
+    from core.noise_ambience import is_servable_stem_name
 
-    if not re.fullmatch(r"(wind|rain|sea|fire)_[a-z]+\.wav", name):
+    if not is_servable_stem_name(name):
         raise HTTPException(status_code=400, detail="非法文件名")
     path = Path(tempfile.gettempdir()) / "echomind_stems" / name
     if not path.exists():

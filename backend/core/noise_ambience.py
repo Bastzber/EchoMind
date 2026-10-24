@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import numpy as np
 
 SR = 48000
@@ -97,6 +99,27 @@ STEM_MIX: dict = {
 
 
 STEM_ORDER = ("base", "mid", "drops", "accent")
+
+_STEM_NAME = re.compile(r"([a-z]+)_([a-z]+)\.wav")
+# 用户自备素材固定按 STEM_ORDER 命名，所以音轨名要取并集，不能只看配方自己的键
+_STEM_IDS = frozenset(STEM_ORDER) | frozenset(
+    stem for mix in STEM_MIX.values() for stem in mix
+)
+
+
+def is_servable_stem_name(name: str) -> bool:
+    """音轨文件名是否允许被 /api/v1/temp-audio/stems 回传。
+
+    这里必须以 STEM_MIX 为准，不能把种类写死：白名单曾经只有 wind|rain|sea|fire，
+    而 forest（林间鸟鸣）的音轨确实生成、也确实落了盘，请求却被 400 拒掉；
+    前端 `new Audio(url).play().catch(() => {})` 把 rejection 吞了，于是表现成
+    「音频有内容但完全没声音」。
+    """
+    match = _STEM_NAME.fullmatch(str(name or ""))
+    if match is None:
+        return False
+    kind, stem = match.groups()
+    return kind in STEM_MIX and stem in _STEM_IDS
 
 
 def user_stem_dir(kind: str):
@@ -232,7 +255,7 @@ def _synth_stems_impl(kind: str, seconds: float = 6.0) -> dict:
 _CACHE: dict = {}
 
 
-def warmup(kinds=("wind", "rain", "sea", "fire")) -> None:
+def warmup(kinds=("wind", "rain", "sea", "fire", "forest")) -> None:
     """启动时预热，避免第一次拖动卡住。"""
     for kind in kinds:
         for x, y in ((0.2, 0.3), (0.8, 0.8)):

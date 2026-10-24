@@ -4605,6 +4605,8 @@
                 renderChips();          // 先把界面改了，别等接口
                 try {
                     await setSoundTags(sound, nextTags, { silent: true });
+                    // 侧栏标签树读的是同一张表，但界面不会自己刷新 —— 这里主动拉一次
+                    await loadTagStats();
                 } catch (error) {
                     sound.tags = previous;
                     renderChips();

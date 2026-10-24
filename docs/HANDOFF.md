@@ -56,7 +56,10 @@ npx --no-install electron-builder --win --x64 --config.directories.output=dist-e
 - 改动任意一行都会作废上次预览，必须重新预览才能执行；一次最多 500 行
 - 代码：纯逻辑在 `assets/renderer/rename.js`（校验 / 变更计划 / 结果回写），
   弹窗与右键入口在 `index.html`（`showBatchRenameModal` / `showSoundContextMenu`）
-- 没做的：正则替换、大小写转换、按标签/文件夹批量改名
+- 没做的：改名历史 / 撤销、按「上次修改时间」等元数据生成名字
+
+真后端验证过（不是只有单测）：dry_run 的四条路径（可改 / 非法字符 / 目标重复 / 文件不存在），
+外加一条真实文件的「改名 → 改回」往返，磁盘、数据库行、FTS 都正确。
 
 测试（本机没有全局 node，用 electron 当 node 跑）：
 
@@ -78,7 +81,14 @@ $env:ELECTRON_RUN_AS_NODE='1'
 ## 六、已知坑（踩过的）
 
 - `main.js` 优先找打包后端；开发必须设 `SOUNDBOT_BACKEND_DEV=1`（dev.ps1 已含）
-- 端口 8000 被旧 `soundbot-backend.exe` 占用会导致新接口 404，先杀进程
+- **dev.ps1 两个坑（2026-10-24 修好）**：
+  1. 脚本原是无 BOM 的 UTF-8，Windows PowerShell 5.1 按 GBK 读，中文注释会把**下一行吞进注释**，
+     `$env:SOUNDBOT_BACKEND_DEV = '1'` 从来没执行过 → dev 模式悄悄跑 `dist\backend` 里的旧打包后端，
+     新接口一律 404。现在存成 UTF-8 带 BOM，且环境变量放在所有中文注释之前。
+  2. 脚本只杀 `EchoMind`/`soundbot-backend`，不杀 `electron.exe`：旧 dev 窗口占着单实例锁，
+     新的启动直接退出，旧进程（没有 DEV 变量）又把打包后端拉回来。现在会顺带杀掉本仓库的 electron.exe。
+  **自查**：`Get-NetTCPConnection -LocalPort 8000`，占端口的必须是 `.venv` 的 python.exe，
+  出现 `soundbot-backend.exe` 就说明 dev 后端没生效（新接口会 404）。
 - 编辑 `package.json` 时不能带 BOM，否则 electron-builder 报 JSON 解析失败
 - 后端 `tags` 列是 JSON 字符串，前端必须 `normalizeTags` 转数组
 - git 需要显式代理：`git config http.proxy http://127.0.0.1:7890`

@@ -15,6 +15,14 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
     查找替换与大小写只动主名不动扩展名；正则写错只提示不改名
 - **批量重命名入口**：除多选右键外，标签右键「批量重命名该标签…」、
   文件夹右键「批量重命名此文件夹…」也能整批打开弹窗
+
+### Fixed / 修复
+
+- **dev.ps1 静默跑旧后端**：脚本是无 BOM 的 UTF-8，Windows PowerShell 5.1 按 GBK 读取，
+  中文注释把下一行的 `$env:SOUNDBOT_BACKEND_DEV = '1'` 吞进注释，开发模式一直在用
+  `dist\backend` 里的旧打包后端，新接口全部 404。已改为 UTF-8 带 BOM 且环境变量前置。
+- **dev.ps1 留下旧实例**：只杀 `EchoMind`/`soundbot-backend` 不杀 `electron.exe`，
+  旧窗口占着单实例锁，新启动瞬间退出、旧进程又把打包后端拉回来。现会一并清掉本仓库的 electron.exe。
   - 空文件名、非法字符前端先拦；改动任意一行会自动作废上一次预览
   - 一次最多 500 行，超出部分不会进入本次批处理
 

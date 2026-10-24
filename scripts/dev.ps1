@@ -1,20 +1,33 @@
 # Dev loop: run Electron from source (no packaging). Frontend reload = Ctrl+R.
-# Backend runs from .venv python (main.js falls back automatically when not packaged).
+# Backend runs from .venv python (main.js falls back to source when not packaged).
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
+#
+# Keep every env assignment ABOVE any non-ASCII comment.
+# Windows PowerShell 5.1 reads a BOM-less .ps1 as GBK; a UTF-8 Chinese comment can
+# swallow the following line into itself, so the assignment silently never ran.
+# That is exactly what happened to SOUNDBOT_BACKEND_DEV below: dev mode quietly
+# loaded the stale dist\backend binary instead of .venv python, and every new
+# endpoint answered 404. This file is now saved UTF-8 *with* BOM as well.
+#
+$env:ELECTRON_ENABLE_LOGGING = '1'
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+$env:SOUNDBOT_BACKEND_DEV = '1'
+
 Get-Process -Name 'EchoMind', 'soundbot-backend' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
+# Also stop a previously launched dev instance. Without this the old window keeps the
+# single-instance lock, the new launch exits instantly, and the *old* process (which
+# never saw SOUNDBOT_BACKEND_DEV) restarts the packaged backend -- silently undoing dev mode.
+Get-CimInstance Win32_Process -Filter "Name='electron.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root) } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 2
 
 Set-Location $root
 Write-Host '[dev] starting electron from source...'
-$env:ELECTRON_ENABLE_LOGGING = '1'
-# 关键：某些环境里 ELECTRON_RUN_AS_NODE=1，会让 electron.exe 退化成 node
-Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
-# 强制后端用 .venv python 跑源码，避免加载旧的打包后端（改完 py 立即生效）
-$env:SOUNDBOT_BACKEND_DEV = '1'
 
-# 直接调用 node_modules 里的 electron.exe，避免依赖 PATH 里的 npx
+# Call node_modules\electron\dist\electron.exe directly (do not depend on PATH's npx)
 $electron = Join-Path $root 'node_modules\electron\dist\electron.exe'
 if (-not (Test-Path $electron)) {
     Write-Host "[dev] electron.exe not found at $electron"

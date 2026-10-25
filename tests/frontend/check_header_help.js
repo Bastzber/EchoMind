@@ -21,11 +21,12 @@ assert(html.includes("label: '重建索引'"), '重建索引不在注册表里')
 // 3) 每个状态都有问号说明
 const helps = [
   '模型状态&#10;',
-  '音频索引&#10;',
-  '文本索引&#10;',
-  '修复缺失项（增量修复）',
-  '完整重建（全量重算）',
+  '索引状态&#10;',
+  '索引状态&#10;&#10;上排音频',
 ];
+// 修复/重建的说明现在在常用条注册表里
+assert(html.includes("id: 'reindex'"), '注册表缺修复索引');
+assert(html.includes("id: 'rebuild'"), '注册表缺重建索引');
 for (const key of helps) assert(html.includes(key), '缺少说明: ' + key);
 
 // 4) 设置在最右（在描述包按钮之后）

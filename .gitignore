@@ -193,3 +193,4 @@ Thumbs.db
 coverage.xml
 htmlcov/
 migrate-plan.csv
+_tmp_*

@@ -1406,14 +1406,55 @@ function applyCSP(win) {
   });
 }
 
+function readSavedWindowBounds() {
+  try {
+    const file = path.join(app.getPath('userData'), 'window-bounds.json');
+    if (!fs.existsSync(file)) return null;
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!data || typeof data.width !== 'number' || typeof data.height !== 'number') return null;
+    return data;
+  } catch (error) {
+    console.warn('[Window] 读取窗口尺寸失败:', error?.message);
+    return null;
+  }
+}
+
+function saveWindowBounds(win) {
+  try {
+    if (!win || win.isDestroyed() || win.isMinimized() || win.isMaximized()) return;
+    const bounds = win.getBounds();
+    const file = path.join(app.getPath('userData'), 'window-bounds.json');
+    fs.writeFileSync(file, JSON.stringify(bounds), 'utf8');
+  } catch (error) {
+    console.warn('[Window] 保存窗口尺寸失败:', error?.message);
+  }
+}
+
+function resolveWindowBounds() {
+  const saved = readSavedWindowBounds();
+  const { screen } = require('electron');
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
+  // 首次启动：占屏幕 92%，但不超过 1720 宽；导航栏能一行放下
+  const preferredWidth = Math.min(1720, Math.round(workArea.width * 0.92));
+  const preferredHeight = Math.min(1040, Math.round(workArea.height * 0.92));
+  if (saved) {
+    const width = Math.min(Math.max(saved.width, 1280), workArea.width);
+    const height = Math.min(Math.max(saved.height, 760), workArea.height);
+    const x = typeof saved.x === 'number' ? Math.min(Math.max(saved.x, 0), Math.max(0, workArea.width - width)) : undefined;
+    const y = typeof saved.y === 'number' ? Math.min(Math.max(saved.y, 0), Math.max(0, workArea.height - height)) : undefined;
+    return { width, height, x, y };
+  }
+  return { width: Math.max(1280, preferredWidth), height: Math.max(760, preferredHeight) };
+}
+
 function createWindow() {
   rendererBridgeReady = false;
   rendererPreloadFailure = null;
+  const initialBounds = resolveWindowBounds();
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1200,
-    minHeight: 700,
+    ...initialBounds,
+    minWidth: Math.min(1280, require('electron').screen.getPrimaryDisplay().workAreaSize.width),
+    minHeight: 720,
     title: '回声 - AI 音效管理器',
     webPreferences: {
       nodeIntegration: false,
@@ -1431,6 +1472,10 @@ function createWindow() {
   // A preload failure removes every desktop API from the renderer while the
   // HTML can still look healthy. Capture it explicitly instead of allowing a
   // browser-only fallback to masquerade as a working installed application.
+  mainWindow.on('resize', () => saveWindowBounds(mainWindow));
+  mainWindow.on('move', () => saveWindowBounds(mainWindow));
+  mainWindow.on('close', () => saveWindowBounds(mainWindow));
+
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     rendererPreloadFailure = {
       preloadPath,

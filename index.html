@@ -166,12 +166,21 @@
             flex: 1; min-height: 0; display: flex; flex-direction: column;
         }
         .tag-drop-hover { outline: 2px solid #8b5cf6; outline-offset: -2px; background: rgba(139,92,246,.16) !important; border-radius: 6px; }
+        /* 窗口偏窄时压缩顶栏，保证导航一行放下 */
+        @media (max-width: 1500px) {
+            #sfxMenuBtn span, #recipeMenuBtn span { display: none; }
+            #sfxMenuBtn, #recipeMenuBtn { padding-left: .55rem; padding-right: .55rem; }
+            header .menu-btn { padding-left: .5rem; padding-right: .5rem; }
+        }
+        @media (max-width: 1320px) {
+            #importBtn span, #fileMenuBtn span { display: none; }
+        }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
     
     <!-- ==================== TOP TOOLBAR ==================== -->
-    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 transition-colors duration-300 gap-3"
+    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 flex-nowrap min-w-0 overflow-x-auto transition-colors duration-300 gap-3"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
         <!-- Left: App Name Only -->
@@ -180,7 +189,7 @@
         </div>
         
         <!-- Center: Menu -->
-        <nav class="flex items-center gap-1 shrink-0">
+        <nav class="flex items-center gap-1 shrink-0 flex-nowrap">
             <!-- 文件菜单 -->
             <div class="relative">
                 <button id="fileMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
@@ -3495,6 +3504,8 @@
 
         async function renameSidebarTag(oldName) {
             showInputModal('重命名标签', oldName, async (newName) => {
+                const field = document.getElementById('inputModalField');
+                if (field) field.value = oldName;
                 const target = String(newName || '').trim();
                 if (!target || target === oldName) return;
                 try {

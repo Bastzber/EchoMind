@@ -3136,7 +3136,7 @@ async def precheck_folder_import(payload: Dict[str, Any], project_id: str = Quer
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="目录不存在")
 
-    audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+    audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape', '.caf'}
     files = []
     try:
         for entry in root.rglob("*"):
@@ -3232,7 +3232,7 @@ async def _run_library_rescan(project_id: str, roots: List[str]) -> None:
     global _rescan_state
     _rescan_state = {"running": True, "scanned": 0, "added": 0, "roots": roots, "error": ""}
     try:
-        audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+        audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape', '.caf'}
         db_manager = get_db_manager()
         known = set()
         with db_manager.get_cursor() as cursor:
@@ -3302,7 +3302,7 @@ async def start_library_rescan(payload: Dict[str, Any] = None, background_tasks:
         raise HTTPException(status_code=404, detail="没有可扫描的库目录")
 
     if dry_run:
-        audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape'}
+        audio_exts = {'.wav', '.mp3', '.aac', '.m4a', '.wma', '.ogg', '.aiff', '.aif', '.flac', '.opus', '.ape', '.caf'}
         known = set()
         with db_manager.get_cursor() as cursor:
             for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (project_id,)):

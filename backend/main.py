@@ -3610,6 +3610,51 @@ class RemoveVocalsRequest(BaseModel):
     strength: float = 1.0
 
 
+
+# ==================== AI 分轨（Demucs） ====================
+
+class SeparateRequest(BaseModel):
+    paths: List[str]
+    out_dir: Optional[str] = None
+    model: str = "htdemucs"
+    stems: Optional[List[str]] = None
+
+
+@app.post("/api/v1/audio/separate")
+async def separate_audio(payload: SeparateRequest):
+    """用 Demucs 把音乐拆成人声/鼓/贝斯/其他，并额外合成一版伴奏。"""
+    from core.separation import separate, SUPPORTED_MODELS, DEFAULT_MODEL
+
+    if not payload.paths:
+        raise HTTPException(status_code=422, detail="paths 不能为空")
+    if len(payload.paths) > 20:
+        raise HTTPException(status_code=422, detail="单次最多 20 首（分轨比较慢）")
+
+    model_name = payload.model if payload.model in SUPPORTED_MODELS else DEFAULT_MODEL
+    loop = asyncio.get_running_loop()
+    results = []
+    for path in payload.paths:
+        source = Path(str(path))
+        if not source.is_file():
+            results.append({"source": str(path), "ok": False, "error": "文件不存在"})
+            continue
+        out_dir = Path(payload.out_dir) if payload.out_dir else source.parent / "_分轨"
+        outcome = await loop.run_in_executor(
+            None, separate, str(source), str(out_dir), model_name, payload.stems, True
+        )
+        results.append({
+            "source": str(path),
+            "ok": bool(outcome.get("ok")),
+            "stems": outcome.get("stems") or {},
+            "instrumental": outcome.get("instrumental") or "",
+            "device": outcome.get("device") or "",
+            "error": outcome.get("error") or "",
+        })
+
+    ok = sum(1 for item in results if item["ok"])
+    return {"success": True, "total": len(results), "ok": ok, "failed": len(results) - ok, "results": results}
+
+
 @app.post("/api/v1/audio/remove-vocals")
 async def remove_vocals_batch(payload: RemoveVocalsRequest):
     """把选中音乐里的人声尽量消掉，输出伴奏 WAV。"""

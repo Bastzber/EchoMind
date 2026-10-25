@@ -167,14 +167,22 @@
         }
         .tag-drop-hover { outline: 2px solid #8b5cf6; outline-offset: -2px; background: rgba(139,92,246,.16) !important; border-radius: 6px; }
         /* 窗口偏窄时压缩顶栏，保证导航一行放下 */
-        @media (max-width: 1500px) {
+        @media (max-width: 1240px) {
             #sfxMenuBtn span, #recipeMenuBtn span { display: none; }
             #sfxMenuBtn, #recipeMenuBtn { padding-left: .55rem; padding-right: .55rem; }
             header .menu-btn { padding-left: .5rem; padding-right: .5rem; }
         }
-        @media (max-width: 1320px) {
+        @media (max-width: 1120px) {
             #importBtn span, #fileMenuBtn span { display: none; }
         }
+        /* 帮助问号 + 悬浮说明 */
+        .help-dot { display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:50%;
+            border:1px solid var(--border-color); font-size:10px; line-height:1; opacity:.5; cursor:help; flex:0 0 auto; user-select:none; }
+        .help-dot:hover { opacity:1; border-color:#8b5cf6; color:#a78bfa; background:rgba(139,92,246,.15); }
+        #helpTip { position:fixed; z-index:9999; max-width:330px; padding:9px 11px; border-radius:8px;
+            background:#17171b; color:#e5e7eb; border:1px solid #2d2d35; font-size:12px; line-height:1.55;
+            white-space:pre-line; box-shadow:0 10px 30px rgba(0,0,0,.5); pointer-events:none; opacity:0; transition:opacity .12s; }
+        #helpTip.show { opacity:1; }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -274,8 +282,62 @@
                     </svg><span>拟音工坊</span>
                 </button>
             </div>
+        </nav>
+        
+        <!-- Right: Search & Disk Space -->
+        <div class="flex items-center gap-3">
+            <!-- 模型状态 -->
+            <div class="relative flex items-center gap-1">
+                <div id="modelStatusDisplay" class="flex items-center gap-2 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity"
+                     style="background-color: var(--bg-tertiary); border-color: var(--border-color); display: none;">
+                    <div id="modelStatusIcon" class="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style="border-color: var(--border-color); border-top-color: #8b5cf6;"></div>
+                    <span id="modelStatusText" data-i18n="model.loading">模型加载中...</span>
+                <span class="help-dot ml-0.5" data-help="模型状态&#10;&#10;CLAP 音频模型 + BGE 文本模型。&#10;加载完成才能做语义搜索。&#10;点这个胶囊可以调搜索相似度阈值。">?</span>
+                </div>
+
+                <div id="thresholdPopup" class="absolute top-full right-0 mt-2 p-4 rounded-lg border shadow-lg z-50 hidden"
+                     style="background-color: var(--bg-secondary); border-color: var(--border-color); min-width: 220px;">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-medium" style="color: var(--text-primary);" data-i18n="threshold.title">搜索相似度阈值</span>
+                        <span id="thresholdValue" class="text-xs font-bold px-2 py-0.5 rounded" style="background-color: var(--bg-tertiary);"></span>
+                    </div>
+                    <input type="range" id="thresholdSlider" min="0" max="100" value="15" class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="background-color: var(--bg-tertiary);">
+                    <div class="flex justify-between mt-2 text-xs" style="color: var(--text-secondary);">
+                        <span data-i18n="threshold.loose">宽松 (0)</span>
+                        <span data-i18n="threshold.strict">严格 (1.0)</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t text-xs" style="border-color: var(--border-color); color: var(--text-secondary);">
+                        <p data-i18n="threshold.hint.low">• 值越低，结果越多</p>
+                        <p data-i18n="threshold.hint.high">• 值越高，结果越精确</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="indexStatusDisplay" class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                <span class="opacity-60">音频</span>
+                <span id="audioIndexStatus" class="font-mono">R0 P0 F0</span>
+            </div>
+            <span class="help-dot" data-help="音频索引&#10;&#10;R = 已完成，P = 待处理，F = 失败。&#10;音频索引是声音指纹，供「按声音找相似」用。&#10;P 长时间不为 0 说明索引任务断了。">?</span>
+
+            <div class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                <span class="opacity-60">文本</span>
+                <span id="textIndexStatus" class="font-mono">R0 P0 F0</span>
+            </div>
+            <span class="help-dot" data-help="文本索引&#10;&#10;把文件名、标签、一句话描述编成向量。&#10;语义搜索（按描述找声音）靠它。&#10;改了描述或标签后会自动变待处理，再跑一次就更新。">?</span>
+
+            <button id="reconcileIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">修复</button>
+            <span class="help-dot" data-help="修复缺失项（增量修复）&#10;&#10;只补齐「缺少的」和「过期的」索引，不重算已有的。&#10;适合：新导入一批音效后、改了若干描述后。&#10;速度快，几秒到几分钟。">?</span>
+
+            <button id="rebuildIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">重建</button>
+            <span class="help-dot" data-help="完整重建（全量重算）&#10;&#10;把当前工程所有音效的索引全部丢掉重算。&#10;适合：换模型、索引明显错乱、怀疑数据坏了。&#10;7 万条大约要 1~2 小时，期间可以正常用。">?</span>
+
+            <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs"></span>
+
+            <div id="diskSpaceDisplay" class="hidden"><span id="diskSpaceText"></span></div>
+
+
             <div class="relative">
-                <button id="settingsBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
+                <button id="settingsBtn" class="menu-btn whitespace-nowrap shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
                     <i data-lucide="settings" class="w-4 h-4"></i><span data-i18n="settings">设置</span>
                 </button>
                 <!-- Settings Dropdown -->
@@ -292,7 +354,7 @@
                     <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50">工具</div>
                     <button id="dupCheckBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="copy" class="w-4 h-4"></i>
-                        <span>重复音效检测</span>
+                        <span>重复音效检测</span><span class="help-dot ml-1" data-help="重复音效检测&#10;&#10;按文件内容（sha256）找完全相同的音效。&#10;可以每组保留一份，其余删到回收站或备份目录。&#10;支持整组删除、忽略跨分类重复。">?</span>
                     </button>
                     <button id="checkUpdateMenuBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="refresh-cw" class="w-4 h-4"></i>
@@ -337,64 +399,6 @@
                     </button>
                 </div>
             </div>
-        </nav>
-        
-        <!-- Right: Search & Disk Space -->
-        <div class="flex items-center gap-3">
-            <!-- 模型加载状态（带阈值调整） -->
-            <div class="relative">
-                <div id="modelStatusDisplay" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
-                     style="background-color: var(--bg-tertiary); border-color: var(--border-color); display: none;"
-                     data-i18n-title="model.status.adjust.threshold">
-                    <div id="modelStatusIcon" class="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style="border-color: var(--text-secondary); border-top-color: transparent;"></div>
-                    <span id="modelStatusText" data-i18n="model.loading">模型加载中...</span>
-                </div>
-
-                <!-- 阈值调整弹窗 -->
-                <div id="thresholdPopup" class="absolute top-full right-0 mt-2 p-4 rounded-lg border shadow-lg z-50 hidden"
-                     style="background-color: var(--bg-secondary); border-color: var(--border-color); min-width: 220px;">
-                    <div class="flex items-center justify-between mb-3">
-                        <span class="text-xs font-medium" style="color: var(--text-primary);" data-i18n="threshold.title">搜索相似度阈值</span>
-                        <span id="thresholdValue" class="text-xs font-bold px-2 py-0.5 rounded" style="background-color: var(--bg-tertiary); color: var(--text-secondary);">0.15</span>
-                    </div>
-                    <input type="range" id="thresholdSlider" min="0" max="100" value="15" 
-                           class="w-full h-2 rounded-lg appearance-none cursor-pointer"
-                           style="background-color: var(--bg-tertiary);">
-                    <div class="flex justify-between mt-2 text-xs" style="color: var(--text-secondary);">
-                        <span data-i18n="threshold.loose">宽松 (0)</span>
-                        <span data-i18n="threshold.strict">严格 (1.0)</span>
-                    </div>
-                    <div class="mt-3 pt-3 border-t text-xs" style="border-color: var(--border-color); color: var(--text-secondary);">
-                        <p data-i18n="threshold.hint.low">• 值越低，结果越多</p>
-                        <p data-i18n="threshold.hint.high">• 值越高，结果越精确</p>
-                    </div>
-                </div>
-            </div>
-
-            <div id="indexStatusDisplay" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border"
-                 style="background-color: var(--bg-tertiary); border-color: var(--border-color);"
-                 title="当前工程索引状态 / Current project index status">
-                <span class="opacity-60">Audio</span>
-                <span id="audioIndexStatus" class="font-mono">R0 P0 F0</span>
-                <span class="opacity-30">|</span>
-                <span class="opacity-60">Text</span>
-                <span id="textIndexStatus" class="font-mono">R0 P0 F0</span>
-                <button id="reconcileIndexBtn" class="px-2 py-0.5 rounded border hover:bg-black/5 dark:hover:bg-white/5"
-                        style="border-color: var(--border-color);" title="只修复缺失或过期项">修复缺失项</button>
-                <button id="rebuildIndexBtn" class="px-2 py-0.5 rounded border hover:bg-black/5 dark:hover:bg-white/5"
-                        style="border-color: var(--border-color);" title="完整重建当前工程索引">完整重建</button>
-                <span id="indexJobStatus" class="max-w-32 truncate opacity-60"></span>
-            </div>
-
-            <!-- 磁盘空间显示 -->
-            <div id="diskSpaceDisplay" class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity cursor-help"
-                 style="background-color: var(--bg-tertiary); border-color: var(--border-color);"
-                 data-i18n-title="disk.space.tooltip">
-                <i data-lucide="hard-drive" class="w-3.5 h-3.5"></i>
-                <span id="diskSpaceText" data-i18n="disk.calculating">计算中...</span>
-            </div>
-            
-
         </div>
     </header>
     
@@ -411,6 +415,7 @@
                      style="border-color: var(--border-color);">
                     <div class="flex items-center">
                         <i data-lucide="folder-tree" class="w-4 h-4 mr-2"></i><span data-i18n="folder.title">文件夹</span>
+                        <span class="help-dot ml-1" data-help="文件夹板块&#10;&#10;这里显示磁盘上的真实目录结构，可以直接筛选。&#10;右键文件夹可以批量删除记录、重命名等。&#10;目录名改了以后点「修复路径」就能把库里的路径对上。">?</span>
                     </div>
                     <div class="flex items-center gap-1">
                         <button id="addFolderBtn" class="p-1 rounded-md hover:bg-white/10 transition-colors" data-i18n-title="folder.add">
@@ -481,6 +486,7 @@
                         </svg>
                     </div>
                 </div>
+                <span class="help-dot" data-help="搜索与筛选&#10;&#10;短词按关键词搜，长句按语义搜（描述你听到的感觉）。&#10;右侧下拉可以按时长、导入时间排序。&#10;下面的列表支持多选、批量打标签、批量删除。">?</span>
                 <button id="aiSearchBtn" type="button" title="AI 搜索：用一句话描述你想找的声音"
                         class="h-9 px-3 rounded-lg text-xs flex items-center gap-1 transition-opacity hover:opacity-90"
                         style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff;">
@@ -503,7 +509,7 @@
                     </button>
                 </div>
                 <button id="detailToggleBtn" class="h-9 px-2 rounded-lg border text-xs flex items-center gap-1 opacity-60 transition-colors hover:bg-white/5"
-                        style="border-color: var(--border-color);" title="详情面板（显示选中音效的标签与描述）">
+                        style="border-color: var(--border-color);" data-help="详情面板&#10;&#10;显示选中音效的标签、一句话描述、格式/时长/采样率/大小/来源。&#10;标签和描述都能直接改，改完自动同步到搜索索引。">
                     <i data-lucide="panel-right" class="w-3.5 h-3.5"></i>
                     <span class="hidden sm:inline">详情</span>
                 </button>
@@ -740,6 +746,43 @@
 
     <!-- ==================== JAVASCRIPT ==================== -->
     <script>
+
+        // ===== 帮助问号：鼠标悬浮显示功能说明 =====
+        (function initHelpTips() {
+            const ensureTip = () => {
+                let tip = document.getElementById('helpTip');
+                if (!tip) { tip = document.createElement('div'); tip.id = 'helpTip'; document.body.appendChild(tip); }
+                return tip;
+            };
+            const show = (event) => {
+                const el = event.target.closest('[data-help]');
+                if (!el) return;
+                const tip = ensureTip();
+                tip.textContent = el.getAttribute('data-help') || '';
+                tip.classList.add('show');
+                const rect = el.getBoundingClientRect();
+                const tipRect = tip.getBoundingClientRect();
+                let left = rect.left + rect.width / 2 - tipRect.width / 2;
+                left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+                let top = rect.bottom + 8;
+                if (top + tipRect.height > window.innerHeight - 8) top = Math.max(8, rect.top - tipRect.height - 8);
+                tip.style.left = left + 'px';
+                tip.style.top = top + 'px';
+            };
+            const hide = (event) => {
+                const el = event.target && event.target.closest ? event.target.closest('[data-help]') : null;
+                if (!el) return;
+                document.getElementById('helpTip')?.classList.remove('show');
+            };
+            document.addEventListener('mouseover', show);
+            document.addEventListener('mouseout', hide);
+            document.addEventListener('click', (event) => {
+                const el = event.target.closest && event.target.closest('[data-help]');
+                if (el) { show(event); setTimeout(() => document.getElementById('helpTip')?.classList.remove('show'), 4000); }
+            });
+            window.addEventListener('scroll', () => document.getElementById('helpTip')?.classList.remove('show'), true);
+        })();
+
         // ==================== DATA ====================
         // 初始为空，用户导入音频后会自动添加
         let soundData = [];
@@ -3274,7 +3317,7 @@
             const tagHeader = document.createElement('div');
             tagHeader.className = 'px-2 pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider opacity-50 flex items-center justify-between';
             tagHeader.innerHTML = `
-                <span class="flex items-center"><i data-lucide="tags" class="w-3 h-3 mr-1"></i>我的标签</span>
+                <span class="flex items-center"><i data-lucide="tags" class="w-3 h-3 mr-1"></i>我的标签</span><span class="help-dot ml-1" data-help="我的标签&#10;&#10;一个音效可以打多个标签，用来表达类型、场景、声音特性。&#10;右键标签：改名 / 删除 / 合并。&#10;把标签拖到另一个标签上，就是合并。&#10;默认只显示常用的 14 个，点下面的「查看全部」展开。">?</span>
                 <span class="flex items-center gap-1">
                     <button id="createTagBtn" class="p-0.5 rounded hover:bg-white/10 transition-colors" title="新建标签">
                         <i data-lucide="plus" class="w-3 h-3"></i>
@@ -13315,5 +13358,6 @@
     <script src="./assets/renderer/sfx.js"></script>
     <script src="./assets/renderer/broken.js"></script>
     <script src="./assets/renderer/panels.js"></script>
+    <div id="helpTip"></div>
 </body>
 </html>

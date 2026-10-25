@@ -3700,6 +3700,50 @@ async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), proje
 
 
 
+
+# ==================== 皮肤 / 主题包 ====================
+
+class SkinImportRequest(BaseModel):
+    path: str
+
+
+@app.get("/api/v1/skins")
+async def list_skins_endpoint():
+    """列出内置 + 用户导入的皮肤。"""
+    from core.skins import list_skins
+
+    items = await asyncio.to_thread(list_skins)
+    return {"success": True, "skins": items, "total": len(items)}
+
+
+@app.post("/api/v1/skins/import")
+async def import_skin_endpoint(payload: SkinImportRequest):
+    """把用户选的皮肤文件夹复制到 skins 目录。"""
+    from core.skins import import_skin
+
+    try:
+        skin = await asyncio.to_thread(import_skin, payload.path)
+        return {"success": True, "skin": skin}
+    except ValueError as exc:
+        raise SoundBotAPIError("invalid_skin", str(exc), status_code=400)
+    except Exception as exc:
+        logger.error("导入皮肤失败: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/v1/skins/{skin_id}")
+async def delete_skin_endpoint(skin_id: str):
+    from core.skins import delete_skin
+
+    try:
+        removed = await asyncio.to_thread(delete_skin, skin_id)
+        if not removed:
+            raise SoundBotAPIError("skin_not_found", "皮肤不存在", status_code=404)
+        return {"success": True}
+    except ValueError as exc:
+        raise SoundBotAPIError("builtin_skin", str(exc), status_code=400)
+
+
 # ==================== 去人声（中置声道消除） ====================
 
 class RemoveVocalsRequest(BaseModel):
@@ -3857,6 +3901,66 @@ async def scan_broken_files(project_id: str = Query(default="default")):
             "container": probe_format(path) if os.path.exists(path) else "",
         })
     return {"success": True, "total": len(items), "files": items}
+
+
+
+@app.get("/api/v1/tags/auto-backup")
+async def tag_auto_backup_stats(project_id: str = Query(default="default")):
+    """查看自动补全标签的备份情况（支持撤销的依据）。"""
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        try:
+            row = cursor.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT batch), MIN(created_at), MAX(created_at) FROM tag_auto_backup"
+            ).fetchone()
+        except Exception:
+            return {"success": True, "count": 0, "batches": 0}
+    return {
+        "success": True,
+        "count": int(row[0] or 0),
+        "batches": int(row[1] or 0),
+        "first": row[2],
+        "last": row[3],
+    }
+
+
+class TagAutoUndoRequest(BaseModel):
+    batch: Optional[str] = None
+
+
+@app.post("/api/v1/tags/auto-undo")
+async def tag_auto_undo(payload: TagAutoUndoRequest, project_id: str = Query(default="default")):
+    """撤销自动补全：把 files.tags 还原成补全前的样子。"""
+    db_manager = get_db_manager()
+    restored = 0
+    with db_manager.get_cursor() as cursor:
+        try:
+            if payload.batch:
+                rows = cursor.execute(
+                    "SELECT file_uuid, old_tags FROM tag_auto_backup WHERE batch=?", (payload.batch,)
+                ).fetchall()
+            else:
+                rows = cursor.execute("SELECT file_uuid, old_tags FROM tag_auto_backup").fetchall()
+        except Exception:
+            return {"success": True, "restored": 0}
+        for file_uuid, old_tags in rows:
+            cursor.execute(
+                "UPDATE files SET tags=?, updated_at=? WHERE file_uuid=?",
+                (old_tags, datetime.now().isoformat(), file_uuid),
+            )
+            restored += 1
+        if payload.batch:
+            cursor.execute("DELETE FROM tag_auto_backup WHERE batch=?", (payload.batch,))
+        else:
+            cursor.execute("DELETE FROM tag_auto_backup")
+        cursor.connection.commit()
+
+    if restored:
+        try:
+            db_manager.mark_project_artifacts(project_id, ["text_vector"], "stale")
+        except Exception:
+            pass
+    return {"success": True, "restored": restored}
 
 
 @app.get("/api/v1/tags/usage")

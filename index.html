@@ -4962,7 +4962,7 @@
                 card.style.background = 'var(--bg-secondary)';
                 card.dataset.id = sound.id;
 
-                const tags = (sound.tags || []).slice(0, 4).map((tag) =>
+                const tags = (sound.tags || []).map((tag) =>
                     `<span class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--bg-tertiary);">${escapeHtml(tag)}</span>`
                 ).join('');
 

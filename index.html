@@ -8698,7 +8698,7 @@
                             const radio = document.createElement('input');
                             radio.type = 'radio';
                             radio.name = radioName;
-                            radio.checked = i === 0;
+                            radio.checked = i === preferredKeepIndex(group.files);
                             radio.className = 'mt-0.5 shrink-0';
                             const text = document.createElement('span');
                             text.className = 'truncate';
@@ -8830,20 +8830,44 @@
                     body.appendChild(card);
                 });
 
-                const allPaths = groups.flatMap(group => group.files.slice(1).map(file => file.path));
+                const allPaths = groups.flatMap(group => splitGroupByPreference(group).dups);
                 const globalBar = document.createElement('div');
                 globalBar.className = 'mt-4 pt-3 border-t flex flex-wrap items-center gap-2';
                 globalBar.style.borderColor = 'var(--border-color)';
                 const tip = document.createElement('span');
                 tip.className = 'text-xs opacity-60 mr-auto';
-                tip.textContent = `全部 ${groups.length} 组、${allPaths.length} 个多余副本（每组保留第一份）：`;
+                tip.textContent = `全部 ${groups.length} 组、${allPaths.length} 个多余副本（每组保留优先项）：`;
                 globalBar.appendChild(tip);
                 const markAll = (files, count) => {
                     body.querySelectorAll('[data-dup-card]').forEach((card) => {
                         if (card.dataset.done === '1') return;
-                        markProcessed(card, '已按第一份处理', files, count || 1);
+                        markProcessed(card, '已按优先项处理', files, count || 1);
                     });
                 };
+                // 保留优先：中文名 / 原始顺序
+                const prefBtn = document.createElement('button');
+                prefBtn.className = 'px-2 py-1 rounded text-xs border';
+                prefBtn.style.borderColor = 'var(--border-color)';
+                prefBtn.title = '决定每组默认保留哪一份：中文名优先，或按原始顺序';
+                const syncPrefLabel = () => {
+                    prefBtn.textContent = '保留优先：' + (duplicateKeepPreference === 'cjk' ? '中文名 ✓' : '原始顺序');
+                };
+                syncPrefLabel();
+                prefBtn.addEventListener('click', () => {
+                    duplicateKeepPreference = duplicateKeepPreference === 'cjk' ? 'original' : 'cjk';
+                    syncPrefLabel();
+                    body.querySelectorAll('[data-dup-card]').forEach((card) => {
+                        const index = Number(card.dataset.index);
+                        const group = groups.find(item => item.__index === index);
+                        if (!group) return;
+                        const radios = [...card.querySelectorAll('input[type="radio"]')];
+                        if (!radios.length) return;
+                        const at = preferredKeepIndex(group.files);
+                        radios.forEach((radio, i) => { radio.checked = i === at; });
+                    });
+                    showNotification('保留优先已切换为「' + (duplicateKeepPreference === 'cjk' ? '中文名' : '原始顺序') + '」', 'success');
+                });
+                globalBar.appendChild(prefBtn);
                 const globalBtn = (label, bg, handler) => {
                     const button = document.createElement('button');
                     button.className = 'px-2 py-1 rounded text-xs text-white';
@@ -8852,28 +8876,28 @@
                     button.addEventListener('click', () => handler(button));
                     globalBar.appendChild(button);
                 };
-                globalBtn('全部：每组保留第一份，删库记录', '#ef4444', async () => {
-                    if (!confirm(`每组保留第一份，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
+                globalBtn('全部：每组保留优先项，删库记录', '#ef4444', async () => {
+                    if (!confirm(`每组保留优先项，其余 ${allPaths.length} 个只删库记录？（磁盘文件保留）`)) return;
                     const ok = await resolveDuplicates(allPaths, 'records');
                     if (ok) markAll(allPaths.length);
                 });
-                globalBtn('全部：每组保留第一份，删源文件', '#b91c1c', async () => {
-                    if (!confirm(`每组保留第一份，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
+                globalBtn('全部：每组保留优先项，删源文件', '#b91c1c', async () => {
+                    if (!confirm(`每组保留优先项，把其余 ${allPaths.length} 个源文件移入回收站？`)) return;
                     const ok = await resolveDuplicates(allPaths, 'source');
                     if (ok) markAll(allPaths.length);
                 });
-                globalBtn('全部：每组保留第一份，其余移到备份…', '#0ea5e9', async () => {
+                globalBtn('全部：每组保留优先项，其余移到备份…', '#0ea5e9', async () => {
                     const picked = await pickBackupFolder();
                     if (!picked) return;
                     const ok = await resolveDuplicates(allPaths, 'backup', picked);
                     if (ok) markAll(allPaths.length);
                 });
 
-                // 批量：每组保留第一份，其余目录名转成标签后删源文件（治本，防库臃肿）
-                globalBtn('全部：保留一份，其余分类转成标签后删除', '#0369a1', async () => {
+                // 批量：每组保留优先项，其余目录名转成标签后删源文件（治本，防库臃肿）
+                globalBtn('全部：保留优先项，其余分类转成标签后删除', '#0369a1', async () => {
                     const totalCopies = groups.reduce((sum, group) => sum + Math.max(0, group.files.length - 1), 0);
                     if (!totalCopies) return;
-                    if (!confirm(`对全部 ${groups.length} 组执行：每组保留第一份，把其余 ${totalCopies} 个副本所在的目录名转成标签，然后把副本移入回收站？\n\n处理后每个音效只留一份物理文件，分类信息以标签形式保留。`)) return;
+                    if (!confirm(`对全部 ${groups.length} 组执行：每组保留优先项，把其余 ${totalCopies} 个副本所在的目录名转成标签，然后把副本移入回收站？\n\n处理后每个音效只留一份物理文件，分类信息以标签形式保留。`)) return;
 
                     const progressBox = document.getElementById('dupProgress');
                     const bar = progressBox?.querySelector('.dup-progress-bar');
@@ -8886,8 +8910,7 @@
                     let failed = 0;
                     const tagPool = new Set();
                     for (const group of groups) {
-                        const keep = group.files[0];
-                        const dups = group.files.slice(1).map(file => file.path);
+                        const { keep, dups } = splitGroupByPreference(group);
                         if (!dups.length) continue;
                         try {
                             const result = await rendererApi.post(
@@ -9207,6 +9230,35 @@
                 setTimeout(() => progressBox?.classList.add('hidden'), 1200);
             }
         }
+
+        // 重复组里"优先保留哪一份"：默认中文名优先（英文原名当副本删掉）
+        let duplicateKeepPreference = 'cjk';
+
+        const nameCjkScore = (filePath) => {
+            const name = String(filePath || '').split(/[\\/]/).pop() || '';
+            const cjk = (name.match(/[\u4e00-\u9fff]/g) || []).length;
+            const latin = (name.match(/[A-Za-z]/g) || []).length;
+            if (!cjk) return -latin;          // 纯英文名：越长越靠后
+            return cjk * 3 - latin;           // 中文越多分越高，英文越少越靠前
+        };
+
+        const preferredKeepIndex = (files) => {
+            if (duplicateKeepPreference !== 'cjk' || !Array.isArray(files) || files.length < 2) return 0;
+            let best = 0;
+            let bestScore = nameCjkScore(files[0].path);
+            for (let i = 1; i < files.length; i += 1) {
+                const score = nameCjkScore(files[i].path);
+                if (score > bestScore) { best = i; bestScore = score; }
+            }
+            return best;
+        };
+
+        const splitGroupByPreference = (group) => {
+            const at = preferredKeepIndex(group.files);
+            const keep = group.files[at] || group.files[0];
+            const dups = group.files.filter((_, i) => i !== at).map(file => file.path);
+            return { keep, dups };
+        };
 
         // 用户文件夹里手动加入的单个音效
         async function loadUserFolderFiles(folderId, baseList) {

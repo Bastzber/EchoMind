@@ -5179,11 +5179,10 @@
                                 </div>
                             ` : ''}
                             ${(Array.isArray(sound.tags) && sound.tags.length) ? `
-                                <div class="flex items-center gap-1 flex-wrap max-w-[40%]">
-                                    ${sound.tags.slice(0, 3).map(tag => `
+                                <div class="flex items-center gap-1 flex-wrap max-w-[46%]" title="${escapeHtml(sound.tags.join('、'))}">
+                                    ${sound.tags.map(tag => `
                                         <span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap" style="background: var(--bg-tertiary); color: var(--text-secondary);">${escapeHtml(tag)}</span>
                                     `).join('')}
-                                    ${sound.tags.length > 3 ? `<span class="text-[10px] opacity-50">+${sound.tags.length - 3}</span>` : ''}
                                 </div>
                             ` : ''}
                             ${sound.similarity !== undefined ? `

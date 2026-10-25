@@ -218,6 +218,25 @@
                     <button id="importFolderBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="folder-plus" class="w-4 h-4"></i><span data-i18n="file.import.folder">导入文件夹</span>
                     </button>
+                    <button id="importDescPackBtn2" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                        <i data-lucide="file-json" class="w-4 h-4"></i><span>导入描述包（.json）</span>
+                    </button>
+                </div>
+            </div>
+            <div class="relative">
+                <button id="descPackMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5"
+                        style="border: 1px solid rgba(139,92,246,.45); background: rgba(139,92,246,.10);"
+                        title="导入别人导出的描述包（.json）">
+                    <i data-lucide="file-json" class="w-4 h-4"></i><span>描述包</span>
+                </button>
+                <div id="descPackDropdown" class="dropdown-menu hidden absolute top-full left-0 mt-2 w-56 rounded-lg shadow-xl border py-2 z-50"
+                     style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <button id="descPackImportBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                        <i data-lucide="file-down" class="w-4 h-4"></i><span>导入描述包（.json）</span>
+                    </button>
+                    <button id="descPackExportBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                        <i data-lucide="file-up" class="w-4 h-4"></i><span>导出描述包</span>
+                    </button>
                 </div>
             </div>
             <div class="relative">
@@ -11058,6 +11077,34 @@
             }
 
             let descBatchRunning = false;
+            // ===== 描述包快捷入口（顶部按钮 + 导入菜单） =====
+            const wireDescPackShortcuts = () => {
+                const triggerImport = () => document.getElementById('importDescPackBtn')?.click();
+                const triggerExport = () => document.getElementById('exportDescPackBtn')?.click();
+                document.getElementById('descPackImportBtn')?.addEventListener('click', () => {
+                    document.getElementById('descPackDropdown')?.classList.add('hidden');
+                    triggerImport();
+                });
+                document.getElementById('descPackExportBtn')?.addEventListener('click', () => {
+                    document.getElementById('descPackDropdown')?.classList.add('hidden');
+                    triggerExport();
+                });
+                document.getElementById('importDescPackBtn2')?.addEventListener('click', () => {
+                    document.getElementById('importDropdown')?.classList.add('hidden');
+                    triggerImport();
+                });
+                const btn = document.getElementById('descPackMenuBtn');
+                const dropdown = document.getElementById('descPackDropdown');
+                if (btn && dropdown) {
+                    btn.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        dropdown.classList.toggle('hidden');
+                    });
+                    document.addEventListener('click', () => dropdown.classList.add('hidden'));
+                }
+            };
+            wireDescPackShortcuts();
+
             // ===== 描述包：导出 / 导入 =====
             document.getElementById('exportDescPackBtn')?.addEventListener('click', async () => {
                 const statusEl = document.getElementById('descPackStatus');

@@ -13,9 +13,10 @@ assert(html.includes('<div id="diskSpaceDisplay" class="hidden">'), '磁盘显�
 assert(!html.includes('xl:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border opacity-80'), '旧的磁盘显示还在');
 
 // 2) 状态胶囊与按钮不换行
-assert(html.includes('id="indexStatusDisplay" class="flex items-center gap-1.5 whitespace-nowrap shrink-0'), '音频索引胶囊缺 nowrap');
-assert(html.includes('id="reconcileIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0'), '修复按钮缺 nowrap');
-assert(html.includes('id="rebuildIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0'), '重建按钮缺 nowrap');
+assert(html.includes('id="indexStatusDisplay" class="flex flex-col'), '索引状态不是两行块');
+assert((html.match(/whitespace-nowrap/g) || []).length >= 4, '状态行缺 nowrap');
+assert(html.includes("label: '修复索引'"), '修復索引不在注册表里');
+assert(html.includes("label: '重建索引'"), '重建索引不在注册表里');
 
 // 3) 每个状态都有问号说明
 const helps = [

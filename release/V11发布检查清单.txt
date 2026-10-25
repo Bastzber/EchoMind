@@ -1,0 +1,84 @@
+# 发布检查清单（打包前逐项过一遍）
+
+> 上次踩的坑：安装包里的**后端还是上一版**、**描述包是三天前的**，
+> 界面代码是新的 —— 结果软件看起来是新的，实际功能是旧的。
+
+## 一、代码与版本
+
+- [ ] `package.json` / `package-lock.json` / `backend/config.py` 三处版本号一致
+- [ ] `CHANGELOG.md` 有对应版本段落（**中英双语**，每行都要有 ` / ` 分隔）
+- [ ] `README.md` 有 `当前源码版本为 **vX（预发布）**。`（只能出现一次）
+- [ ] `README.en.md` 有 `The current source version is **vX (prerelease)**.`
+- [ ] `.github/RELEASE_TEMPLATE.md` 的 Version / Status 已更新
+
+自检命令：
+
+```
+python tests/build/verify_release_metadata.py --root .
+```
+
+## 二、后端（最容易漏）
+
+- [ ] 改了 `backend/**` 或 `config/**` 后**必须重新跑 PyInstaller**：
+
+```
+python scripts/build.py --platform windows --skip-electron --skip-dependency-install
+```
+
+- [ ] 确认 `dist/backend/soundbot-backend/soundbot-backend.exe` 的修改时间**晚于**所有源码
+- [ ] 确认 `_internal/config/audio_capabilities.json` 里有新支持的格式（如 `.caf`）
+
+## 三、描述包
+
+- [ ] 后端在跑的时候重新导出（否则会用旧的）：
+
+```
+POST /api/v1/descriptions/export?project_id=default
+```
+
+- [ ] 条目数应等于库内文件数（当前约 7 万），带标签条目应占一半以上
+- [ ] 替换 `assets/descriptions/EchoMind-描述包.json` **和** `win-unpacked/EchoMind-描述包.json`
+
+## 四、界面
+
+- [ ] `index.html` / `main.js` / `preload.js` / `assets/**` / `lib/**` / `config/**` 重新打 `app.asar`
+- [ ] asar 里 `package.json` 的 version 正确
+- [ ] 抽查 asar 内 `index.html` 是否含本次新功能关键字（如 `showTranscodeModal`）
+
+## 五、文档（每次都更新）
+
+- [ ] `release/V11安装指南.txt`：系统要求、首次启动等待时间、数据位置、常见问题
+- [ ] `release/V11更新说明.txt`：新增功能、修复项、已知问题、数据统计
+- [ ] 两份文档同时放进：`win-unpacked/`（包内）和 `dist-electron-v5/`（zip 旁边）
+
+## 六、打包与自检
+
+```
+python scripts/package_release.py --version 0.3.0-beta.11
+```
+
+脚本会自动：重建后端（源码变新时）→ 导出描述包 → 重打 asar → 组装 → 自检 → 压缩。
+
+自检项：
+
+- [ ] asar 存在且体积合理（含描述包后约 21 MB）
+- [ ] 后端 exe 比源码新
+- [ ] 描述包 > 5 MB
+- [ ] 包内有 `安装指南.txt` 和 `更新说明.txt`
+- [ ] 版本号与 `package.json` 一致
+
+## 七、人工验收
+
+- [ ] 解压新包 → 双击 `EchoMind.exe` → 能进主界面
+- [ ] 设置 → 关于，版本号显示正确
+- [ ] 右键音效 → 有「转码为 WAV / MP3…」
+- [ ] 左侧标签齿轮 → 有「合并所选到…」
+- [ ] 重复检测 → 有「保留优先：中文名 ✓」
+
+## 八、上传网盘
+
+| 文件 | 说明 |
+|---|---|
+| `EchoMind测试版V11.zip` | 安装包 |
+| `V11-安装指南.txt` | 单独一份，方便不下载整包也能看 |
+| `V11-更新说明.txt` | 同上 |

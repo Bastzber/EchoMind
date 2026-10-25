@@ -165,6 +165,7 @@
         body[data-float-mode] #floatHost {
             flex: 1; min-height: 0; display: flex; flex-direction: column;
         }
+        .tag-drop-hover { outline: 2px solid #8b5cf6; outline-offset: -2px; background: rgba(139,92,246,.16) !important; border-radius: 6px; }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -3289,6 +3290,7 @@
                     layeredNames.add(item.name);
                     const row = document.createElement('div');
                     row.className = 'sidebar-item rounded-md cursor-pointer flex items-center gap-1.5 px-2 py-1 text-sm';
+                    attachTagSidebarInteractions(row, item.name);
                     row.innerHTML = `<i data-lucide="${item.layer === 'scene' ? 'clapperboard' : 'tag'}" class="w-3 h-3 opacity-60"></i>
                         <span class="flex-1 truncate">${escapeHtml(item.name)}</span>
                         <span class="text-[10px] opacity-40">${item.count || 0}</span>`;
@@ -3310,11 +3312,6 @@
                         } catch (error) {
                             showNotification('按标签筛选失败: ' + error.message, 'error');
                         }
-                    });
-                    row.addEventListener('contextmenu', (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        showTagLayerMenu(event, item);
                     });
                     container.appendChild(row);
                 });
@@ -3387,6 +3384,10 @@
                     filterByCategory('mytag:' + tag);
                 });
 
+                attachTagSidebarInteractions(div, tag);
+                container.appendChild(div);
+            });
+
             if (!tagQuery && tagNames.length > TAG_SIDEBAR_LIMIT) {
                 const moreRow = document.createElement('div');
                 moreRow.className = 'sidebar-item rounded-md cursor-pointer px-2 py-1 text-xs opacity-60 hover:opacity-90';
@@ -3399,8 +3400,6 @@
                 });
                 container.appendChild(moreRow);
             }
-                container.appendChild(div);
-            });
 
             const createTagBtn = container.querySelector('#createTagBtn');
             if (createTagBtn) {
@@ -3490,6 +3489,113 @@
             };
             setTimeout(() => document.addEventListener('click', close), 100);
         }
+
+        // ===== 侧边栏标签：右键改名/删除，拖拽合并 =====
+        const tagProjectQuery = () => '?project_id=' + encodeURIComponent(currentProject?.id || 'default');
+
+        async function renameSidebarTag(oldName) {
+            showInputModal('重命名标签', oldName, async (newName) => {
+                const target = String(newName || '').trim();
+                if (!target || target === oldName) return;
+                try {
+                    const res = await rendererApi.post('/api/v1/tags/rename' + tagProjectQuery(),
+                        { old: oldName, new: target }, { timeoutMs: 120000 });
+                    showNotification(res.merged ? '已合并到「' + target + '」，影响 ' + res.files + ' 个文件'
+                        : '标签已改名为「' + target + '」', 'success');
+                    await loadTagStats();
+                } catch (error) {
+                    showNotification('改名失败: ' + (error?.message || error), 'error');
+                }
+            });
+        }
+
+        async function deleteSidebarTag(name) {
+            if (!confirm('删除标签「' + name + '」？只会取消这个标签，音效本身不受影响。')) return;
+            try {
+                const res = await rendererApi.post('/api/v1/tags/delete' + tagProjectQuery(), { name }, { timeoutMs: 120000 });
+                showNotification(res.deleted ? '已删除标签「' + name + '」，影响 ' + res.files + ' 个音效' : '标签不存在', 'success');
+                await loadTagStats();
+            } catch (error) {
+                showNotification('删除失败: ' + (error?.message || error), 'error');
+            }
+        }
+
+        async function mergeSidebarTag(source, target) {
+            if (!source || !target || source === target) return;
+            if (!confirm('把「' + source + '」合并到「' + target + '」？\n\n所有带「' + source + '」的音效会改成「' + target + '」。')) return;
+            try {
+                const res = await rendererApi.post('/api/v1/tags/merge' + tagProjectQuery(),
+                    { target, sources: [source] }, { timeoutMs: 180000 });
+                showNotification('已合并「' + source + '」→「' + target + '」，影响 ' + res.files + ' 个文件', 'success');
+                await loadTagStats();
+            } catch (error) {
+                showNotification('合并失败: ' + (error?.message || error), 'error');
+            }
+        }
+
+        function showTagSidebarMenu(event, name) {
+            document.getElementById('tagSidebarMenu')?.remove();
+            const menu = document.createElement('div');
+            menu.id = 'tagSidebarMenu';
+            menu.className = 'fixed z-[260] rounded-lg shadow-xl py-1 w-48';
+            menu.style.backgroundColor = 'var(--bg-secondary)';
+            menu.style.border = '1px solid var(--border-color)';
+            menu.style.left = Math.min(event.clientX, window.innerWidth - 200) + 'px';
+            menu.style.top = Math.min(event.clientY, window.innerHeight - 160) + 'px';
+            const item = (label, onClick, danger) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full px-3 py-1.5 text-xs text-left hover:bg-white/5' + (danger ? ' text-red-400' : '');
+                btn.textContent = label;
+                btn.addEventListener('click', () => { menu.remove(); onClick(); });
+                menu.appendChild(btn);
+            };
+            const layeredNow = window.__tagLayers || { scene: [], attr: [] };
+            const foundTag = [...(layeredNow.scene || []), ...(layeredNow.attr || [])].find((t) => t && t.name === name);
+            if (foundTag) {
+                item('设为场景标签', () => patchTag(foundTag.id, { layer: 'scene' }));
+                item('设为属性标签', () => patchTag(foundTag.id, { layer: 'attr' }));
+            }
+            item('重命名标签…', () => renameSidebarTag(name));
+            item('合并到其他标签…', () => {
+                const target = prompt('把「' + name + '」合并到哪个标签？（输入目标标签名）', '');
+                if (target) mergeSidebarTag(name, target.trim());
+            });
+            item('删除标签', () => deleteSidebarTag(name), true);
+            document.body.appendChild(menu);
+            const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };
+            setTimeout(() => document.addEventListener('click', close), 100);
+        }
+
+        function attachTagSidebarInteractions(row, name) {
+            row.setAttribute('draggable', 'true');
+            row.addEventListener('dragstart', (event) => {
+                event.dataTransfer.setData('text/plain', name);
+                event.dataTransfer.effectAllowed = 'move';
+                row.style.opacity = '0.4';
+            });
+            row.addEventListener('dragend', () => {
+                row.style.opacity = '1';
+                document.querySelectorAll('.tag-drop-hover').forEach((el) => el.classList.remove('tag-drop-hover'));
+            });
+            row.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                row.classList.add('tag-drop-hover');
+            });
+            row.addEventListener('dragleave', () => row.classList.remove('tag-drop-hover'));
+            row.addEventListener('drop', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                row.classList.remove('tag-drop-hover');
+                const source = event.dataTransfer.getData('text/plain');
+                mergeSidebarTag(source, name);
+            });
+            row.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                showTagSidebarMenu(event, name);
+            });
+        }
+
 
         // 给音效打标签：场景单选、属性多选
         async function showTagPicker(sounds) {

@@ -16,6 +16,9 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 - **路径修复**：磁盘改名或移动后按同名同大小修正库内路径 / **Path repair**: relink database paths by name and size after folders are renamed or moved on disk
 - **描述包未匹配清单导出**：把没匹配上的条目导出 CSV / **Unmatched description export**: save unmatched pack entries as CSV
 - **时长回填脚本**：修复库内 2.8 万条时长为 0 的记录 / **Duration backfill script**: fixes 28k rows that stored a zero duration
+- **去人声（快速）**：中置声道消除，几秒出一版伴奏 / **Vocal removal (fast)**: centre-channel cancellation produces an instrumental in seconds
+- **AI 分轨（Demucs）**：拆成人声、鼓、贝斯、其他，并另存伴奏 / **AI stem separation (Demucs)**: splits vocals, drums, bass and other, plus an instrumental mix
+- **常用工具条**：常驻一行，可用 ＋/－ 自定义，选择会记住 / **Quick actions bar**: always visible, customisable with + and −, remembered across launches
 
 ### Fixed / 修复
 

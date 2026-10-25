@@ -41,6 +41,14 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 `require('electron')` + 内置模块，所以那是真实结果，不是糊弄 electron-builder。
 跑完 zip 名是 `EchoMind-<版本>-win.zip`，按习惯改名成 `EchoMind测试版V9.zip` 即可。
 
+## 一·四、0.3.0-beta.11 新增（常用条 / 分轨）
+
+- 顶栏：文件、导入、导入描述包、创造音效、拟音工坊、模型状态、索引状态（音频/文本两行）、设置
+- 常用工具条（常驻、可＋/－自定义，存 localStorage）：重复检测、标签管理、转码、去人声、批量重命名、修复路径、修复索引
+- 去人声：中置声道消除（`backend/core/vocals.py`），快但会削低频
+- AI 分轨：Demucs（`backend/core/separation.py`），四轨 + 伴奏，PyAV 解码/写 WAV，不依赖外部 ffmpeg
+- 全局帮助：任意元素挂 `data-help` + `help-dot` 即可显示说明气泡
+
 ## 一·五、库目录（2026-10-25 迁移后）
 
 - 整合目标：`F:\CJ音效库整合包V1`（14 个一级 / 88 个二级，见 `docs/分类方案.md`）

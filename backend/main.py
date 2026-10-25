@@ -3583,6 +3583,22 @@ def _transcode_one(source: str, target_format: str, bitrate: Optional[str], out_
 
 
 
+
+@app.get("/api/v1/db/library/folder-health")
+async def library_folder_health(project_id: str = Query(default="default"), limit: int = 200):
+    """检测库里的目录是否还存在于磁盘（改名/移动会导致不一致）。"""
+    from core.library_health import folder_health
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            "SELECT path FROM files WHERE project_id=?", (project_id,)
+        ).fetchall()
+    paths = [row[0] for row in rows] if rows else []
+    result = await asyncio.to_thread(folder_health, paths, limit)
+    return {"success": True, **result}
+
+
 @app.post("/api/v1/db/library/repair-paths")
 async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), project_id: str = Query(default="default")):
     """磁盘上文件夹改名/移动后，把数据库里的旧路径按"同名同大小"修正回来。
@@ -6025,8 +6041,11 @@ async def metadata_apply(payload: Dict[str, Any], project_id: str = Query(defaul
                 db_manager.upsert_index_manifest(
                     project_id, "text_vector", state="stale", revision_increment=1
                 )
+                # 之前只标脏不重建，搜索会一直用旧向量；这里排一个后台任务补上。
+                await asyncio.sleep(0.5)
+                _schedule_project_reconcile(project_id, ("text_vector",), reason="metadata_apply")
             except Exception as exc:
-                logger.debug("标记文本索引失败: %s", exc)
+                logger.debug("标记/重建文本索引失败: %s", exc)
         return {"success": True, **result}
     except Exception as exc:
         logger.error("描述包应用失败: %s", exc)
@@ -6061,16 +6080,34 @@ async def import_descriptions(
 
         applied = 0
         matched = 0
+        unmatched: List[Dict[str, str]] = []
         for item in items:
             description = str(item.get("description") or "").strip()
             if not description:
+                unmatched.append({
+                    "rel": str(item.get("rel") or ""),
+                    "filename": str(item.get("filename") or ""),
+                    "reason": "empty_description",
+                    "description": "",
+                })
                 continue
             rel = str(item.get("rel") or "").replace("/", "\\").lower()
             uuid_value = by_rel.get(rel)
+            reason = "no_match"
             if not uuid_value:
                 candidates = by_name.get(str(item.get("filename") or "").lower()) or []
                 uuid_value = candidates[0] if len(candidates) == 1 else None
+                if not uuid_value and len(candidates) > 1:
+                    reason = "ambiguous"
+                elif uuid_value:
+                    reason = "matched_by_name"
             if not uuid_value:
+                unmatched.append({
+                    "rel": str(item.get("rel") or ""),
+                    "filename": str(item.get("filename") or ""),
+                    "reason": reason,
+                    "description": description,
+                })
                 continue
             matched += 1
             with db_manager.get_cursor() as cursor:
@@ -6080,7 +6117,18 @@ async def import_descriptions(
                 )
                 cursor.connection.commit()
             applied += 1
-        logger.info("描述包导入完成: 匹配 %d / 应用 %d / 包内 %d", matched, applied, len(items))
+        logger.info("描述包导入完成: 匹配 %d / 应用 %d / 未匹配 %d / 包内 %d",
+                    matched, applied, len(unmatched), len(items))
+
+        unmatched_csv = ""
+        if unmatched:
+            try:
+                from core.reports import write_unmatched_csv
+
+                unmatched_csv = write_unmatched_csv(unmatched, prefix="desc-unmatched")
+                logger.info("未匹配清单已导出: %s（%d 条）", unmatched_csv, len(unmatched))
+            except Exception as exc:
+                logger.warning("导出未匹配清单失败: %s", exc)
 
         # 描述变了，文本向量要按新描述重建，否则搜索用不上新内容。
         job_id = None
@@ -6110,6 +6158,8 @@ async def import_descriptions(
             "matched": matched,
             "applied": applied,
             "pack": len(items),
+            "unmatched": len(unmatched),
+            "unmatched_csv": unmatched_csv,
             "index_job_id": job_id,
         }
     except SoundBotAPIError:

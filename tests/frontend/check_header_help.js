@@ -13,7 +13,7 @@ assert(html.includes('<div id="diskSpaceDisplay" class="hidden">'), '磁盘显�
 assert(!html.includes('xl:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border opacity-80'), '旧的磁盘显示还在');
 
 // 2) 状态胶囊与按钮不换行
-assert(html.includes('id="indexStatusDisplay" class="flex flex-col'), '索引状态不是两行块');
+assert(html.includes('id="indexStatusDisplay" class="grid grid-cols-[auto_auto_auto_auto]'), '索引状态不是两行四列网格');
 assert((html.match(/whitespace-nowrap/g) || []).length >= 4, '状态行缺 nowrap');
 assert(html.includes("label: '修复索引'"), '修復索引不在注册表里');
 assert(html.includes("label: '重建索引'"), '重建索引不在注册表里');

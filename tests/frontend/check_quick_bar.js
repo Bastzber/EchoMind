@@ -27,7 +27,7 @@ assert(html.includes('已索引 ${summary.ready} · 待处理 ${summary.pending}
 const headerEnd = html.indexOf('</header>');
 const statusPos = html.indexOf('id="indexStatusDisplay"');
 assert(statusPos > 0 && statusPos < headerEnd, '索引状态应在顶栏里');
-assert(html.includes('id="indexStatusDisplay" class="flex flex-col'), '索引状态不是两行');
+assert(html.includes('id="indexStatusDisplay" class="grid grid-cols-[auto_auto_auto_auto]'), '索引状态不是两行四列网格');
 
 // 顶栏保留创造/配方/描述包
 for (const id of ['sfxMenuBtn', 'recipeMenuBtn', 'descPackMenuBtn']) {

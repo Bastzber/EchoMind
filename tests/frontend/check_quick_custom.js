@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..', '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
 // 1) 索引状态是上下两行结构
-assert(html.includes('id="indexStatusDisplay" class="flex flex-col'), '索引状态不是两行结构');
+assert(html.includes('id="indexStatusDisplay" class="grid grid-cols-[auto_auto_auto_auto]'), '索引状态不是两行四列网格');
 assert((html.match(/id="audioIndexStatus"/g) || []).length === 1, '音频状态应只有一个');
 assert((html.match(/id="textIndexStatus"/g) || []).length === 1, '文本状态应只有一个');
 

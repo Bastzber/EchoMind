@@ -159,6 +159,12 @@ async function main() {
   };
   fakeContext.window = fakeContext;
   fakeContext.globalThis = fakeContext;
+  // 渲染层模块用到这些浏览器/Node 全局，vm 沙箱里默认没有
+  fakeContext.AbortController = AbortController;
+  fakeContext.setTimeout = setTimeout;
+  fakeContext.clearTimeout = clearTimeout;
+  fakeContext.URL = URL;
+  fakeContext.TextEncoder = TextEncoder;
   vm.createContext(fakeContext);
   for (const name of moduleNames) vm.runInContext(moduleSources[name], fakeContext, { filename: `${name}.js` });
   const modules = fakeContext.SoundBotRenderer;

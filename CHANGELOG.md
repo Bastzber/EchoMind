@@ -2,6 +2,26 @@
 
 All notable changes to SoundBot are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/). / 本文件记录 SoundBot 的重要变更，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0-beta.11] - 2026-10-25
+
+> 测试版 V11。这一版做的是「库整合」：把大羽音效库和你原来的两个库合并成一套 14 类体系，顺带补了转码、标签批量管理、路径修复。 / Beta 11 focuses on library consolidation: the Dayu pack and the two existing libraries now share one 14-category taxonomy, plus transcoding, batch tag management and path repair.
+
+### Added / 新增
+
+- **统一分类体系**：14 个一级 / 88 个二级，目录最多 3 层，形态词只做标签 / **Unified taxonomy**: 14 top-level and 88 second-level categories, directories never deeper than three levels, form words live in tags only
+- **库迁移工具**：dry-run 出清单、确认后批量移动并同步库内路径，带回滚清单 / **Library migration tool**: dry-run report, confirmed batch move with database path sync and a rollback manifest
+- **大羽标注导入**：一次写入 3.4 万条描述和 6 个标签，并重建标签分层 / **Dayu annotation import**: writes 34k descriptions and six tags per file in one pass and rebuilds the tag layers
+- **音频转码**：右键即可转成 WAV 或 MP3，坏文件容错解码尽量救回 / **Audio transcoding**: convert to WAV or MP3 from the context menu, tolerating broken files to salvage what decodes
+- **标签批量管理**：多选合并、删除，一键套用 21 个预设标签 / **Batch tag management**: merge or delete several tags at once and apply 21 preset tags in one click
+- **路径修复**：磁盘改名或移动后按同名同大小修正库内路径 / **Path repair**: relink database paths by name and size after folders are renamed or moved on disk
+- **描述包未匹配清单导出**：把没匹配上的条目导出 CSV / **Unmatched description export**: save unmatched pack entries as CSV
+- **时长回填脚本**：修复库内 2.8 万条时长为 0 的记录 / **Duration backfill script**: fixes 28k rows that stored a zero duration
+
+### Fixed / 修复
+
+- 搬库后时长为 0、按时长排序错乱 / Durations read zero after migration and duration sorting was wrong
+- 标签改名或合并后 files.tags 与分层标签不同步 / Renaming or merging tags left files.tags and the layered tags out of sync
+
 ## [0.3.0-beta.10] - 2026-10-24
 
 > 测试版 V10。这一版把所有 UI 修复和「应用内检查更新」都打进来了。

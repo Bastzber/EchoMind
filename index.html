@@ -791,7 +791,7 @@
         // 后端状态轮询配置
         let backendStatusCheckInterval = null;
         const BACKEND_CHECK_INTERVAL = 2000; // 每2秒检查一次
-        const BACKEND_CHECK_MAX_RETRIES = 30; // 最多重试30次（60秒）
+        const BACKEND_CHECK_MAX_RETRIES = 120; // 最多重试 120 次（约 240 秒，给 BGE/CLAP 预热留时间）
         let backendCheckRetryCount = 0;
 
         async function checkBackendHealth() {

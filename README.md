@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI 音效管理器
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.9-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.9)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.11-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.11)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -13,7 +13,9 @@
 >
 > 本地优先、AI 驱动的桌面音效管理器。
 
-**本仓库当前版本：`v0.3.0-beta.9`（测试版 V9）** · [发布页](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.9)
+当前源码版本为 **v0.3.0-beta.11（预发布）**。
+
+测试版 V11 · [发布页](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.11)
 
 > **本项目基于 [SoundBot](https://github.com/Huckrick/SoundBot) 修改而来**（原作者 Nagisa_Huckrick / 胡杨，GPL-3.0-or-later）。
 > 本仓库保留原许可证与署名，在其基础上做了中文本地化、检索链路与索引稳定性的调整，
@@ -32,7 +34,7 @@
 | **完整安装包（V6）**（约 3.3 GB） | 解压即用，**仅含软件本体，不含任何音效素材** | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
 | 一句话描述包 | 已内置在安装包根目录，无需单独下载 | `win-unpacked\EchoMind-描述包.json` |
 
-> ⚠ **源码已经到 `v0.3.0-beta.9`（测试版 V9），但网盘上放的仍是 V6 的包**，V9 安装包尚未上传。
+> ⚠ **源码已经到 `v0.3.0-beta.11`（测试版 V11），但网盘上放的仍是 V6 的包**，V11 安装包尚未上传。
 > 安装包约 3.3 GB，超过 GitHub 单附件 2 GB 上限，只能走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面只放版本说明。
 >
 > 解压后双击 `win-unpacked\EchoMind.exe` 即可运行。首次启动会加载 CLAP 模型（30~60 秒）并索引音效库。
@@ -67,7 +69,7 @@
 
 ## ✨ 功能特性
 
-| 能力 | v0.3.0-beta.9 行为 |
+| 能力 | v0.3.0-beta.11 行为 |
 | --- | --- |
 | 文件导入 | 沙箱化 preload 通过最小 IPC bridge 调用原生文件/文件夹选择器并只提交绝对路径；后端先写入 SQLite，再由可取消、可轮询的持久化作业生成波形和两个向量 |
 | 音频解码 | 固定版本 `av==18.0.0`（PyAV）及其 wheel 内 FFmpeg 动态库统一解码，不依赖系统 `ffmpeg` 命令 |

@@ -297,7 +297,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   backendStatus: {
-    waitUntilReady: (timeoutMs = 60000) => ipcRenderer.invoke('wait-backend-ready', timeoutMs),
+    waitUntilReady: (timeoutMs = 240000) => ipcRenderer.invoke('wait-backend-ready', timeoutMs),
     openLogs: () => ipcRenderer.invoke('open-log-directory')
   },
 

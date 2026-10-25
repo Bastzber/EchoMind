@@ -820,7 +820,7 @@ async function startBackend() {
       new Promise((resolve) => {
         // 冷启动（关掉所有进程后再开）实测会超过 10 秒：数据库 5 万行 + FTS + 标签表初始化
     // 都要时间，10 秒会把正常启动误判成失败。给到 45 秒，只是兜底上限。
-    handshakeTimer = setTimeout(() => resolve(null), 45000);
+    handshakeTimer = setTimeout(() => resolve(null), 240000);
       })
     ]);
     clearTimeout(handshakeTimer);
@@ -1970,7 +1970,7 @@ ipcMain.handle('dialog-save', async (event, options) => {
     }
   });
 
-  ipcMain.handle('wait-backend-ready', async (event, timeoutMs = 60000) => {
+  ipcMain.handle('wait-backend-ready', async (event, timeoutMs = 240000) => {
     const startupResult = await ensureBackendStarted();
     if (!startupResult.success) {
       return startupResult;

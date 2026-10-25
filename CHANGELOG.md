@@ -19,7 +19,7 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 - **去人声（快速）**：中置声道消除，几秒出一版伴奏 / **Vocal removal (fast)**: centre-channel cancellation produces an instrumental in seconds
 - **AI 分轨（Demucs）**：拆成人声、鼓、贝斯、其他，并另存伴奏 / **AI stem separation (Demucs)**: splits vocals, drums, bass and other, plus an instrumental mix
 - **常用工具条**：常驻一行，可用 ＋/－ 自定义，选择会记住 / **Quick actions bar**: always visible, customisable with + and −, remembered across launches
-- **导入进度**：逐文件上报 processed/total，阶段中文化（登记/解码/索引）/ **Import progress**: per-file processed/total reporting with localised stages
+- **导入进度**：逐文件上报 processed/total，阶段中文化（登记/解码/索引） / **Import progress**: per-file processed/total reporting with localised stages
 - **导入提速**：WAL + 大批量导入跳过内联向量计算，实测 3.7 → 15.8 个/秒 / **Faster imports**: WAL plus deferred vectorisation, measured 3.7 → 15.8 files/s
 
 ### Fixed / 修复

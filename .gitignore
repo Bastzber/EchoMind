@@ -194,3 +194,9 @@ coverage.xml
 htmlcov/
 migrate-plan.csv
 _tmp_*
+
+# 打包输出（体积大，绝不入库）
+dist-v11-build/
+dist-*/
+*.zip
+asar-stage/

@@ -439,8 +439,16 @@ class DatabaseManager:
                 )
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA foreign_keys=ON")
-                conn.execute("PRAGMA journal_mode=DELETE")
+                # WAL：导入时每个文件要提交好几个小事务，DELETE 模式每次 commit 都 fsync
+                # （实测 6ms/次 vs 0.03ms/次）。单进程写入，WAL 足够安全。
+                try:
+                    mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+                    if not mode or str(mode[0]).lower() != "wal":
+                        conn.execute("PRAGMA journal_mode=DELETE")
+                except sqlite3.Error:
+                    conn.execute("PRAGMA journal_mode=DELETE")
                 conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA wal_autocheckpoint=1000")
                 self._local.conn = conn
             except sqlite3.Error as e:
                 _get_logger().error(f"数据库连接失败: {e}")

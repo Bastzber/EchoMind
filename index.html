@@ -192,7 +192,7 @@
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
     
     <!-- ==================== TOP TOOLBAR ==================== -->
-    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 flex-nowrap min-w-0 overflow-x-auto transition-colors duration-300 gap-3"
+    <header class="h-14 border-b flex items-center justify-between px-4 shrink-0 flex-nowrap min-w-0 transition-colors duration-300 gap-3"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
         <!-- Left: App Name Only -->
@@ -322,10 +322,16 @@
 
 
             <!-- 索引状态（上下两行） -->
-            <div id="indexStatusDisplay" class="flex flex-col justify-center gap-0.5 px-2.5 py-1 rounded-lg border text-[11px] leading-tight shrink-0"
+            <div id="indexStatusDisplay" class="grid grid-cols-[auto_auto_auto_auto] items-center gap-x-3 gap-y-0.5 px-2.5 py-1 rounded-lg border text-[11px] leading-tight tabular-nums shrink-0"
                  style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
-                <div class="flex items-center gap-1.5 whitespace-nowrap"><span class="opacity-60">音频</span><span id="audioIndexStatus" class="font-mono">已索引 0 · 待处理 0</span></div>
-                <div class="flex items-center gap-1.5 whitespace-nowrap"><span class="opacity-60">文本</span><span id="textIndexStatus" class="font-mono">已索引 0 · 待处理 0</span></div>
+                <span class="opacity-60">音频</span>
+                <span>已索引 <span id="audioIndexStatus" class="font-mono">0</span></span>
+                <span>待处理 <span id="audioPendingStatus" class="font-mono">0</span></span>
+                <span>失败 <span id="audioFailedStatus" class="font-mono">0</span></span>
+                <span class="opacity-60">文本</span>
+                <span>已索引 <span id="textIndexStatus" class="font-mono">0</span></span>
+                <span>待处理 <span id="textPendingStatus" class="font-mono">0</span></span>
+                <span>失败 <span id="textFailedStatus" class="font-mono">0</span></span>
             </div>
             <span class="help-dot" data-help="索引状态&#10;&#10;上排音频：听感指纹，用于按声音找相似。&#10;下排文本：文件名/标签/描述编成向量，用于按描述搜。&#10;已索引 = 可用，待处理 = 排队中，失败 = 解不出（多为文件损坏）。&#10;状态不对时点常用条里的「修复索引」「重建索引」。">?</span>
             <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs shrink-0"></span>
@@ -1292,16 +1298,16 @@
                 const status = await rendererProjects.indexStatus(currentProject?.id || 'default');
                 const audio = rendererProjects.artifactSummary(status, 'audio_vector');
                 const text = rendererProjects.artifactSummary(status, 'text_vector');
-                const audioElement = document.getElementById('audioIndexStatus');
-                const textElement = document.getElementById('textIndexStatus');
-                if (audioElement) {
-                    audioElement.textContent = formatIndexArtifactStatus(audio);
-                    audioElement.title = `ready=${audio.ready}, pending=${audio.pending}, failed=${audio.failed}`;
-                }
-                if (textElement) {
-                    textElement.textContent = formatIndexArtifactStatus(text);
-                    textElement.title = `ready=${text.ready}, pending=${text.pending}, failed=${text.failed}`;
-                }
+                const setNum = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = String(Number(value || 0));
+                };
+                setNum('audioIndexStatus', audio.ready);
+                setNum('audioPendingStatus', audio.pending);
+                setNum('audioFailedStatus', audio.failed);
+                setNum('textIndexStatus', text.ready);
+                setNum('textPendingStatus', text.pending);
+                setNum('textFailedStatus', text.failed);
                 return status;
             } catch (error) {
                 console.error('[Index] 加载工程索引状态失败:', error);
@@ -3534,17 +3540,14 @@
                 container.appendChild(hint);
             }
 
+            // 左侧标签面板只列「用户自己建的标签」（tags 表）；
+            // 每个音效自带的标签（大羽 6 维标注等）在主列表里显示，不在这里刷屏。
             const tagCounts = {};
-            (window.__tagStats || []).forEach(item => {
-                const name = item && (item.name || item.tag);
+            const layeredNow = window.__tagLayers || { scene: [], attr: [] };
+            [...(layeredNow.scene || []), ...(layeredNow.attr || [])].forEach((item) => {
+                const name = item && item.name;
                 if (name) tagCounts[name] = Number(item.count) || 0;
             });
-            soundData.forEach(s => (s.tags || []).forEach(t => {
-                if (t && typeof t === 'string' && t.trim()) {
-                    const name = t.trim();
-                    if (!(name in tagCounts)) tagCounts[name] = 0;
-                }
-            }));
             (window.__localTags || []).forEach(name => {
                 if (name && !(name in tagCounts)) tagCounts[name] = 0;
             });
@@ -10159,6 +10162,8 @@
             applyViewMode();
             document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
             document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));
+            // 启动时详情面板默认收起（用户点「详情」才展开）
+            setDetailPanelOpen(false);
 
             initAudioPlayer();
             bindPlayerContextMenu();

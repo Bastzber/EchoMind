@@ -1456,6 +1456,7 @@ function createWindow() {
     minWidth: Math.min(1280, require('electron').screen.getPrimaryDisplay().workAreaSize.width),
     minHeight: 720,
     title: '回声 - AI 音效管理器',
+    icon: path.join(__dirname, 'assets', 'audio-icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

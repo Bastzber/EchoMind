@@ -41,6 +41,17 @@ $env:PATH = '<npm 垫片目录>;<DSH node 所在 bin>;' + $env:PATH
 `require('electron')` + 内置模块，所以那是真实结果，不是糊弄 electron-builder。
 跑完 zip 名是 `EchoMind-<版本>-win.zip`，按习惯改名成 `EchoMind测试版V9.zip` 即可。
 
+## 一·三、导入性能与标签清理（2026-10-25 晚）
+
+- 标签全部清空：3,994 个标签 / 236,155 条关联已删除，备份在
+  `%APPDATA%\EchoMind\backups\tags-backup-20261025-201204.json`（28.5 MB）
+- FTS 用 `ensure_fts` 整表重建（5.7 秒），比逐行 update_fts_row 快两个数量级
+- SQLite 改 WAL：`PRAGMA journal_mode=WAL`，小事务提交从 6ms 降到 0.03ms
+- 导入进度：候选阶段每 0.5 秒上报 processed/total；前端显示「正在登记文件 X/Y（Z%）」
+- 导入提速：文件数 > `IMPORT_INLINE_INDEX_LIMIT`(500) 时跳过内联向量计算，
+  标记 pending 后交给后台对账，实测 3.7 → 15.8 个/秒
+- 注意：WAL 模式下备份数据库要先 `PRAGMA wal_checkpoint(TRUNCATE)`，否则 -wal 里的数据不在 .db 里
+
 ## 一·四、0.3.0-beta.11 新增（常用条 / 分轨）
 
 - 顶栏：文件、导入、导入描述包、创造音效、拟音工坊、模型状态、索引状态（音频/文本两行）、设置

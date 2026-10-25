@@ -8517,24 +8517,31 @@
             const progressText = scanProgressModal.querySelector('.progress-text');
             const currentFileText = scanProgressModal.querySelector('.current-file');
 
-            if (data.progress !== undefined) {
-                progressBar.style.width = `${data.progress}%`;
-            }
+            const total = Number(data.total || 0);
+            const scanned = Number(data.scanned ?? data.processed ?? 0);
+            const percent = data.progress !== undefined && data.progress !== null
+                ? Number(data.progress)
+                : (total ? Math.min(100, Math.round((scanned / total) * 100)) : 0);
+            if (progressBar) progressBar.style.width = percent + '%';
 
-            // 根据状态显示不同的进度文本
+            // 后端阶段名 -> 用户能看懂的说法
             const statusMap = {
-                'scanning': i18n.t('status.scanning'),
-                'analyzing': i18n.t('status.analyzing'),
-                'saving': i18n.t('status.saving'),
-                'indexing': i18n.t('status.indexing'),
-                'processing': i18n.t('status.processing')
+                'scanning': '正在扫描文件',
+                'preparing': '正在登记文件',
+                'decoding': '正在解码分析',
+                'analyzing': '正在分析音频',
+                'saving': '正在写入数据库',
+                'indexing': '正在生成索引',
+                'processing': '正在处理'
             };
-            const statusText = statusMap[data.status] || i18n.t('status.processing');
+            const statusText = statusMap[data.status] || statusMap['processing'];
 
-            if (data.scanned !== undefined && data.total !== undefined) {
-                progressText.textContent = `${statusText}: ${data.scanned} / ${data.total} (${data.progress || 0}%)`;
+            if (progressText) {
+                progressText.textContent = total
+                    ? statusText + '：' + scanned + ' / ' + total + '（' + percent + '%）'
+                    : statusText + '…（正在统计文件数量）';
             }
-            if (data.current_file) {
+            if (currentFileText && data.current_file) {
                 currentFileText.textContent = data.current_file;
             }
         }

@@ -84,7 +84,7 @@ async function main() {
   assert(moduleSources.waveform.includes('value.length > 0 && value.every(Number.isFinite)'), 'strict waveform validation is missing');
   assert(moduleSources.waveform.includes('const layerCache = new WeakMap()'), 'offscreen waveform cache is missing');
   assert(moduleSources.waveform.includes('inactiveLayer') && moduleSources.waveform.includes('activeLayer'), 'static waveform layers are missing');
-  assert(moduleSources.audio.includes("['aif', 'aiff', 'm4a', 'aac', 'wma']"), 'transcode extension list is incomplete');
+  assert(moduleSources.audio.includes("['aif', 'aiff', 'm4a', 'aac', 'wma', 'wav', 'caf']"), 'transcode extension list is incomplete');
   assert(moduleSources.audio.includes('/playback-source?project_id='), 'file-ID playback-source endpoint is missing');
   assert(moduleSources.projects.includes('/index/reconcile') && moduleSources.projects.includes('/index/rebuild'), 'project index actions are missing');
   assert(moduleSources.projects.includes('/api/v1/files?'), 'cursor files endpoint is missing');
@@ -177,7 +177,13 @@ async function main() {
     query: ' hit ', topK: 10000, threshold: 2, page: 0, pageSize: 50, projectId: 'project-a'
   });
   assert.strictEqual(payload.query, 'hit');
-  assert.strictEqual(payload.top_k, 1000);
+  // top_k 原样透传（未超上限），超上限才收敛到 MAX_TOP_K
+  assert.strictEqual(payload.top_k, 10000);
+  assert.strictEqual(
+    modules.search.buildPayload({ query: 'x', topK: 999999, projectId: 'p' }).top_k,
+    50000,
+    'top_k 没有收敛到上限'
+  );
   assert.strictEqual(payload.threshold, 1);
   assert.strictEqual(payload.page, 1);
   assert.strictEqual(payload.project_id, 'project-a');

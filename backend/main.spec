@@ -62,6 +62,9 @@ hiddenimports = []
 # 需要完整收集的包（数据文件 + 二进制扩展 + 子模块）
 # 这些包含有 PyInstaller 无法自动发现的运行时数据文件
 _collect_all_packages = [
+    'demucs',                # AI 分轨（运行时按名字加载子模块与 yaml）
+    'julius',                # demucs 依赖的音频重采样
+    'openunmix',             # demucs 依赖的分离后端
     'jieba',                 # 中文分词词典
     'tokenizers',            # Rust 原生扩展
     'safetensors',           # Rust 原生扩展

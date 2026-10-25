@@ -101,6 +101,11 @@ _executor = ThreadPoolExecutor(max_workers=4)
 _model_executor = ThreadPoolExecutor(max_workers=1)
 _project_index_locks: Dict[str, asyncio.Lock] = {}
 _projects_deleting: set[str] = set()
+
+# 大批量导入时不在导入循环里逐条算 CLAP/BGE 向量
+# （每文件 ~50ms，7 万条要好几个小时）；先入库 + 波形，向量标记 pending，
+# 交给后台对账任务按批计算。
+IMPORT_INLINE_INDEX_LIMIT = 500
 _automatic_index_tasks: Dict[str, Dict[str, Any]] = {}
 _shutting_down = False
 
@@ -945,6 +950,13 @@ async def _import_selected_files_task_locked(
     added = 0
     failed = 0
     try:
+        _last_index_report = 0.0
+        defer_vectors = len(file_paths) > IMPORT_INLINE_INDEX_LIMIT
+        if defer_vectors:
+            logger.info(
+                "[IMPORT] 本次 %d 个文件，跳过逐条向量计算，交给后台批量处理", len(file_paths)
+            )
+
         for index, file_path in enumerate(file_paths):
             job = db_manager.get_job(job_id)
             if (job and job["cancel_requested"]) or ws_manager.is_task_cancelled(job_id):
@@ -1005,7 +1017,7 @@ async def _import_selected_files_task_locked(
                     error_code=waveform_error.code,
                     error_message=waveform_error.message,
                 )
-            if is_embedder_available():
+            if is_embedder_available() and not defer_vectors:
                 try:
                     indexer = _get_active_audio_indexer(project_id)
                     indexed = await _run_model_work(
@@ -1039,14 +1051,23 @@ async def _import_selected_files_task_locked(
                         project_id, file_uuid, "audio_vector", "failed",
                         error_code="audio_index_failed", error_message=str(exc),
                     )
-            await _index_text_metadata_artifact(
-                project_id,
-                file_uuid,
-                audio_file,
-                tags=existing.tags if existing else "[]",
-                folder_context=folder_context,
-            )
-            db_manager.update_job(job_id, processed=index + 1, stage="indexing")
+            if defer_vectors:
+                db_manager.set_artifact_state(
+                    project_id, file_uuid, "audio_vector", "pending",
+                    source_fingerprint=source_fp.source_key,
+                )
+            else:
+                await _index_text_metadata_artifact(
+                    project_id,
+                    file_uuid,
+                    audio_file,
+                    tags=existing.tags if existing else "[]",
+                    folder_context=folder_context,
+                )
+            _now_index = time.monotonic()
+            if _now_index - _last_index_report >= 0.5 or index + 1 == len(file_paths):
+                _last_index_report = _now_index
+                db_manager.update_job(job_id, processed=index + 1, stage="indexing")
             await ws_manager.send_scan_progress(
                 client_id,
                 job_id,
@@ -1057,6 +1078,12 @@ async def _import_selected_files_task_locked(
                 progress=int(((index + 1) / len(file_paths)) * 100),
             )
         await _bump_project_index_revision(project_id)
+        if defer_vectors:
+            try:
+                await asyncio.sleep(1.0)
+                _schedule_project_reconcile(project_id, ("audio_vector", "text_vector"), reason="bulk_import")
+            except Exception as exc:
+                logger.debug("调度批量索引进程失败: %s", exc)
         db_manager.update_job(
             job_id,
             state="completed",
@@ -1573,6 +1600,12 @@ async def _scan_and_import_task_locked(
         db_manager.update_job(task_id, total=total)
         candidates: Dict[str, Dict[str, Any]] = {}
         added = 0
+        # 每个文件都要入库/探测，这一段是导入最慢的部分。
+        # 之前这里从不更新 processed，前端只能看到"共 N 条"却一直没有进度，
+        # 用户会以为卡死。现在按时间节流上报进度（每 0.5 秒一次）。
+        import time as _time
+
+        _last_report = 0.0
         for candidate_index, candidate_path in enumerate(candidate_paths):
             if ws_manager.is_task_cancelled(task_id):
                 db_manager.update_job(
@@ -1593,7 +1626,18 @@ async def _scan_and_import_task_locked(
             if not candidate["existing"]:
                 added += 1
 
+            now = _time.monotonic()
+            if now - _last_report >= 0.5 or candidate_index + 1 == total:
+                _last_report = now
+                db_manager.update_job(
+                    task_id,
+                    stage="preparing",
+                    processed=candidate_index + 1,
+                    total=total,
+                )
+
         # Decode/probe only after SQLite owns the candidate set.
+        db_manager.update_job(task_id, stage="decoding", processed=total, total=total)
         audio_files, folder_structure = await _run_audio_work(
             scanner.scan_with_structure, folder_path, recursive
         )
@@ -1671,7 +1715,16 @@ async def _scan_and_import_task_locked(
         vector_pending: List[Tuple[str, str, Dict[str, Any], Optional[str]]] = []
         text_pending: List[Tuple[str, Any, str]] = []
 
+        # 大批量导入：向量/文本索引整批交给后台对账，导入只负责入库 + 波形。
+        # 逐批算 CLAP/BGE 会让导入慢到 250ms/文件（7 万条要好几个小时）。
+        defer_vectors = total > IMPORT_INLINE_INDEX_LIMIT
+        if defer_vectors:
+            logger.info("[IMPORT] 文件数 %d 超过 %d，导入阶段跳过向量计算，交给后台批量处理",
+                        total, IMPORT_INLINE_INDEX_LIMIT)
+
+        _ws_loop_start = 0.0
         for i, audio_file in enumerate(audio_files):
+            _iter_start = time.monotonic()
             # 检查是否取消
             if ws_manager.is_task_cancelled(task_id):
                 await ws_manager.send_scan_complete(
@@ -1740,6 +1793,7 @@ async def _scan_and_import_task_locked(
                 progress=int(70 + progress_pct * 0.15)
             )
 
+            _t_write_start = time.monotonic()
             # 写入数据库（使用当前工程ID）
             record = AudioFileRecord(
                 path=audio_file.path,
@@ -1778,7 +1832,7 @@ async def _scan_and_import_task_locked(
                 )
 
                 try:
-                    if is_embedder_available():
+                    if is_embedder_available() and not defer_vectors:
                         vector_pending.append((
                             file_uuid,
                             audio_file.path,
@@ -1797,17 +1851,45 @@ async def _scan_and_import_task_locked(
                         if len(vector_pending) >= 32:
                             indexed += await _flush_vector_batch(vector_pending, project_id)
                             vector_pending = []
+                    elif defer_vectors:
+                        db_manager.set_artifact_state(
+                            project_id, file_uuid, "audio_vector", "pending",
+                            source_fingerprint=source_fingerprint,
+                        )
                 except Exception as e:
                     logger.warning(f"生成语义索引失败 {audio_file.path}: {e}")
                     db_manager.set_artifact_state(
                         project_id, file_uuid, "audio_vector", "failed",
                         error_code="audio_index_failed", error_message=str(e),
                     )
-                text_pending.append((file_uuid, audio_file, existing_record.tags if existing_record else "[]"))
-                if len(text_pending) >= 32:
-                    await _flush_text_batch(text_pending, project_id, folder_context)
-                    text_pending = []
+                if defer_vectors:
+                    db_manager.set_artifact_state(
+                        project_id, file_uuid, "text_vector", "pending",
+                        source_fingerprint=source_fingerprint,
+                    )
+                else:
+                    text_pending.append((file_uuid, audio_file, existing_record.tags if existing_record else "[]"))
+                    if len(text_pending) >= 32:
+                        await _flush_text_batch(text_pending, project_id, folder_context)
+                        text_pending = []
+            _t_before_job = time.monotonic()
             db_manager.update_job(task_id, processed=i + 1, stage="indexing")
+            if os.getenv("ECHOMIND_IMPORT_PROFILE") == "1" and i < 40:
+                logger.info(
+                    "[IMPORT_PROFILE] %s iter=%.0fms write=%.0fms job=%.0fms",
+                    audio_file.filename,
+                    (time.monotonic() - _iter_start) * 1000,
+                    (_t_before_job - _t_write_start) * 1000,
+                    (time.monotonic() - _t_before_job) * 1000,
+                )
+
+        if defer_vectors:
+            try:
+                await asyncio.sleep(1.0)
+                _schedule_project_reconcile(project_id, ("audio_vector", "text_vector"), reason="bulk_import")
+                logger.info("[IMPORT] 已调度后台批量索引")
+            except Exception as exc:
+                logger.debug("调度批量索引失败: %s", exc)
 
         # 循环结束：flush 剩余的批量向量/文本索引
         if vector_pending:

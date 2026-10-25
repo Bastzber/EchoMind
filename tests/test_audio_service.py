@@ -56,7 +56,7 @@ class AudioServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             set(AUDIO_FORMAT_CAPABILITIES),
-            {'.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac', '.wma'},
+            {'.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac', '.wma', '.caf'},
         )
         self.assertEqual(AUDIO_FORMAT_CAPABILITIES, manifest["formats"])
 

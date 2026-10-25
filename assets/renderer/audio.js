@@ -2,7 +2,7 @@
     'use strict';
 
     const namespace = global.SoundBotRenderer = global.SoundBotRenderer || {};
-    const TRANSCODE_EXTENSIONS = new Set(['aif', 'aiff', 'm4a', 'aac', 'wma', 'wav']);
+    const TRANSCODE_EXTENSIONS = new Set(['aif', 'aiff', 'm4a', 'aac', 'wma', 'wav', 'caf']);
     const playbackSourceCache = new Map();
 
     function extensionOf(sound) {

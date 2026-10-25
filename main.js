@@ -10,6 +10,8 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const net = require('net');
+const crypto = require('crypto');
+const fsSync = fs;   // 增量更新里用到同步 API（existsSync/createReadStream）
 const audioCapabilityManifest = require('./config/audio_capabilities.json');
 const supportedAudioExtensions = new Set(Object.keys(audioCapabilityManifest.formats || {}));
 const supportedAudioFilterExtensions = [...supportedAudioExtensions].map((value) => value.slice(1));
@@ -2063,6 +2065,94 @@ ipcMain.handle('dialog-save', async (event, options) => {
     }
     return null;
   }
+
+
+  // ===== 增量更新 =====
+  // 安装目录只放程序；用户数据在 %APPDATA%\\EchoMind，更新绝不碰它。
+  const UPDATER_BACKUP_ROOT = () => path.join(app.getPath('userData'), 'update-backup');
+  const updaterApply = require(path.join(__dirname, 'lib', 'updater-apply.js'));
+
+  ipcMain.handle('updater-pick', async () => {
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: '选择增量更新包',
+      filters: [{ name: '更新包', extensions: ['zip'] }],
+      properties: ['openFile']
+    });
+    if (picked.canceled || !picked.filePaths.length) return { canceled: true };
+    return { canceled: false, zipPath: picked.filePaths[0] };
+  });
+
+  ipcMain.handle('updater-inspect', async (event, zipPath) => {
+    try {
+      if (!zipPath || !fsSync.existsSync(zipPath)) return { ok: false, error: '更新包不存在' };
+      const installRoot = path.dirname(app.getPath('exe'));
+      const { manifest, plan } = await updaterApply.inspect(zipPath, installRoot);
+      return {
+        ok: true,
+        installRoot,
+        version: manifest.version,
+        baseVersion: manifest.baseVersion,
+        createdAt: manifest.createdAt,
+        fileCount: manifest.files.length,
+        replaceCount: plan.replace.length,
+        replaceBytes: plan.replaceBytes,
+        totalBytes: plan.totalBytes,
+        removeCount: plan.remove.length,
+        upToDate: plan.upToDate,
+        files: plan.replace.slice(0, 40).map((item) => ({ path: item.path, size: item.size })),
+        removeFiles: plan.remove.slice(0, 40)
+      };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('updater-apply', async (event, zipPath) => {
+    const installRoot = path.dirname(app.getPath('exe'));
+    let backupRoot = UPDATER_BACKUP_ROOT();
+    try {
+      return await updaterApply.apply(zipPath, installRoot, backupRoot);
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle('updater-restart', async () => {
+    app.relaunch();
+    app.exit(0);
+    return { ok: true };
+  });
+
+  ipcMain.handle('updater-download', async (event, url, options = {}) => {
+    try {
+      const target = path.join(app.getPath('temp'), 'echomind-update-' + Date.now() + '.zip');
+      const response = await fetch(url, { redirect: 'follow' });
+      if (!response.ok || !response.body) {
+        return { ok: false, error: '下载失败: HTTP ' + response.status };
+      }
+      const total = Number(response.headers.get('content-length') || 0);
+      const fileStream = fsSync.createWriteStream(target);
+      let received = 0;
+      const reader = response.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.length;
+        if (!fileStream.write(Buffer.from(value))) {
+          await new Promise((resolve) => fileStream.once('drain', resolve));
+        }
+        if (total) {
+          event.sender.send('updater-progress', {
+            received, total, percent: Math.round((received / total) * 100)
+          });
+        }
+      }
+      await new Promise((resolve) => fileStream.end(resolve));
+      return { ok: true, zipPath: target, size: received };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
 
   ipcMain.handle('app-version', () => app.getVersion());
 

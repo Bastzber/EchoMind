@@ -392,6 +392,10 @@
                         <span data-i18n="settings.ai">AI 设置</span>
                     </button>
 
+                    <button id="installUpdateBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2" title="选择你下载好的增量更新包（.zip）">
+                        <i data-lucide="package-open" class="w-4 h-4"></i>
+                        <span>安装更新包…</span>
+                    </button>
                     <button id="openSkinBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="palette" class="w-4 h-4"></i>
                         <span>外观 / 皮肤</span>
@@ -7705,6 +7709,56 @@
             if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
         }
 
+        function formatBytesText(value) {
+            const size = Number(value || 0);
+            if (size < 1024) return size + ' B';
+            if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
+            if (size < 1024 * 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + ' MB';
+            return (size / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        // 安装本地增量更新包：只替换变化的文件，不碰 %APPDATA% 里的用户数据
+        async function installLocalUpdate() {
+            const api = window.electronAPI?.updates;
+            if (!api?.pickLocal) { showNotification('当前环境不支持本地更新', 'info'); return; }
+            const picked = await api.pickLocal();
+            if (!picked || picked.canceled || !picked.zipPath) return;
+
+            const info = await api.inspect(picked.zipPath);
+            if (!info || !info.ok) {
+                showNotification('无法读取更新包: ' + (info?.error || '未知错误'), 'error');
+                return;
+            }
+            if (info.upToDate) {
+                showNotification('当前已经是 v' + (info.version || '该版本') + '，无需更新', 'success');
+                return;
+            }
+            const lines = [
+                '更新包版本：v' + (info.version || '未知'),
+                info.baseVersion ? '适配版本：v' + info.baseVersion : '',
+                '',
+                '需要替换 ' + info.replaceCount + ' 个文件（约 ' + formatBytesText(info.replaceBytes) + '）',
+                info.removeCount ? '需要删除 ' + info.removeCount + ' 个旧文件' : '',
+                '',
+                '标签、界面布局、皮肤等用户数据不会受影响。',
+                '继续安装？'
+            ].filter(Boolean);
+            if (!confirm(lines.join('\n'))) return;
+
+            showNotification('正在应用更新，请不要关闭软件…', 'info');
+            const result = await api.apply(picked.zipPath);
+            if (!result || !result.ok) {
+                showNotification('更新失败: ' + (result?.error || '未知错误'), 'error');
+                return;
+            }
+            const summary = '更新完成：替换 ' + (result.replaced || 0) + ' 个文件'
+                + (result.removed ? '，清理 ' + result.removed + ' 个旧文件' : '');
+            showNotification(summary, 'success');
+            if (confirm(summary + '\n\n需要重启才能生效，现在重启吗？')) {
+                await api.restart();
+            }
+        }
+
         async function checkForUpdatesFromMenu() {
             if (!window.electronAPI?.updates) {
                 showNotification('当前环境不支持检查更新', 'info');
@@ -11720,6 +11774,11 @@
 
             // ==================== SETTINGS MODAL ====================
             // 打开 AI 设置按钮（导航栏）
+            document.getElementById('installUpdateBtn')?.addEventListener('click', () => {
+                document.getElementById('settingsDropdown')?.classList.add('hidden');
+                installLocalUpdate();
+            });
+
             document.getElementById('openSkinBtn')?.addEventListener('click', () => {
                 document.getElementById('settingsDropdown')?.classList.add('hidden');
                 showSkinModal();

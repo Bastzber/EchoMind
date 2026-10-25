@@ -106,7 +106,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updates: {
     check: () => ipcRenderer.invoke('check-update'),
     version: () => ipcRenderer.invoke('app-version'),
-    openExternal: (url) => ipcRenderer.invoke('open-external', url)
+    openExternal: (url) => ipcRenderer.invoke('open-external', url),
+    // 增量更新
+    pickLocal: () => ipcRenderer.invoke('updater-pick'),
+    inspect: (zipPath) => ipcRenderer.invoke('updater-inspect', zipPath),
+    apply: (zipPath) => ipcRenderer.invoke('updater-apply', zipPath),
+    restart: () => ipcRenderer.invoke('updater-restart'),
+    download: (url, options) => ipcRenderer.invoke('updater-download', url, options || {}),
+    onProgress: (callback) => {
+      const handler = (event, payload) => callback(payload);
+      ipcRenderer.on('updater-progress', handler);
+      return () => ipcRenderer.removeListener('updater-progress', handler);
+    }
   },
 
   // 菜单事件监听

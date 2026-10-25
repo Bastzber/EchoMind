@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "note": "方案A：只用于自动归类的精确关键词，匹配文件名；单字词不参与自动判定",
+  "version": 2,
+  "note": "方案A：精确关键词，纯文件名匹配；单字词与 ambiguous 列表不参与自动判定",
   "ambiguous": [
     "gear",
     "脉冲"
@@ -94,7 +94,10 @@
         "语音",
         "台词",
         "speech",
-        "voice line"
+        "voice line",
+        "对白",
+        "voice",
+        "dialog"
       ],
       "情绪发声": [
         "尖叫",
@@ -104,7 +107,15 @@
         "叹息",
         "scream",
         "laugh",
-        "cry"
+        "cry",
+        "笑声",
+        "奸笑",
+        "大笑",
+        "冷笑",
+        "抽泣",
+        "咳嗽",
+        "打哈欠",
+        "giggle"
       ],
       "群众反应": [
         "人群",
@@ -112,7 +123,11 @@
         "掌声",
         "欢呼",
         "crowd",
-        "applause"
+        "applause",
+        "人群声",
+        "群众声",
+        "喝彩",
+        "crowd cheer"
       ],
       "呼吸与喘息": [
         "呼吸",
@@ -120,7 +135,9 @@
         "叹气",
         "打鼾",
         "breath",
-        "pant"
+        "pant",
+        "喘息",
+        "呼吸声"
       ],
       "身体动作": [
         "心跳",
@@ -199,14 +216,23 @@
         "哐",
         "metal",
         "clang",
-        "bell hit"
+        "bell hit",
+        "叮",
+        "钟声",
+        "chime",
+        "chimes",
+        "bell",
+        "clink",
+        "metal hit"
       ],
       "玻璃": [
         "玻璃",
         "碎玻璃",
         "杯子碎",
         "glass break",
-        "shatter"
+        "shatter",
+        "玻璃碎",
+        "glass"
       ],
       "石土": [
         "石头",
@@ -216,7 +242,11 @@
         "碎石",
         "rock",
         "gravel",
-        "dirt"
+        "dirt",
+        "石块",
+        "沙石",
+        "爆碎",
+        "碎裂"
       ],
       "木材": [
         "木头",
@@ -225,7 +255,10 @@
         "木板",
         "木棍",
         "wood",
-        "plank"
+        "plank",
+        "木块",
+        "木箱",
+        "木门"
       ],
       "塑料": [
         "塑料",
@@ -248,7 +281,16 @@
         "刮擦",
         "impact",
         "thud",
-        "scrape"
+        "scrape",
+        "击打",
+        "打击",
+        "搏斗",
+        "打架",
+        "斗殴",
+        "打击声",
+        "hit",
+        "punch",
+        "slap"
       ]
     },
     "机械与工业": {
@@ -257,7 +299,11 @@
         "电机",
         "电动机",
         "传送带",
-        "motor whir"
+        "motor whir",
+        "齿轮声",
+        "电机声",
+        "马达声",
+        "motor loop"
       ],
       "工业设备": [
         "工业",
@@ -265,7 +311,10 @@
         "冲压",
         "压缩机",
         "factory",
-        "industrial"
+        "industrial",
+        "机器运转",
+        "工厂环境",
+        "machine loop"
       ],
       "气动与液压": [
         "气动",
@@ -292,7 +341,9 @@
         "钻墙",
         "drill",
         "jackhammer",
-        "construction"
+        "construction",
+        "电钻声",
+        "钻孔声"
       ]
     },
     "武器与爆破": {
@@ -310,14 +361,23 @@
         "刀剑",
         "长矛",
         "sword",
-        "blade"
+        "blade",
+        "挥剑",
+        "刀光",
+        "剑击",
+        "sword swing",
+        "blade swing"
       ],
       "爆炸": [
         "爆炸",
         "爆破",
         "炸弹",
         "explosion",
-        "blast"
+        "blast",
+        "爆碎",
+        "爆炸音",
+        "explo",
+        "blast wave"
       ],
       "弹药与飞行": [
         "弹壳",
@@ -376,7 +436,12 @@
         "抽屉",
         "door open",
         "door close",
-        "window"
+        "window",
+        "门吱",
+        "门把手",
+        "窗户",
+        "抽屉开",
+        "door creak"
       ],
       "工具": [
         "锤子",
@@ -386,7 +451,11 @@
         "钳",
         "hammer",
         "screwdriver",
-        "saw"
+        "saw",
+        "电锯",
+        "角磨机",
+        "砂纸",
+        "chisel"
       ],
       "厨房": [
         "厨房",
@@ -396,7 +465,13 @@
         "水龙头",
         "餐具",
         "cooking",
-        "pan"
+        "pan",
+        "锅铲",
+        "炒锅",
+        "水壶",
+        "烧水",
+        "kettle",
+        "frying"
       ],
       "家具": [
         "椅子",
@@ -437,7 +512,10 @@
         "闪光灯",
         "摄像机",
         "camera shutter",
-        "dslr"
+        "dslr",
+        "相机快门",
+        "快门声",
+        "shutter"
       ],
       "灯光装置": [
         "灯泡",
@@ -451,14 +529,26 @@
         "足球",
         "跳绳",
         "跑步机",
-        "ball bounce"
+        "ball bounce",
+        "球落地",
+        "球弹跳",
+        "ball hit",
+        "bounce ball"
       ],
       "钥匙钱币与小物": [
         "钥匙",
         "硬币",
         "零钱",
         "key jingle",
-        "coin"
+        "coin",
+        "数钱",
+        "点钞",
+        "钞票",
+        "钱币",
+        "硬币落",
+        "钥匙串",
+        "coin drop",
+        "coins"
       ]
     },
     "电子与界面": {
@@ -468,21 +558,33 @@
         "设备反馈",
         "notification",
         "beep",
-        "ui sound"
+        "ui sound",
+        "deny",
+        "confirm",
+        "error tone",
+        "progress tone",
+        "ui feedback"
       ],
       "数字故障": [
         "故障",
         "电流噪声",
         "信号干扰",
         "glitch",
-        "digital noise"
+        "digital noise",
+        "warp",
+        "glitchy",
+        "dirty warp",
+        "distort"
       ],
       "按钮交互": [
         "按钮音",
         "点击音",
         "按下音",
         "click button",
-        "ui click"
+        "ui click",
+        "按钮声",
+        "button press",
+        "ui tap"
       ],
       "游戏与卡通": [
         "卡通",
@@ -539,7 +641,11 @@
         "激光",
         "充能",
         "energy",
-        "laser"
+        "laser",
+        "光能",
+        "能量波",
+        "energy wave",
+        "charge up"
       ],
       "魔法": [
         "魔法",
@@ -547,20 +653,31 @@
         "法术",
         "咒语",
         "magic",
-        "spell"
+        "spell",
+        "施法声",
+        "法术声",
+        "召唤",
+        "技能",
+        "咒语声",
+        "magic cast",
+        "spell cast",
+        "summon"
       ],
       "科幻装置": [
         "传送",
         "护盾",
         "科幻界面",
         "sci-fi device",
-        "teleport"
+        "teleport",
+        "科幻装置"
       ],
       "飞船": [
         "飞船",
         "宇宙飞船",
         "space ship",
-        "ufo"
+        "ufo",
+        "飞船引擎",
+        "starship"
       ]
     },
     "脚步与服装": {
@@ -572,7 +689,12 @@
         "皮鞋",
         "footstep",
         "walk",
-        "run"
+        "run",
+        "走路声",
+        "奔跑声",
+        "踏步",
+        "步伐",
+        "footsteps"
       ],
       "衣物": [
         "衣服",
@@ -587,7 +709,13 @@
         "盔甲",
         "背包",
         "佩戴",
-        "armor"
+        "armor",
+        "搬",
+        "抬起",
+        "重物",
+        "扛",
+        "lift",
+        "carry"
       ]
     },
     "自然与天气": {
@@ -599,7 +727,16 @@
         "溪流",
         "water",
         "river",
-        "ocean"
+        "ocean",
+        "冒泡",
+        "气泡",
+        "水泡",
+        "滴水",
+        "水流",
+        "水滴",
+        "bubble",
+        "drip",
+        "splash"
       ],
       "雨": [
         "下雨",
@@ -610,7 +747,10 @@
         "大风",
         "呼啸",
         "wind",
-        "gust"
+        "gust",
+        "气流",
+        "风声",
+        "wind loop"
       ],
       "雷": [
         "打雷",
@@ -622,7 +762,11 @@
         "篝火",
         "燃烧",
         "fire",
-        "flame"
+        "flame",
+        "火苗",
+        "燃烧声",
+        "篝火声",
+        "flame burst"
       ]
     },
     "转场与设计": {
@@ -630,20 +774,28 @@
         "冲击",
         "重音",
         "impact hit",
-        "boom"
+        "boom",
+        "impact",
+        "hit accent"
       ],
       "持续氛围": [
         "氛围",
         "铺底",
         "ambience bed",
-        "drone"
+        "drone",
+        "氛围铺底",
+        "ambience loop"
       ],
       "掠过": [
         "掠过",
         "呼啸而过",
         "swish",
         "whoosh",
-        "fly by"
+        "fly by",
+        "swing",
+        "swoosh",
+        "掠过声",
+        "flyby"
       ],
       "上升": [
         "上升",
@@ -688,7 +840,10 @@
         "完整音乐",
         "背景音乐",
         "score",
-        "soundtrack"
+        "soundtrack",
+        "完整曲",
+        "完整配乐",
+        "full track"
       ],
       "氛围配乐": [
         "氛围音乐",
@@ -706,7 +861,11 @@
         "鼓点",
         "节奏型",
         "loop",
-        "beat"
+        "beat",
+        "循环节拍",
+        "鼓循环",
+        "beat loop",
+        "drum loop"
       ],
       "乐器单音": [
         "钢琴",
@@ -717,7 +876,16 @@
         "鼓单击",
         "piano",
         "guitar",
-        "violin"
+        "violin",
+        "锣",
+        "钟琴",
+        "木琴",
+        "小鼓",
+        "大鼓",
+        "镲",
+        "chime hit",
+        "gong",
+        "xylophone"
       ],
       "标识与片头": [
         "片头",

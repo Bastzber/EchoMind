@@ -90,6 +90,17 @@ def plan_moves(rows, index):
         if len(hits) == 1:
             (level1, level2), words = next(iter(hits.items()))
             auto.append((path, level1, level2, '+'.join(sorted(set(words))), 'filename'))
+            continue
+
+        # 多类命中：按"最长关键词"消歧（越长越具体），唯一最长才采用
+        ranked = sorted(
+            ((max((len(w) for w in words), default=0), target, words) for target, words in hits.items()),
+            key=lambda item: -item[0],
+        )
+        best_len, (level1, level2), words = ranked[0]
+        unique = len(ranked) < 2 or ranked[1][0] < best_len
+        if unique and best_len >= 3:
+            auto.append((path, level1, level2, '+'.join(sorted(set(words))), 'filename-longest'))
         else:
             review.append((path, hits))
     return auto, review, none

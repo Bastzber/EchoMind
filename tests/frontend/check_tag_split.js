@@ -17,7 +17,7 @@ assert(html.includes('const layeredNow = window.__tagLayers'), '侧边栏没有�
 assert(html.includes('sound.tags.map(tag =>'), '主列表没有展示标签');
 
 // 3) 详情面板启动默认收起
-assert(html.includes('setDetailPanelOpen(false);'), '启动时没有收起详情面板');
-assert(html.includes('id="detailAside" class="hidden'), '详情面板初始不是隐藏');
+assert(html.includes('setDetailPanelOpen(true);'), '启动时没有展开详情面板');
+assert(html.includes('id="detailAside" class="flex'), '详情面板初始不是展开');
 
 console.log('标签分工与详情面板契约检查通过。');

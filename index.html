@@ -545,7 +545,7 @@
         </main>
         
         <!-- ==================== RIGHT: SOUND DETAIL ==================== -->
-        <aside id="detailAside" class="hidden w-80 border-l flex-col shrink-0"
+        <aside id="detailAside" class="flex w-80 border-l flex-col shrink-0"
                style="border-color: var(--border-color); background-color: var(--bg-secondary);">
             <div class="h-10 flex items-center justify-between px-3 border-b shrink-0" style="border-color: var(--border-color);">
                 <span class="text-xs font-medium uppercase tracking-wider opacity-60">音效详情</span>
@@ -10241,8 +10241,8 @@
             applyViewMode();
             document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
             document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));
-            // 启动时详情面板默认收起（用户点「详情」才展开）
-            setDetailPanelOpen(false);
+            // 启动时默认展开详情面板（用户点「详情」或 ✕ 可收起）
+            setDetailPanelOpen(true);
 
             initAudioPlayer();
             bindPlayerContextMenu();

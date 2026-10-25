@@ -183,6 +183,9 @@
             background:#17171b; color:#e5e7eb; border:1px solid #2d2d35; font-size:12px; line-height:1.55;
             white-space:pre-line; box-shadow:0 10px 30px rgba(0,0,0,.5); pointer-events:none; opacity:0; transition:opacity .12s; }
         #helpTip.show { opacity:1; }
+        .quick-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 10px; border-radius:7px; font-size:12px;
+            background: var(--bg-tertiary); border:1px solid var(--border-color); white-space:nowrap; cursor:pointer; transition: all .12s; }
+        .quick-btn:hover { border-color:#8b5cf6; color:#c4b5fd; background: rgba(139,92,246,.12); }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -313,25 +316,6 @@
                 </div>
             </div>
 
-            <div id="indexStatusDisplay" class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
-                <span class="opacity-60">音频</span>
-                <span id="audioIndexStatus" class="font-mono">R0 P0 F0</span>
-            </div>
-            <span class="help-dot" data-help="音频索引&#10;&#10;R = 已完成，P = 待处理，F = 失败。&#10;音频索引是声音指纹，供「按声音找相似」用。&#10;P 长时间不为 0 说明索引任务断了。">?</span>
-
-            <div class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
-                <span class="opacity-60">文本</span>
-                <span id="textIndexStatus" class="font-mono">R0 P0 F0</span>
-            </div>
-            <span class="help-dot" data-help="文本索引&#10;&#10;把文件名、标签、一句话描述编成向量。&#10;语义搜索（按描述找声音）靠它。&#10;改了描述或标签后会自动变待处理，再跑一次就更新。">?</span>
-
-            <button id="reconcileIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">修复</button>
-            <span class="help-dot" data-help="修复缺失项（增量修复）&#10;&#10;只补齐「缺少的」和「过期的」索引，不重算已有的。&#10;适合：新导入一批音效后、改了若干描述后。&#10;速度快，几秒到几分钟。">?</span>
-
-            <button id="rebuildIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">重建</button>
-            <span class="help-dot" data-help="完整重建（全量重算）&#10;&#10;把当前工程所有音效的索引全部丢掉重算。&#10;适合：换模型、索引明显错乱、怀疑数据坏了。&#10;7 万条大约要 1~2 小时，期间可以正常用。">?</span>
-
-            <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs"></span>
 
             <div id="diskSpaceDisplay" class="hidden"><span id="diskSpaceText"></span></div>
 
@@ -401,6 +385,38 @@
             </div>
         </div>
     </header>
+
+    <!-- ==================== 常用工具条（常驻） ==================== -->
+    <div id="quickBar" class="h-11 px-3 flex items-center gap-2 border-b shrink-0 overflow-x-auto"
+         style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+        <span class="text-[11px] opacity-40 mr-1 shrink-0">常用</span>
+        <button id="quickDupBtn" class="quick-btn" data-help="重复音效检测&#10;&#10;按文件内容找完全相同的音效，可以每组保留一份、其余删到回收站或备份。"><i data-lucide="copy-check" class="w-3.5 h-3.5"></i>重复检测</button>
+        <button id="quickTagsBtn" class="quick-btn" data-help="标签管理&#10;&#10;批量改名、合并同义标签、删除空标签，也能套用 21 个预设标签。"><i data-lucide="tags" class="w-3.5 h-3.5"></i>标签管理</button>
+        <button id="quickRenameBtn" class="quick-btn" data-help="批量重命名&#10;&#10;按规则批量改文件名，支持查找替换、加前缀后缀、编号。先在列表里选好音效。"><i data-lucide="pencil-line" class="w-3.5 h-3.5"></i>批量重命名</button>
+        <button id="quickTranscodeBtn" class="quick-btn" data-help="转码&#10;&#10;把剪辑软件不认的格式（OGG / CAF / APE / WMA）转成 WAV 或 MP3。先在列表里选中音效。"><i data-lucide="repeat" class="w-3.5 h-3.5"></i>转码</button>
+        <button id="quickRepairBtn" class="quick-btn" data-help="修复路径&#10;&#10;在磁盘上改了文件夹名或移动了位置之后，按「同名同大小」把库里的路径对上。"><i data-lucide="wrench" class="w-3.5 h-3.5"></i>修复路径</button>
+        <span class="flex-1"></span>
+            <div id="indexStatusDisplay" class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                <span class="opacity-60">音频</span>
+                <span id="audioIndexStatus" class="font-mono">已索引 0 · 待处理 0</span>
+            </div>
+            <span class="help-dot" data-help="音频索引&#10;&#10;R = 已完成，P = 待处理，F = 失败。&#10;音频索引是声音指纹，供「按声音找相似」用。&#10;P 长时间不为 0 说明索引任务断了。">?</span>
+
+            <div class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                <span class="opacity-60">文本</span>
+                <span id="textIndexStatus" class="font-mono">已索引 0 · 待处理 0</span>
+            </div>
+            <span class="help-dot" data-help="文本索引&#10;&#10;把文件名、标签、一句话描述编成向量。&#10;语义搜索（按描述找声音）靠它。&#10;改了描述或标签后会自动变待处理，再跑一次就更新。">?</span>
+
+            <button id="reconcileIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">修复</button>
+            <span class="help-dot" data-help="修复缺失项（增量修复）&#10;&#10;只补齐「缺少的」和「过期的」索引，不重算已有的。&#10;适合：新导入一批音效后、改了若干描述后。&#10;速度快，几秒到几分钟。">?</span>
+
+            <button id="rebuildIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">重建</button>
+            <span class="help-dot" data-help="完整重建（全量重算）&#10;&#10;把当前工程所有音效的索引全部丢掉重算。&#10;适合：换模型、索引明显错乱、怀疑数据坏了。&#10;7 万条大约要 1~2 小时，期间可以正常用。">?</span>
+
+            <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs"></span>
+    </div>
+
     
     <!-- ==================== MAIN CONTENT ==================== -->
     <div id="mainContent" class="flex-1 flex overflow-hidden">
@@ -783,6 +799,38 @@
             window.addEventListener('scroll', () => document.getElementById('helpTip')?.classList.remove('show'), true);
         })();
 
+        // ===== 常用工具条按钮 =====
+        (function initQuickBar() {
+            const pickTargets = () => {
+                try {
+                    if (typeof selectedSounds !== 'undefined' && selectedSounds && selectedSounds.size) {
+                        return soundData.filter((item) => selectedSounds.has(item.id));
+                    }
+                } catch (error) { }
+                return [];
+            };
+            document.getElementById('quickDupBtn')?.addEventListener('click', () => {
+                if (typeof showDuplicatesModal === 'function') showDuplicatesModal();
+            });
+            document.getElementById('quickTagsBtn')?.addEventListener('click', () => {
+                if (typeof showTagManagerModal === 'function') showTagManagerModal();
+            });
+            document.getElementById('quickRenameBtn')?.addEventListener('click', () => {
+                const targets = pickTargets();
+                if (!targets.length) { showNotification('先在列表里选中要重命名的音效', 'info'); return; }
+                if (typeof showBatchRenameModal === 'function') showBatchRenameModal(targets);
+            });
+            document.getElementById('quickTranscodeBtn')?.addEventListener('click', () => {
+                const targets = pickTargets();
+                if (!targets.length) { showNotification('先在列表里选中要转码的音效', 'info'); return; }
+                if (typeof showTranscodeModal === 'function') showTranscodeModal(targets);
+            });
+            document.getElementById('quickRepairBtn')?.addEventListener('click', (event) => {
+                if (typeof repairLibraryPaths === 'function') repairLibraryPaths(event.currentTarget);
+            });
+        })();
+
+
         // ==================== DATA ====================
         // 初始为空，用户导入音频后会自动添加
         let soundData = [];
@@ -1118,7 +1166,8 @@
 
         function formatIndexArtifactStatus(summary) {
             // R/P/F 是内部缩写，用户看不懂；改成中文并保留悬停说明
-            return `已索引 ${summary.ready} · 待处理 ${summary.pending} · 失败 ${summary.failed}`;
+            const failed = Number(summary.failed || 0);
+            return `已索引 ${summary.ready} · 待处理 ${summary.pending}` + (failed ? ` · 失败 ${failed}` : '');
         }
 
         function updateIndexJobStatus(job) {

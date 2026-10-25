@@ -19,6 +19,8 @@ assert(html.includes("'/api/v1/tags/merge'"), '合并没调后端');
 assert(html.includes("row.setAttribute('draggable', 'true')"), '标签不可拖拽');
 assert(html.includes("row.addEventListener('drop'"), '缺拖放处理');
 assert(html.includes('.tag-drop-hover'), '缺拖放高亮样式');
-assert((html.match(/attachTagSidebarInteractions\(/g) || []).length >= 4, '交互没有挂到两类标签行上');
+assert(html.includes('attachTagSidebarInteractions(row, item.name)'), '分层标签没挂交互');
+assert(html.includes('attachTagSidebarInteractions(div, tag)'), '普通标签没挂交互');
+assert(!html.includes('showTagLayerMenu(event, item)'), '旧右键菜单还在（会弹两个）');
 
 console.log('侧边栏标签交互契约检查通过。');

@@ -186,6 +186,7 @@
         .quick-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 10px; border-radius:7px; font-size:12px;
             background: var(--bg-tertiary); border:1px solid var(--border-color); white-space:nowrap; cursor:pointer; transition: all .12s; }
         .quick-btn:hover { border-color:#8b5cf6; color:#c4b5fd; background: rgba(139,92,246,.12); }
+        .quick-plus { width:28px; height:26px; justify-content:center; padding:0; font-size:14px; font-weight:600; }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -203,7 +204,7 @@
         <nav class="flex items-center gap-1 shrink-0 flex-nowrap">
             <!-- 文件菜单 -->
             <div class="relative">
-                <button id="fileMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
+                <button id="fileMenuBtn" class="menu-btn h-10 px-3 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
                     <i data-lucide="file-text" class="w-4 h-4"></i><span data-i18n="menu.file">文件</span>
                 </button>
                 <!-- 文件下拉菜单 -->
@@ -227,7 +228,7 @@
                 </div>
             </div>
             <div class="relative">
-                <button id="importBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
+                <button id="importBtn" class="menu-btn h-10 px-3 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
                     <i data-lucide="upload" class="w-4 h-4"></i><span data-i18n="file.import">导入</span>
                 </button>
                 <!-- 导入下拉菜单 -->
@@ -245,7 +246,7 @@
                 </div>
             </div>
             <div class="relative">
-                <button id="descPackMenuBtn" class="menu-btn px-3 py-1.5 rounded-md text-sm font-semibold text-white transition-colors hover:opacity-90 flex items-center gap-1.5"
+                <button id="descPackMenuBtn" class="menu-btn h-10 px-3 rounded-md text-sm font-semibold text-white transition-colors hover:opacity-90 flex items-center gap-1.5"
                         style="background: #8b5cf6; box-shadow: 0 2px 10px rgba(139,92,246,.35);"
                         title="导入别人导出的描述包（.json），一次套用几万条描述和标签">
                     <i data-lucide="file-down" class="w-4 h-4"></i><span>导入描述包</span>
@@ -261,7 +262,7 @@
                 </div>
             </div>
             <div class="relative">
-                <button id="sfxMenuBtn" class="menu-btn px-3.5 py-1.5 rounded-xl text-sm font-semibold border flex items-center gap-2 transition-all hover:opacity-95"
+                <button id="sfxMenuBtn" class="menu-btn h-10 px-3.5 rounded-xl text-sm font-semibold border flex items-center gap-2 transition-all hover:opacity-95"
                         style="background: linear-gradient(135deg, rgba(139,92,246,.18), rgba(34,211,238,.10)); border-color: rgba(139,92,246,.45); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgba(255,255,255,.04) inset, 0 4px 14px rgba(139,92,246,.18);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                         <defs><linearGradient id="sfxGrad" x1="0" y1="0" x2="1" y2="1">
@@ -273,7 +274,7 @@
                 </button>
             </div>
             <div class="relative">
-                <button id="recipeMenuBtn" class="menu-btn px-3.5 py-1.5 rounded-xl text-sm font-semibold border flex items-center gap-2 transition-all hover:opacity-95"
+                <button id="recipeMenuBtn" class="menu-btn h-10 px-3.5 rounded-xl text-sm font-semibold border flex items-center gap-2 transition-all hover:opacity-95"
                         style="background: linear-gradient(135deg, rgba(34,211,238,.16), rgba(139,92,246,.10)); border-color: rgba(34,211,238,.45); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgba(255,255,255,.04) inset, 0 4px 14px rgba(34,211,238,.16);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                         <defs><linearGradient id="recipeGrad" x1="0" y1="0" x2="1" y2="1">
@@ -291,7 +292,7 @@
         <div class="flex items-center gap-3">
             <!-- 模型状态 -->
             <div class="relative flex items-center gap-1">
-                <div id="modelStatusDisplay" class="flex items-center gap-2 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity"
+                <div id="modelStatusDisplay" class="flex items-center gap-2 whitespace-nowrap shrink-0 h-10 px-2.5 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity"
                      style="background-color: var(--bg-tertiary); border-color: var(--border-color); display: none;">
                     <div id="modelStatusIcon" class="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style="border-color: var(--border-color); border-top-color: #8b5cf6;"></div>
                     <span id="modelStatusText" data-i18n="model.loading">模型加载中...</span>
@@ -320,8 +321,18 @@
             <div id="diskSpaceDisplay" class="hidden"><span id="diskSpaceText"></span></div>
 
 
+            <!-- 索引状态（上下两行） -->
+            <div id="indexStatusDisplay" class="flex flex-col justify-center gap-0.5 px-2.5 py-1 rounded-lg border text-[11px] leading-tight shrink-0"
+                 style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                <div class="flex items-center gap-1.5 whitespace-nowrap"><span class="opacity-60">音频</span><span id="audioIndexStatus" class="font-mono">已索引 0 · 待处理 0</span></div>
+                <div class="flex items-center gap-1.5 whitespace-nowrap"><span class="opacity-60">文本</span><span id="textIndexStatus" class="font-mono">已索引 0 · 待处理 0</span></div>
+            </div>
+            <span class="help-dot" data-help="索引状态&#10;&#10;上排音频：听感指纹，用于按声音找相似。&#10;下排文本：文件名/标签/描述编成向量，用于按描述搜。&#10;已索引 = 可用，待处理 = 排队中，失败 = 解不出（多为文件损坏）。&#10;状态不对时点常用条里的「修复索引」「重建索引」。">?</span>
+            <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs shrink-0"></span>
+
+
             <div class="relative">
-                <button id="settingsBtn" class="menu-btn whitespace-nowrap shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
+                <button id="settingsBtn" class="menu-btn h-10 whitespace-nowrap shrink-0 px-3 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
                     <i data-lucide="settings" class="w-4 h-4"></i><span data-i18n="settings">设置</span>
                 </button>
                 <!-- Settings Dropdown -->
@@ -390,31 +401,11 @@
     <div id="quickBar" class="h-11 px-3 flex items-center gap-2 border-b shrink-0 overflow-x-auto"
          style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         <span class="text-[11px] opacity-40 mr-1 shrink-0">常用</span>
-        <button id="quickDupBtn" class="quick-btn" data-help="重复音效检测&#10;&#10;按文件内容找完全相同的音效，可以每组保留一份、其余删到回收站或备份。"><i data-lucide="copy-check" class="w-3.5 h-3.5"></i>重复检测</button>
-        <button id="quickTagsBtn" class="quick-btn" data-help="标签管理&#10;&#10;批量改名、合并同义标签、删除空标签，也能套用 21 个预设标签。"><i data-lucide="tags" class="w-3.5 h-3.5"></i>标签管理</button>
-        <button id="quickRenameBtn" class="quick-btn" data-help="批量重命名&#10;&#10;按规则批量改文件名，支持查找替换、加前缀后缀、编号。先在列表里选好音效。"><i data-lucide="pencil-line" class="w-3.5 h-3.5"></i>批量重命名</button>
-        <button id="quickTranscodeBtn" class="quick-btn" data-help="转码&#10;&#10;把剪辑软件不认的格式（OGG / CAF / APE / WMA）转成 WAV 或 MP3。先在列表里选中音效。"><i data-lucide="repeat" class="w-3.5 h-3.5"></i>转码</button>
-        <button id="quickRepairBtn" class="quick-btn" data-help="修复路径&#10;&#10;在磁盘上改了文件夹名或移动了位置之后，按「同名同大小」把库里的路径对上。"><i data-lucide="wrench" class="w-3.5 h-3.5"></i>修复路径</button>
+        <span id="quickActions" class="flex items-center gap-2 shrink-0"></span>
+        <button id="quickAddBtn" class="quick-btn quick-plus" data-help="添加常用功能&#10;&#10;把常用的功能加到这一行，下次打开还在。">＋</button>
+        <button id="quickDelBtn" class="quick-btn quick-plus" data-help="移除常用功能&#10;&#10;把不常用的从这里移除，不影响功能本身，只是不在这一行显示。">－</button>
         <span class="flex-1"></span>
-            <div id="indexStatusDisplay" class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
-                <span class="opacity-60">音频</span>
-                <span id="audioIndexStatus" class="font-mono">已索引 0 · 待处理 0</span>
-            </div>
-            <span class="help-dot" data-help="音频索引&#10;&#10;R = 已完成，P = 待处理，F = 失败。&#10;音频索引是声音指纹，供「按声音找相似」用。&#10;P 长时间不为 0 说明索引任务断了。">?</span>
-
-            <div class="flex items-center gap-1.5 whitespace-nowrap shrink-0 px-2.5 py-1.5 rounded-lg text-xs border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
-                <span class="opacity-60">文本</span>
-                <span id="textIndexStatus" class="font-mono">已索引 0 · 待处理 0</span>
-            </div>
-            <span class="help-dot" data-help="文本索引&#10;&#10;把文件名、标签、一句话描述编成向量。&#10;语义搜索（按描述找声音）靠它。&#10;改了描述或标签后会自动变待处理，再跑一次就更新。">?</span>
-
-            <button id="reconcileIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">修复</button>
-            <span class="help-dot" data-help="修复缺失项（增量修复）&#10;&#10;只补齐「缺少的」和「过期的」索引，不重算已有的。&#10;适合：新导入一批音效后、改了若干描述后。&#10;速度快，几秒到几分钟。">?</span>
-
-            <button id="rebuildIndexBtn" class="px-2 py-1.5 rounded border text-xs whitespace-nowrap shrink-0 hover:bg-black/5 dark:hover:bg-white/5" style="border-color: var(--border-color);">重建</button>
-            <span class="help-dot" data-help="完整重建（全量重算）&#10;&#10;把当前工程所有音效的索引全部丢掉重算。&#10;适合：换模型、索引明显错乱、怀疑数据坏了。&#10;7 万条大约要 1~2 小时，期间可以正常用。">?</span>
-
-            <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs"></span>
+        <span id="quickHint" class="text-[11px] opacity-40 shrink-0"></span>
     </div>
 
     
@@ -799,8 +790,9 @@
             window.addEventListener('scroll', () => document.getElementById('helpTip')?.classList.remove('show'), true);
         })();
 
-        // ===== 常用工具条按钮 =====
-        (function initQuickBar() {
+        // ===== 常用工具条：可自定义（＋添加 / －移除，存 localStorage） =====
+        (function initQuickActions() {
+            const STORAGE_KEY = 'echomind.quickActions';
             const pickTargets = () => {
                 try {
                     if (typeof selectedSounds !== 'undefined' && selectedSounds && selectedSounds.size) {
@@ -809,26 +801,101 @@
                 } catch (error) { }
                 return [];
             };
-            document.getElementById('quickDupBtn')?.addEventListener('click', () => {
-                if (typeof showDuplicatesModal === 'function') showDuplicatesModal();
-            });
-            document.getElementById('quickTagsBtn')?.addEventListener('click', () => {
-                if (typeof showTagManagerModal === 'function') showTagManagerModal();
-            });
-            document.getElementById('quickRenameBtn')?.addEventListener('click', () => {
+            const requireTargets = (label) => {
                 const targets = pickTargets();
-                if (!targets.length) { showNotification('先在列表里选中要重命名的音效', 'info'); return; }
-                if (typeof showBatchRenameModal === 'function') showBatchRenameModal(targets);
-            });
-            document.getElementById('quickTranscodeBtn')?.addEventListener('click', () => {
-                const targets = pickTargets();
-                if (!targets.length) { showNotification('先在列表里选中要转码的音效', 'info'); return; }
-                if (typeof showTranscodeModal === 'function') showTranscodeModal(targets);
-            });
-            document.getElementById('quickRepairBtn')?.addEventListener('click', (event) => {
-                if (typeof repairLibraryPaths === 'function') repairLibraryPaths(event.currentTarget);
-            });
+                if (!targets.length) { showNotification('先在列表里选中要' + label + '的音效', 'info'); return null; }
+                return targets;
+            };
+            const REGISTRY = [
+                { id: 'dup', label: '重复检测', icon: 'copy-check', help: '按文件内容找完全相同的音效，每组保留一份，其余删到回收站或备份。', run: () => showDuplicatesModal() },
+                { id: 'tags', label: '标签管理', icon: 'tags', help: '批量改名、合并同义标签、删除空标签，也能套用 21 个预设标签。', run: () => showTagManagerModal() },
+                { id: 'rename', label: '批量重命名', icon: 'pencil-line', help: '按规则批量改文件名，先在列表里选好音效。', run: () => { const t = requireTargets('重命名'); if (t) showBatchRenameModal(t); } },
+                { id: 'transcode', label: '转码', icon: 'repeat', help: '把 OGG / CAF / APE / WMA 等转成 WAV 或 MP3，先在列表里选好音效。', run: () => { const t = requireTargets('转码'); if (t) showTranscodeModal(t); } },
+                { id: 'repair', label: '修复路径', icon: 'wrench', help: '磁盘上改了文件夹名或移动了位置后，按同名同大小把库里的路径对上。', run: () => repairLibraryPaths(null) },
+                { id: 'reindex', label: '修复索引', icon: 'refresh-cw', help: '只补缺少和过期的索引，不重算已有数据。', run: () => runProjectIndexAction('reconcile') },
+                { id: 'rebuild', label: '重建索引', icon: 'database', help: '把当前工程所有音效的索引全部重算，7 万条约 1~2 小时。', run: () => runProjectIndexAction('rebuild') },
+                { id: 'importdesc', label: '导入描述包', icon: 'file-down', help: '导入别人导出的描述包（.json），一次套用几万条描述和标签。', run: () => document.getElementById('descPackImportBtn')?.click() },
+                { id: 'exportdesc', label: '导出描述包', icon: 'file-up', help: '把当前库的描述和标签导出成 json，方便换机或分享。', run: () => document.getElementById('descPackExportBtn')?.click() },
+                { id: 'sfx', label: '创造音效', icon: 'sparkles', help: '用一句话生成新的音效。', run: () => document.getElementById('sfxMenuBtn')?.click() },
+                { id: 'recipe', label: '拟音工坊', icon: 'sliders-horizontal', help: '按配方叠加、裁切、变速生成新音效。', run: () => document.getElementById('recipeMenuBtn')?.click() },
+                { id: 'update', label: '检查更新', icon: 'download', help: '检查是否有新版本。', run: () => document.getElementById('checkUpdateMenuBtn')?.click() },
+                { id: 'cleartemp', label: '清理临时文件', icon: 'trash-2', help: '清理裁切/转码产生的临时文件。', run: () => document.getElementById('clearTempClipsBtn')?.click() }
+            ];
+            const DEFAULTS = ['dup', 'tags', 'rename', 'transcode', 'repair', 'reindex'];
+            const load = () => {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (!raw) return DEFAULTS.slice();
+                    const parsed = JSON.parse(raw);
+                    if (!Array.isArray(parsed)) return DEFAULTS.slice();
+                    return parsed.filter((id) => REGISTRY.some((item) => item.id === id));
+                } catch (error) { return DEFAULTS.slice(); }
+            };
+            const save = (ids) => {
+                try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ids)); } catch (error) { }
+            };
+            let current = load();
+            const container = () => document.getElementById('quickActions');
+
+            const render = () => {
+                const box = container();
+                if (!box) return;
+                box.innerHTML = '';
+                current.forEach((id) => {
+                    const meta = REGISTRY.find((item) => item.id === id);
+                    if (!meta) return;
+                    const btn = document.createElement('button');
+                    btn.className = 'quick-btn';
+                    btn.setAttribute('data-help', meta.help);
+                    btn.innerHTML = '<i data-lucide="' + meta.icon + '" class="w-3.5 h-3.5"></i>' + meta.label;
+                    btn.addEventListener('click', () => { try { meta.run(); } catch (error) { showNotification('执行失败: ' + (error?.message || error), 'error'); } });
+                    box.appendChild(btn);
+                });
+                if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+            };
+
+            const closeMenu = () => document.getElementById('quickMenu')?.remove();
+            const openMenu = (mode, anchor) => {
+                closeMenu();
+                const menu = document.createElement('div');
+                menu.id = 'quickMenu';
+                menu.className = 'fixed z-[300] rounded-lg shadow-xl py-1 w-56 max-h-[60vh] overflow-y-auto';
+                menu.style.background = 'var(--bg-secondary)';
+                menu.style.border = '1px solid var(--border-color)';
+                const rect = anchor.getBoundingClientRect();
+                menu.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+                menu.style.top = (rect.bottom + 6) + 'px';
+                const pool = mode === 'add'
+                    ? REGISTRY.filter((item) => !current.includes(item.id))
+                    : REGISTRY.filter((item) => current.includes(item.id));
+                if (!pool.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'px-3 py-2 text-xs opacity-50';
+                    empty.textContent = mode === 'add' ? '所有功能都已添加' : '常用条是空的，点 ＋ 添加';
+                    menu.appendChild(empty);
+                }
+                pool.forEach((meta) => {
+                    const row = document.createElement('button');
+                    row.className = 'w-full px-3 py-1.5 text-xs text-left hover:bg-white/5 flex items-center gap-2';
+                    row.innerHTML = '<i data-lucide="' + meta.icon + '" class="w-3.5 h-3.5 opacity-70"></i>' + (mode === 'add' ? '＋ ' : '－ ') + meta.label;
+                    row.addEventListener('click', () => {
+                        current = mode === 'add' ? current.concat(meta.id) : current.filter((id) => id !== meta.id);
+                        save(current);
+                        render();
+                        closeMenu();
+                    });
+                    menu.appendChild(row);
+                });
+                document.body.appendChild(menu);
+                if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+                setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 50);
+            };
+
+            document.getElementById('quickAddBtn')?.addEventListener('click', (event) => { event.stopPropagation(); openMenu('add', event.currentTarget); });
+            document.getElementById('quickDelBtn')?.addEventListener('click', (event) => { event.stopPropagation(); openMenu('remove', event.currentTarget); });
+            render();
         })();
+
 
 
         // ==================== DATA ====================

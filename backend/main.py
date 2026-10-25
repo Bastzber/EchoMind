@@ -3601,6 +3601,54 @@ async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), proje
     }
 
 
+
+# ==================== 去人声（中置声道消除） ====================
+
+class RemoveVocalsRequest(BaseModel):
+    paths: List[str]
+    out_dir: Optional[str] = None
+    strength: float = 1.0
+
+
+@app.post("/api/v1/audio/remove-vocals")
+async def remove_vocals_batch(payload: RemoveVocalsRequest):
+    """把选中音乐里的人声尽量消掉，输出伴奏 WAV。"""
+    from core.vocals import remove_vocals
+
+    if not payload.paths:
+        raise HTTPException(status_code=422, detail="paths 不能为空")
+    if len(payload.paths) > 200:
+        raise HTTPException(status_code=422, detail="单次最多 200 个文件")
+
+    loop = asyncio.get_running_loop()
+    results = []
+    for path in payload.paths:
+        source = Path(str(path))
+        if not source.is_file():
+            results.append({"source": str(path), "ok": False, "error": "文件不存在"})
+            continue
+        out_dir = Path(payload.out_dir) if payload.out_dir else source.parent / "_去人声"
+        destination = out_dir / (source.stem + "_伴奏.wav")
+        if destination.exists():
+            index = 2
+            while destination.exists():
+                destination = out_dir / f"{source.stem}_伴奏 ({index}).wav"
+                index += 1
+        outcome = await loop.run_in_executor(
+            None, remove_vocals, str(source), str(destination), float(payload.strength or 1.0)
+        )
+        results.append({
+            "source": str(path),
+            "destination": str(destination),
+            "ok": bool(outcome.get("ok")),
+            "samples": int(outcome.get("samples") or 0),
+            "error": outcome.get("error") or "",
+        })
+
+    ok = sum(1 for item in results if item["ok"])
+    return {"success": True, "total": len(results), "ok": ok, "failed": len(results) - ok, "results": results}
+
+
 @app.post("/api/v1/transcode")
 async def transcode_files(payload: TranscodeRequest):
     """把一批音频转成 WAV/MP3；坏文件尽量救回能解的部分。"""

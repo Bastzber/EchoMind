@@ -811,6 +811,26 @@
                 { id: 'tags', label: '标签管理', icon: 'tags', help: '批量改名、合并同义标签、删除空标签，也能套用 21 个预设标签。', run: () => showTagManagerModal() },
                 { id: 'rename', label: '批量重命名', icon: 'pencil-line', help: '按规则批量改文件名，先在列表里选好音效。', run: () => { const t = requireTargets('重命名'); if (t) showBatchRenameModal(t); } },
                 { id: 'transcode', label: '转码', icon: 'repeat', help: '把 OGG / CAF / APE / WMA 等转成 WAV 或 MP3，先在列表里选好音效。', run: () => { const t = requireTargets('转码'); if (t) showTranscodeModal(t); } },
+                { id: 'devocal', label: '去人声', icon: 'mic-off', help: '把选中音乐里的人声消掉，生成伴奏 WAV（输出到原文件夹的 _去人声 子目录）。原理是中置声道消除，人声居中的歌曲效果最好。', run: async () => {
+                    const targets = requireTargets('去人声');
+                    if (!targets) return;
+                    const music = targets.filter((item) => (item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
+                    if (!music.length) { showNotification('选中的文件里没有可处理的音乐', 'warning'); return; }
+                    if (!confirm('对 ' + music.length + ' 首音乐做去人声？\n\n会生成伴奏 WAV 到原文件夹的「_去人声」子目录，原文件不动。')) return;
+                    showNotification('正在去人声，请稍等…', 'info');
+                    try {
+                        const result = await rendererApi.post('/api/v1/audio/remove-vocals', {
+                            paths: music.map((item) => item.path),
+                        }, { timeoutMs: 600000 });
+                        showNotification('去人声完成：成功 ' + result.ok + ' 个' + (result.failed ? '，失败 ' + result.failed : ''), result.failed ? 'warning' : 'success');
+                        if (result.failed && result.results) {
+                            const firstError = result.results.find((item) => !item.ok);
+                            if (firstError) console.warn('[Devocal]', firstError.source, firstError.error);
+                        }
+                    } catch (error) {
+                        showNotification('去人声失败: ' + (error?.message || error), 'error');
+                    }
+                } },
                 { id: 'repair', label: '修复路径', icon: 'wrench', help: '磁盘上改了文件夹名或移动了位置后，按同名同大小把库里的路径对上。', run: () => repairLibraryPaths(null) },
                 { id: 'reindex', label: '修复索引', icon: 'refresh-cw', help: '只补缺少和过期的索引，不重算已有数据。', run: () => runProjectIndexAction('reconcile') },
                 { id: 'rebuild', label: '重建索引', icon: 'database', help: '把当前工程所有音效的索引全部重算，7 万条约 1~2 小时。', run: () => runProjectIndexAction('rebuild') },
@@ -821,7 +841,7 @@
                 { id: 'update', label: '检查更新', icon: 'download', help: '检查是否有新版本。', run: () => document.getElementById('checkUpdateMenuBtn')?.click() },
                 { id: 'cleartemp', label: '清理临时文件', icon: 'trash-2', help: '清理裁切/转码产生的临时文件。', run: () => document.getElementById('clearTempClipsBtn')?.click() }
             ];
-            const DEFAULTS = ['dup', 'tags', 'rename', 'transcode', 'repair', 'reindex'];
+            const DEFAULTS = ['dup', 'tags', 'transcode', 'devocal', 'rename', 'repair', 'reindex'];
             const load = () => {
                 try {
                     const raw = localStorage.getItem(STORAGE_KEY);

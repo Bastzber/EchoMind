@@ -3821,6 +3821,44 @@ async def library_folder_health(project_id: str = Query(default="default"), limi
     return {"success": True, **result}
 
 
+
+class RetryFolderRequest(BaseModel):
+    path_prefix: str
+    kinds: List[str] = ["audio_vector", "text_vector"]
+    start_job: bool = True
+
+
+@app.post("/api/v1/db/index/retry-folder")
+async def retry_folder_index(payload: RetryFolderRequest, background_tasks: BackgroundTasks):
+    """把某个文件夹下失败的产物重置为 pending，并立刻起一轮修复索引。
+
+    用于「先按文件夹分批重试」：一次只跑一个目录，出问题的文件立刻能定位。
+    """
+    project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+    prefix = str(payload.path_prefix or "").strip()
+    if not prefix:
+        raise HTTPException(status_code=422, detail="path_prefix 不能为空")
+
+    db_manager = get_db_manager()
+    kinds = [k for k in (payload.kinds or []) if k in ("audio_vector", "text_vector")]
+    if not kinds:
+        kinds = ["audio_vector", "text_vector"]
+
+    with db_manager.get_cursor() as cursor:
+        reset = cursor.execute(
+            "UPDATE file_artifacts SET state='pending', error_code=NULL, error_message=NULL "
+            "WHERE project_id=? AND kind IN (%s) AND state IN ('failed','stale') "
+            "AND file_uuid IN (SELECT file_uuid FROM files WHERE project_id=? AND path LIKE ?)"
+            % ",".join("?" * len(kinds)),
+            (project_id, *kinds, project_id, prefix + "%"),
+        ).rowcount
+
+    job = None
+    if reset and payload.start_job:
+        job = await _start_index_job(project_id, kinds, "reconcile", background_tasks)
+    return {"success": True, "reset": reset, "job": job, "kinds": kinds}
+
+
 @app.post("/api/v1/db/library/repair-paths")
 async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), project_id: str = Query(default="default")):
     """磁盘上文件夹改名/移动后，把数据库里的旧路径按"同名同大小"修正回来。

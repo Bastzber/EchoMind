@@ -1779,15 +1779,18 @@
             (effectState.presets.length ? effectState.presets : [{ id: 'room_large', name: '大房间' }]).forEach((preset) => {
                 const button = document.createElement('button');
                 button.className = 'px-2 py-1 rounded text-[11px] border';
-                const on = effectState.preset === preset.id;
+                // 未启用时不显示蓝色选中框，避免误以为已经加上效果
+                const on = effectState.active && effectState.preset === preset.id;
                 button.style.borderColor = on ? 'var(--accent-color, #6b8afd)' : 'var(--border-color)';
                 button.style.background = on ? 'rgba(107,138,253,0.16)' : 'transparent';
+                button.style.opacity = effectState.active || on ? '1' : '0.72';
                 button.textContent = preset.name;
                 button.addEventListener('click', async () => {
                     effectState.preset = preset.id;
                     try { localStorage.setItem('echomind.effectPreset', preset.id); } catch (_) { }
+                    // 未启用时点预设 -> 直接套用；已启用时 -> 换预设重算
                     renderEffectPanel(sound);
-                    if (effectState.active) await setEffectEnabled(true);
+                    await setEffectEnabled(preset.id === 'dry' ? false : true);
                 });
                 chips.appendChild(button);
             });
@@ -1795,6 +1798,7 @@
 
             const wetRow = document.createElement('div');
             wetRow.className = 'flex items-center gap-2 mb-2 text-[11px]';
+            wetRow.style.opacity = effectState.active ? '1' : '0.45';
             const label = document.createElement('span');
             label.className = 'opacity-50';
             label.textContent = '湿声';

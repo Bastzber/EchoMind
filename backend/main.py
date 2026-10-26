@@ -5818,10 +5818,29 @@ async def get_project_index_status(project_id: str):
         raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
     if project_id in _projects_deleting:
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
+    # 当前正在跑的索引任务（前端用来显示 已处理/总数，实时看到进度）
+    active_job = None
+    try:
+        with db_manager.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT kind, state, processed, total, stage FROM jobs "
+                "WHERE project_id=? AND state IN ('running','pending') "
+                "ORDER BY created_at DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+        if row:
+            active_job = {
+                "kind": row[0], "state": row[1], "processed": int(row[2] or 0),
+                "total": int(row[3] or 0), "stage": row[4],
+            }
+    except Exception as exc:
+        logger.debug("读取活跃索引任务失败: %s", exc)
+
     return {
         "project_id": project_id,
         "total_files": db_manager.get_file_count(project_id),
         "artifacts": db_manager.get_artifact_counts(project_id),
+        "active_job": active_job,
         "manifests": {
             kind: db_manager.get_index_manifest(project_id, kind) or {}
             for kind in ("audio_vector", "text_vector")

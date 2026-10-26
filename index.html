@@ -1433,7 +1433,11 @@
                 const busy = indexJobRunning
                     || Number(status?.artifacts?.audio_vector?.processing || 0) > 0
                     || Number(status?.artifacts?.text_vector?.processing || 0) > 0;
-                const pendingLabel = busy ? '处理中' : '待索引';
+                const job = status?.active_job;
+                const jobProgress = job && Number(job.total) > 0
+                    ? ' ' + Number(job.processed || 0) + '/' + Number(job.total)
+                    : '';
+                const pendingLabel = (busy ? '处理中' : '待索引') + jobProgress;
                 ['audioPendingLabel', 'textPendingLabel'].forEach((id) => {
                     const el = document.getElementById(id);
                     if (el) el.textContent = pendingLabel;

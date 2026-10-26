@@ -187,7 +187,11 @@
             background: var(--bg-tertiary); border:1px solid var(--border-color); white-space:nowrap; cursor:pointer; transition: all .12s; }
         .quick-btn:hover { border-color:#8b5cf6; color:#c4b5fd; background: rgba(139,92,246,.12); }
         .quick-plus { width:28px; height:26px; justify-content:center; padding:0; font-size:14px; font-weight:600; }
-    </style>
+            @keyframes indexPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.45; }
+        }
+</style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
     
@@ -1452,10 +1456,16 @@
                     if (!el) return;
                     el.style.color = busy ? '#22c55e' : '';
                     el.style.fontWeight = busy ? '600' : '';
+                    // 正在算时轻微呼吸动画：不用数字变化也能看出"在动"
+                    el.style.animation = busy ? 'indexPulse 1.6s ease-in-out infinite' : '';
                 });
-                const jobDetail = job && Number(job.total) > 0
-                    ? '（任务进度 ' + Number(job.processed || 0) + '/' + Number(job.total) + '）'
-                    : '';
+                const progress = status?.progress || {};
+                const encoded = Number(progress.audio || 0) + Number(progress.text || 0);
+                const jobDetail = encoded > 0
+                    ? '（本次已编码 ' + encoded + ' 条）'
+                    : (job && Number(job.total) > 0
+                        ? '（任务进度 ' + Number(job.processed || 0) + '/' + Number(job.total) + '）'
+                        : '');
                 ['audioPendingStatus', 'textPendingStatus'].forEach((id) => {
                     const el = document.getElementById(id);
                     if (!el) return;

@@ -106,6 +106,9 @@ _projects_deleting: set[str] = set()
 # （每文件 ~50ms，7 万条要好几个小时）；先入库 + 波形，向量标记 pending，
 # 交给后台对账任务按批计算。
 IMPORT_INLINE_INDEX_LIMIT = 500
+
+# 索引进度心跳：影子索引完成前 ready 不会变，用这个让界面看出"在动"
+_index_progress = {"audio": 0, "text": 0, "target": 0, "active": False}
 _automatic_index_tasks: Dict[str, Dict[str, Any]] = {}
 _shutting_down = False
 
@@ -5841,6 +5844,7 @@ async def get_project_index_status(project_id: str):
         "total_files": db_manager.get_file_count(project_id),
         "artifacts": db_manager.get_artifact_counts(project_id),
         "active_job": active_job,
+        "progress": dict(_index_progress),
         "manifests": {
             kind: db_manager.get_index_manifest(project_id, kind) or {}
             for kind in ("audio_vector", "text_vector")
@@ -5958,6 +5962,10 @@ async def _repair_index_task_locked(
     service = get_audio_service()
     folder_context = _load_logical_folder_context(project_id)
     db_manager.update_job(job_id, state="running", stage="reconciling")
+    try:
+        _index_progress.update({"audio": 0, "text": 0, "target": 0, "active": False})
+    except Exception:
+        pass
     try:
         records = db_manager.get_files_by_project(project_id)
         expected = [
@@ -6237,6 +6245,10 @@ async def _repair_index_task_locked(
                                     error_message="批量编码未产出向量",
                                 )
                         marked_count += 1
+                        try:
+                            _index_progress["audio"] = _index_progress.get("audio", 0) + 1
+                        except Exception:
+                            pass
                     try:
                         db_manager.update_job(
                             job_id, processed=index, stage="audio_vector"

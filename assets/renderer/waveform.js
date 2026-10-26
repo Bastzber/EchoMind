@@ -355,6 +355,39 @@
         // WeakMap cannot be cleared; entries are naturally replaced when their cache key changes.
     }
 
+    /** 声道条里的小波形：每个声道一条独立曲线（DPR 处理放在模块里） */
+    function renderChannelStrip(canvas, peaks, options = {}) {
+        if (!canvas || typeof canvas.getContext !== 'function') return null;
+        const dpr = window.devicePixelRatio || 1;
+        const width = canvas.clientWidth || 64;
+        const height = canvas.clientHeight || 46;
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+        const middle = height / 2;
+        const muted = Boolean(options.muted);
+        ctx.strokeStyle = options.color
+            || (muted ? 'rgba(160,160,170,0.35)' : '#6b8afd');
+        ctx.globalAlpha = muted ? 0.5 : 0.95;
+        ctx.beginPath();
+        const data = Array.isArray(peaks) ? peaks : [];
+        if (!data.length) {
+            ctx.stroke();
+            return ctx;
+        }
+        data.forEach((value, index) => {
+            const x = (index / Math.max(data.length - 1, 1)) * width;
+            const amplitude = Math.max(0, Math.min(1, Number(value) || 0)) * (middle - 2);
+            ctx.moveTo(x, middle - amplitude);
+            ctx.lineTo(x, middle + amplitude);
+        });
+        ctx.stroke();
+        return ctx;
+    }
+
     namespace.waveform = Object.freeze({
         isValidData,
         syncFromPeaks,
@@ -367,6 +400,7 @@
         observeResize,
         renderMain,
         drawMini,
+        renderChannelStrip,
         invalidate
     });
 })(typeof window !== 'undefined' ? window : globalThis);

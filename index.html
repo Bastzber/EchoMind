@@ -7355,6 +7355,25 @@
             renderSoundList(document.getElementById('searchInput').value);
         }
 
+        /**
+         * 播放进度（0~1）。倒放时时间轴是反的：
+         * 反向文件从 0 播到结尾，对应原文件的结尾到开头，
+         * 所以进度条要从右往左走。
+         */
+        function displayProgressRatio() {
+            const duration = Number(currentSound?.duration) || 0;
+            if (!duration) return 0;
+            const raw = playbackProgress / duration;
+            const ratio = reverseMode ? (1 - raw) : raw;
+            return Math.max(0, Math.min(1, ratio));
+        }
+
+        function displayCurrentTimeMs() {
+            const duration = Number(currentSound?.duration) || 0;
+            if (!duration) return playbackProgress;
+            return reverseMode ? Math.max(0, duration - playbackProgress) : playbackProgress;
+        }
+
         function updatePlaybackUI() {
             const playIcon = document.getElementById('playIcon');
             const pauseIcon = document.getElementById('pauseIcon');
@@ -7373,10 +7392,10 @@
             }
             
             if (currentSound) {
-                currentTimeEl.textContent = formatTime(playbackProgress);
+                currentTimeEl.textContent = formatTime(displayCurrentTimeMs());
                 durationTimeEl.textContent = formatTime(currentSound.duration);
-                
-                const progress = (playbackProgress / currentSound.duration) * 100;
+
+                const progress = displayProgressRatio() * 100;
                 progressBar.style.width = `${progress}%`;
                 
                 // 更新音频信息显示
@@ -7427,7 +7446,7 @@
                 const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary').trim() || '#141414';
                 const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#e5e5e5';
                 const secondaryColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#a3a3a3';
-                const progress = currentSound.duration > 0 ? playbackProgress / currentSound.duration : 0;
+                const progress = displayProgressRatio();
                 rendererWaveform.renderMain(canvas, {
                     fallbackWidth: waveContainer.offsetWidth || 1200,
                     fallbackHeight: waveContainer.offsetHeight || 120,
@@ -12177,7 +12196,9 @@
                 const progress = (e.clientX - rect.left) / rect.width;
 
                 if (audioPlayer && audioPlayer.duration) {
-                    audioPlayer.currentTime = progress * audioPlayer.duration;
+                    // 倒放时显示位置是反的，seek 也要反着算
+                    const mediaRatio = reverseMode ? (1 - progress) : progress;
+                    audioPlayer.currentTime = Math.max(0, Math.min(1, mediaRatio)) * audioPlayer.duration;
                     playbackProgress = Math.round(audioPlayer.currentTime * 1000);
                 } else {
                     playbackProgress = Math.round(progress * currentSound.duration);
@@ -12208,7 +12229,9 @@
                 const progress = Math.max(0, Math.min(1, adjustedX / totalWidth));
                 
                 if (audioPlayer && audioPlayer.duration) {
-                    audioPlayer.currentTime = progress * audioPlayer.duration;
+                    // 倒放时显示位置是反的，seek 也要反着算
+                    const mediaRatio = reverseMode ? (1 - progress) : progress;
+                    audioPlayer.currentTime = Math.max(0, Math.min(1, mediaRatio)) * audioPlayer.duration;
                     playbackProgress = Math.round(audioPlayer.currentTime * 1000);
                 } else {
                     playbackProgress = Math.round(progress * currentSound.duration);

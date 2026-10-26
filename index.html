@@ -1440,20 +1440,29 @@
                     || Number(status?.artifacts?.audio_vector?.processing || 0) > 0
                     || Number(status?.artifacts?.text_vector?.processing || 0) > 0;
                 const job = status?.active_job;
-                const jobProgress = job && Number(job.total) > 0
-                    ? ' ' + Number(job.processed || 0) + '/' + Number(job.total)
-                    : '';
-                const pendingLabel = (busy ? '处理中' : '待索引') + jobProgress;
+                const pendingLabel = busy ? '处理中' : '待索引';
                 ['audioPendingLabel', 'textPendingLabel'].forEach((id) => {
                     const el = document.getElementById(id);
                     if (el) el.textContent = pendingLabel;
                 });
-                const audioPendingEl = document.getElementById('audioPendingStatus');
-                if (audioPendingEl) {
-                    audioPendingEl.title = busy
-                        ? '后台正在排队处理，无需操作'
+
+                // 后台确实在跑 → 数字变绿（表示"正在动"），不额外塞 1641/1641
+                ['audioPendingStatus', 'textPendingStatus'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.style.color = busy ? '#22c55e' : '';
+                    el.style.fontWeight = busy ? '600' : '';
+                });
+                const jobDetail = job && Number(job.total) > 0
+                    ? '（任务进度 ' + Number(job.processed || 0) + '/' + Number(job.total) + '）'
+                    : '';
+                ['audioPendingStatus', 'textPendingStatus'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    el.title = busy
+                        ? '后台正在处理，无需操作' + jobDetail
                         : '还没建立索引；可点常用条的「修复索引」，或等下次启动自动补';
-                }
+                });
 
                 // 读成功但当前没有索引任务 → 清掉「读取中…／读取失败」这类临时文案
                 const label = document.getElementById('indexJobStatus');

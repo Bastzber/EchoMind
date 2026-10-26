@@ -5241,6 +5241,8 @@
                 '    <label class="flex items-center gap-2 opacity-70"><input id="tcOverwrite" type="checkbox"> 覆盖同名文件</label>' +
                 '    <div class="text-xs opacity-50">损坏的文件会自动尽量救回能解码的部分（救回多少算多少）。</div>' +
                 '    <div id="tcProgress" class="text-xs opacity-60 h-4"></div>' +
+                '    <div id="tcResults" class="max-h-44 overflow-y-auto text-[11px] space-y-1 pr-1"></div>' +
+                '    <div id="tcOutHint" class="text-[11px] opacity-55"></div>' +
                 '  </div>' +
                 '  <div class="px-4 py-3 flex justify-end gap-2 border-t" style="border-color: var(--border-color);">' +
                 '    <button id="tcCancel" class="px-3 py-1 rounded text-xs border" style="border-color: var(--border-color);">取消</button>' +
@@ -5261,7 +5263,28 @@
                 button.style.opacity = '0.5';
 
                 const paths = list.map(item => item.path || item.file_path).filter(Boolean);
+                const resultsEl = overlay.querySelector('#tcResults');
+                const outHint = overlay.querySelector('#tcOutHint');
                 let done = 0, ok = 0, salvaged = 0, failed = 0;
+                let firstOutput = '';
+                const addRow = (name, state, detail) => {
+                    if (!resultsEl) return;
+                    const row = document.createElement('div');
+                    row.className = 'flex items-start gap-1.5';
+                    const icon = state === 'ok' ? '✓' : (state === 'warn' ? '⚠' : '✗');
+                    const color = state === 'ok' ? '#22c55e' : (state === 'warn' ? '#f59e0b' : '#ef4444');
+                    row.innerHTML = '<span style="color:' + color + '">' + icon + '</span>'
+                        + '<span class="truncate" title="' + String(name).replace(/"/g, '&quot;') + '">' + name + '</span>'
+                        + (detail ? '<span class="opacity-45 truncate" title="' + String(detail).replace(/"/g, '&quot;') + '">' + detail + '</span>' : '');
+                    resultsEl.appendChild(row);
+                    resultsEl.scrollTop = resultsEl.scrollHeight;
+                };
+                if (!paths.length) {
+                    progress.textContent = '';
+                    addRow('没有选中任何文件', 'fail', '先在列表里选中要转码的音效');
+                    button.disabled = false; button.style.opacity = '1';
+                    return;
+                }
                 const CHUNK = 20;
                 for (let i = 0; i < paths.length; i += CHUNK) {
                     const chunk = paths.slice(i, i + CHUNK);
@@ -5275,13 +5298,34 @@
                         ok += result.ok || 0;
                         failed += result.failed || 0;
                         salvaged += result.salvaged || 0;
+                        (result.results || []).forEach((item) => {
+                            const name = String(item.source || '').split(/[\\/]/).pop();
+                            if (!item.destination) firstOutput = '';
+                            else if (!firstOutput) firstOutput = item.destination;
+                            if (item.ok && item.salvaged) addRow(name, 'warn', '救回（部分数据损坏）');
+                            else if (item.ok) addRow(name, 'ok', '');
+                            else addRow(name, 'fail', (item.error || '失败').slice(0, 60));
+                        });
                     } catch (error) {
                         failed += chunk.length;
+                        addRow('本批 ' + chunk.length + ' 个', 'fail', (error?.message || String(error)).slice(0, 60));
                     }
                     done += chunk.length;
                     progress.textContent = '进度 ' + done + ' / ' + paths.length + '（成功 ' + ok + '，救回 ' + salvaged + '，失败 ' + failed + '）';
                 }
                 progress.textContent = '完成：成功 ' + ok + '，其中救回 ' + salvaged + '，失败 ' + failed;
+                if (outHint) {
+                    if (firstOutput) {
+                        const dir = firstOutput.replace(/[\\/][^\\/]+$/, '');
+                        outHint.innerHTML = '输出目录：<span class="opacity-80">' + dir + '</span>'
+                            + ' <button id="tcOpenOut" class="ml-1 underline">打开</button>';
+                        outHint.querySelector('#tcOpenOut')?.addEventListener('click', () => {
+                            window.electronAPI?.fileImport?.revealInExplorer?.(firstOutput);
+                        });
+                    } else if (!outDir) {
+                        outHint.textContent = '输出位置：每个源文件同级的「_转码」子文件夹';
+                    }
+                }
                 showNotification('转码完成：' + ok + ' 个成功' + (salvaged ? '，' + salvaged + ' 个是救回的' : ''), failed ? 'warning' : 'success');
                 button.disabled = false;
                 button.style.opacity = '1';

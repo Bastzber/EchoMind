@@ -3717,9 +3717,12 @@ class BatchDeleteRequest(BaseModel):
 
 @app.post("/api/v1/db/files/delete")
 async def batch_delete_db_files(payload: BatchDeleteRequest):
-    """批量删除文件记录（可选同时删除源文件）。
+    """批量删除文件记录。
 
-    源文件删除由 Electron 主进程送回收站；这里只负责库记录 + 向量。
+    设计要点：
+    - **记录立即删**（几十毫秒级），界面不会卡在"正在删除"；
+    - 向量清理放后台任务（fire-and-forget），失败只记日志，不影响删除结果；
+    - 源文件删除由 Electron 主进程送回收站，这里不碰磁盘。
     """
     if not payload.paths:
         raise HTTPException(status_code=422, detail="paths 不能为空")
@@ -3730,35 +3733,57 @@ async def batch_delete_db_files(payload: BatchDeleteRequest):
     db_manager = get_db_manager()
     removed = 0
     failed = 0
-    async with _get_project_index_lock(project_id):
-        for raw_path in payload.paths:
-            record = db_manager.get_file(str(raw_path), project_id)
-            if not record:
-                failed += 1
-                continue
-            try:
-                try:
-                    await _run_model_work(
-                        _get_active_audio_indexer(project_id).remove_audio,
-                        record.path,
-                        record.file_uuid,
-                    )
-                    await _run_model_work(
-                        _get_active_text_indexer(project_id).remove,
-                        file_id=record.file_uuid,
-                    )
-                except Exception as exc:
-                    logger.warning("[批量删除] 向量清理失败 %s: %s", record.path, exc)
-                with db_manager.get_cursor() as cursor:
-                    cursor.execute(
-                        "DELETE FROM files WHERE project_id=? AND file_uuid=?",
-                        (project_id, record.file_uuid),
-                    )
-                removed += 1
-            except Exception as exc:
-                logger.warning("[批量删除] 删除失败 %s: %s", record.path, exc)
-                failed += 1
+    cleanup: list = []
+    for raw_path in payload.paths:
+        record = db_manager.get_file(str(raw_path), project_id)
+        if not record:
+            failed += 1
+            continue
+        try:
+            with db_manager.get_cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM files WHERE project_id=? AND file_uuid=?",
+                    (project_id, record.file_uuid),
+                )
+            removed += 1
+            cleanup.append((record.path, record.file_uuid))
+        except Exception as exc:
+            logger.warning("[批量删除] 删除记录失败 %s: %s", record.path, exc)
+            failed += 1
+
+    if cleanup:
+        asyncio.create_task(_cleanup_vectors_after_delete(project_id, cleanup))
+
     return {"success": True, "removed": removed, "failed": failed, "total": len(payload.paths)}
+
+
+async def _cleanup_vectors_after_delete(project_id: str, items) -> None:
+    """后台清理已删除记录的向量；失败只记日志，避免影响用户体验。"""
+    try:
+        await asyncio.sleep(0.5)
+        audio_removed = 0
+        text_removed = 0
+        for path, file_uuid in items:
+            try:
+                await _run_model_work(
+                    _get_active_audio_indexer(project_id).remove_audio, path, file_uuid
+                )
+                audio_removed += 1
+            except Exception as exc:
+                logger.debug("[批量删除] 音频向量清理失败 %s: %s", path, exc)
+            try:
+                await _run_model_work(
+                    _get_active_text_indexer(project_id).remove, file_id=file_uuid
+                )
+                text_removed += 1
+            except Exception as exc:
+                logger.debug("[批量删除] 文本向量清理失败 %s: %s", file_uuid, exc)
+        logger.info(
+            "[批量删除] 向量清理完成：音频 %d/%d，文本 %d/%d",
+            audio_removed, len(items), text_removed, len(items),
+        )
+    except Exception as exc:
+        logger.warning("[批量删除] 向量清理任务失败: %s", exc)
 
 
 @app.get("/api/v1/db/library/folder-health")

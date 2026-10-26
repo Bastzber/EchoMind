@@ -3625,6 +3625,36 @@
                 container.appendChild(moreRow);
             }
 
+            // 右键：在标签面板上直接新建标签
+            container.addEventListener('contextmenu', (event) => {
+                if (!event.target.closest('#tagPanelSection') && !event.target.closest('#tagSection')) return;
+                event.preventDefault();
+                document.getElementById('tagPanelMenu')?.remove();
+                const menu = document.createElement('div');
+                menu.id = 'tagPanelMenu';
+                menu.className = 'fixed rounded-md shadow-xl border py-1 text-xs';
+                menu.style.cssText = 'z-index:340;background:var(--bg-secondary);border-color:var(--border-color);min-width:150px';
+                const mk = (label, handler) => {
+                    const item = document.createElement('button');
+                    item.className = 'block w-full text-left px-3 py-1.5 hover:bg-white/10';
+                    item.textContent = label;
+                    item.addEventListener('click', () => { menu.remove(); handler(); });
+                    menu.appendChild(item);
+                };
+                mk('新建场景标签', () => createNewTag('scene'));
+                mk('新建属性标签', () => createNewTag('attr'));
+                mk('标签管理…', () => showTagManagerModal());
+                menu.style.left = Math.min(event.clientX, window.innerWidth - 170) + 'px';
+                menu.style.top = Math.min(event.clientY, window.innerHeight - 130) + 'px';
+                document.body.appendChild(menu);
+                setTimeout(() => {
+                    const close = (e) => {
+                        if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', close); }
+                    };
+                    document.addEventListener('mousedown', close);
+                }, 0);
+            });
+
             const createTagBtn = container.querySelector('#createTagBtn');
             if (createTagBtn) {
                 createTagBtn.addEventListener('click', (e) => {
@@ -3913,56 +3943,124 @@
             }
         }
 
-        // 新建标签：有选中音效就直接打上，没选中先登记到本地列表
-        function createNewTag() {
-            // 先选层（场景 / 属性），再输入名称
-            const layer = confirm('新建「场景」标签？\n\n确定 = 场景（互斥，一个音效只能有一个）\n取消 = 属性（可多个）')
-                ? 'scene'
-                : 'attr';
-            showInputModal(
-                layer === 'scene' ? '新建场景标签' : '新建属性标签',
-                layer === 'scene' ? '如：枪械、环境、UI' : '如：短促、金属、远距离',
-                async (value) => {
-                const name = String(value || '').trim();
-                if (!name) return;
+        // 新建标签：一个弹窗里同时选层级 + 输名字（不再用原生 confirm，避免焦点丢失）
+        function createNewTag(preferredLayer) {
+            document.getElementById('createTagOverlay')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'createTagOverlay';
+            overlay.className = 'fixed inset-0 flex items-center justify-center';
+            overlay.style.cssText = 'z-index:330;background:rgba(0,0,0,0.55)';
+
+            const panel = document.createElement('div');
+            panel.className = 'rounded-lg shadow-2xl p-5 w-[380px] flex flex-col gap-3';
+            panel.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border-color)';
+            panel.innerHTML = '<div class="text-base font-semibold">新建标签</div>';
+
+            let layer = preferredLayer === 'scene' ? 'scene' : 'attr';
+            const layerRow = document.createElement('div');
+            layerRow.className = 'flex gap-2';
+            const mkOption = (value, label, hint) => {
+                const button = document.createElement('button');
+                button.className = 'flex-1 px-2 py-1.5 rounded text-xs border text-left';
+                button.dataset.layer = value;
+                button.innerHTML = '<div class="font-medium">' + label + '</div>'
+                    + '<div class="opacity-50 text-[10px]">' + hint + '</div>';
+                button.addEventListener('click', () => { layer = value; paint(); });
+                layerRow.appendChild(button);
+                return button;
+            };
+            const sceneBtn = mkOption('scene', '场景', '互斥，一个音效只能有一个');
+            const attrBtn = mkOption('attr', '属性', '可多个，如 短促 / 金属');
+            const paint = () => {
+                [sceneBtn, attrBtn].forEach(btn => {
+                    const on = btn.dataset.layer === layer;
+                    btn.style.borderColor = on ? 'var(--accent-color, #6b8afd)' : 'var(--border-color)';
+                    btn.style.background = on ? 'rgba(107,138,253,0.16)' : 'transparent';
+                });
+            };
+            paint();
+            panel.appendChild(layerRow);
+
+            const input = document.createElement('input');
+            input.className = 'w-full px-2 py-1.5 rounded text-sm outline-none';
+            input.style.cssText = 'background:var(--bg-primary);border:1px solid var(--border-color);color:var(--text-primary)';
+            input.placeholder = layer === 'scene' ? '如：枪械、环境、UI' : '如：短促、金属、远距离';
+            panel.appendChild(input);
+
+            const footer = document.createElement('div');
+            footer.className = 'flex items-center justify-between mt-1';
+            const hint = document.createElement('span');
+            hint.className = 'text-[11px] opacity-50';
+            hint.textContent = '回车确认，Esc 取消';
+            const actions = document.createElement('div');
+            actions.className = 'flex gap-2';
+            const cancel = document.createElement('button');
+            cancel.className = 'px-3 py-1.5 rounded text-sm border';
+            cancel.style.borderColor = 'var(--border-color)';
+            cancel.textContent = '取消';
+            cancel.addEventListener('click', () => overlay.remove());
+            const save = document.createElement('button');
+            save.className = 'px-3 py-1.5 rounded text-sm font-medium';
+            save.style.cssText = 'background:#3b82f6;color:#fff';
+            save.textContent = '创建';
+            actions.appendChild(cancel);
+            actions.appendChild(save);
+            footer.appendChild(hint);
+            footer.appendChild(actions);
+            panel.appendChild(footer);
+
+            overlay.appendChild(panel);
+            overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
+            document.body.appendChild(overlay);
+
+            const submit = async () => {
+                const name = String(input.value || '').trim();
+                if (!name) { input.focus(); return; }
+                overlay.remove();
                 try {
                     await rendererApi.post('/api/v1/tags', { name, layer });
                 } catch (error) {
-                    showNotification('创建标签失败: ' + error.message, 'error');
+                    showNotification('创建标签失败: ' + (error?.message || error), 'error');
                     return;
                 }
                 const local = new Set(window.__localTags || []);
                 local.add(name);
                 window.__localTags = Array.from(local);
-                try {
-                    localStorage.setItem('echomind.localTags', JSON.stringify(window.__localTags));
-                } catch (_) { }
+                try { localStorage.setItem('echomind.localTags', JSON.stringify(window.__localTags)); } catch (_) { }
 
+                // 有选中音效就顺手打上（走用户标签接口）
                 const targets = Array.from(selectedSounds || []);
-                if (!targets.length) {
-                    showNotification(`标签「${name}」已创建，选中音效后右键即可添加`, 'info');
-                    renderCategoryTree();
-                    return;
-                }
                 let applied = 0;
                 for (const sound of targets) {
-                    const path = sound.filePath || sound.path;
-                    if (!path) continue;
-                    const tags = Array.from(new Set([...(sound.tags || []), name]));
+                    const uuid = sound.fileId || sound.file_uuid;
+                    if (!uuid) continue;
                     try {
-                        await window.electronAPI.backendAPI.updateFileTags(path, tags);
-                        sound.tags = tags;
+                        const current = await rendererApi.get('/api/v1/files/' + encodeURIComponent(uuid) + '/user-tags');
+                        const names = Array.from(new Set([...(current?.names || []), name]));
+                        await rendererApi.post('/api/v1/files/' + encodeURIComponent(uuid) + '/tags', { names, tag_ids: [] });
                         applied += 1;
                     } catch (error) {
-                        console.warn('[Tags] 添加失败:', path, error);
+                        console.warn('[Tags] 打标签失败:', uuid, error);
                     }
                 }
-                showNotification(
-                    applied ? `已为 ${applied} 个音效添加标签「${name}」` : '添加标签失败',
-                    applied ? 'success' : 'error'
-                );
                 await loadTagStats();
+                showNotification(
+                    applied ? `已创建标签「${name}」并加到 ${applied} 个音效` : `已创建标签「${name}」`,
+                    'success'
+                );
+            };
+            save.addEventListener('click', submit);
+            input.addEventListener('keydown', (event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') { event.preventDefault(); submit(); }
+                if (event.key === 'Escape') { event.preventDefault(); overlay.remove(); }
             });
+
+            // 焦点：等一帧 + 延时双保险（Electron 有时窗口还没拿到焦点）
+            const focusInput = () => { try { window.focus(); input.focus(); input.select(); } catch (_) { } };
+            requestAnimationFrame(focusInput);
+            setTimeout(focusInput, 60);
+            setTimeout(focusInput, 200);
         }
 
         function filterByCategory(categoryId) {

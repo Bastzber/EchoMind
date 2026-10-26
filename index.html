@@ -6237,18 +6237,17 @@
             // ---- 效果器（折叠，放在详情最上方，方便找）----
             const effectSection = document.createElement('div');
             effectSection.id = 'effectPanel';
-            effectSection.className = 'mt-3 mb-2 rounded-lg p-2.5';
-            effectSection.style.cssText = 'background: rgba(107,138,253,0.10); border: 1px solid rgba(107,138,253,0.35);';
+            effectSection.className = 'mt-4 pt-3 border-t';
+            effectSection.style.borderColor = 'var(--border-color)';
             effectSection.innerHTML = [
                 '<button class="effect-toggle w-full text-left">',
                 '  <span class="flex items-center gap-2">',
-                '    <span class="w-6 h-6 rounded-md flex items-center justify-center shrink-0" style="background: rgba(107,138,253,0.25);">',
-                '      <i data-lucide="sliders" class="w-3.5 h-3.5" style="color: #8ea7ff;"></i>',
-                '    </span>',
-                '    <span class="text-xs font-semibold" style="color: #c7d3ff;">效果器 · 混响</span>',
-                '    <i data-lucide="chevron-down" class="w-3.5 h-3.5 effect-chevron opacity-60 ml-auto"></i>',
+                '    <i data-lucide="sliders" class="w-4 h-4 shrink-0" style="color: #8ea7ff;"></i>',
+                '    <span class="text-sm font-semibold tracking-wide" style="color: #a9bcff;">效果器</span>',
+                '    <span class="text-[10px] opacity-45">混响</span>',
+                '    <i data-lucide="chevron-down" class="w-3.5 h-3.5 effect-chevron opacity-50 ml-auto"></i>',
                 '  </span>',
-                '  <span class="flex items-center gap-1 mt-1 pl-8 text-[10px] opacity-55">',
+                '  <span class="flex items-center gap-1 mt-1 pl-6 text-[10px] opacity-50">',
                 '    <span>室内 / 大厅 / 教堂，试听后可导出</span>',
                 '    <span class="effect-summary ml-auto"></span>',
                 '  </span>',

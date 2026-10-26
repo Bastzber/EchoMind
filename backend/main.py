@@ -6240,7 +6240,7 @@ async def _repair_index_task_locked(
                 # CUDA 偶发挂起；按 256 条分块（2048 实测 chroma rust upsert
                 # 长时间停滞，512 实测 mel 内存峰值可致进程崩溃），块间清空显存。
                 # 分块大小调小，配合"每块落库即标记"，前端进度能持续跳动
-                AUDIO_FLUSH_CHUNK = 64
+                AUDIO_FLUSH_CHUNK = 8
                 ok_set: set = set()
                 marked_audio: set = set()
                 marked_count = 0
@@ -6248,11 +6248,47 @@ async def _repair_index_task_locked(
                 for ci in range(0, len(entries), AUDIO_FLUSH_CHUNK):
                     chunk = entries[ci:ci + AUDIO_FLUSH_CHUNK]
                     try:
-                        chunk_ok = await _run_model_work(
-                            audio_target.add_audio_batch, chunk
+                        # 单批看门狗：坏文件会让编码永久挂起，超时后标记失败并重启 worker
+                        chunk_ok = await asyncio.wait_for(
+                            _run_model_work(audio_target.add_audio_batch, chunk),
+                            timeout=180,
                         )
                         if chunk_ok:
                             ok_set.update(chunk_ok)
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "[索引] 编码超时（>180s），疑似损坏文件，标记失败并重启 worker: %s",
+                            "|".join(p for p, _f, _m in chunk),
+                        )
+                        try:
+                            from core.embedder import get_embedder
+                            _emb = get_embedder()
+                            if _emb is not None:
+                                _emb.release_gpu()
+                        except Exception:
+                            pass
+                        # 拆成单文件重试：只有真正卡死的那个会被记为失败，
+                        # 同批其它正常文件照样入库。
+                        for _single in chunk:
+                            try:
+                                _ok = await asyncio.wait_for(
+                                    _run_model_work(audio_target.add_audio_batch, [_single]),
+                                    timeout=90,
+                                )
+                                if _ok:
+                                    ok_set.update(_ok)
+                            except asyncio.TimeoutError:
+                                logger.error("[索引] 单文件编码超时，记入毒文件名单: %s", _single[0])
+                                try:
+                                    import config as _cfg
+                                    from core.embedder import _blacklist_file
+                                    path_file = _blacklist_file()
+                                    with open(path_file, "a", encoding="utf-8") as _fh:
+                                        _fh.write(f"{_single[0]}\t{int(time.time())}\t1\n")
+                                except Exception as _exc:
+                                    logger.debug("写入毒文件名单失败: %s", _exc)
+                            except Exception:
+                                pass
                     except Exception as exc:
                         logger.exception("批量 audio_vector 落库失败")
                         try:
@@ -6356,8 +6392,11 @@ async def _repair_index_task_locked(
                     chunk = text_batch_queue[i:i + TEXT_BATCH]
                     fingerprint = None
                     try:
-                        result = await text_target.upsert_metadata(
-                            [meta for _p, _fid, meta, _is, _fp in chunk]
+                        result = await asyncio.wait_for(
+                            text_target.upsert_metadata(
+                                [meta for _p, _fid, meta, _is, _fp in chunk]
+                            ),
+                            timeout=180,
                         )
                         ok_count = int(result.get("indexed", 0) or 0)
                         fingerprint = result.get("fingerprint")

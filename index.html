@@ -1373,11 +1373,39 @@
             const progress = total > 0 ? ` ${processed}/${total}` : '';
             status.textContent = `${job?.state || 'pending'}${progress}`;
             status.title = job?.error_message || job?.stage || status.textContent;
+            status.style.color = '';
+            status.style.cursor = '';
+            status.onclick = null;
+        }
+
+        let indexStatusFailures = 0;
+        let indexStatusRetryTimer = null;
+
+        function paintIndexStatusLabel(text, { retryable = false, title = '' } = {}) {
+            const label = document.getElementById('indexJobStatus');
+            if (!label) return;
+            label.textContent = text;
+            label.title = title || text;
+            label.style.cursor = retryable ? 'pointer' : '';
+            label.style.color = retryable ? '#f59e0b' : '';
+            label.onclick = retryable ? (() => { indexStatusFailures = 0; refreshProjectIndexStatus(); }) : null;
+        }
+
+        function scheduleIndexStatusRetry() {
+            if (indexStatusRetryTimer) return;
+            indexStatusRetryTimer = setTimeout(() => {
+                indexStatusRetryTimer = null;
+                refreshProjectIndexStatus();
+            }, 2000);
         }
 
         async function refreshProjectIndexStatus() {
+            const label = document.getElementById('indexJobStatus');
+            if (label && !label.textContent) paintIndexStatusLabel('读取中…');
             try {
                 const status = await rendererProjects.indexStatus(currentProject?.id || 'default');
+                indexStatusFailures = 0;
+                if (indexStatusRetryTimer) { clearTimeout(indexStatusRetryTimer); indexStatusRetryTimer = null; }
                 const audio = rendererProjects.artifactSummary(status, 'audio_vector');
                 const text = rendererProjects.artifactSummary(status, 'text_vector');
                 const setNum = (id, value) => {
@@ -1392,9 +1420,19 @@
                 setNum('textFailedStatus', text.failed);
                 return status;
             } catch (error) {
-                console.error('[Index] 加载工程索引状态失败:', error);
-                const status = document.getElementById('indexJobStatus');
-                if (status) status.textContent = '状态不可用';
+                indexStatusFailures += 1;
+                console.warn('[Index] 读取索引状态失败（第 ' + indexStatusFailures + ' 次）:', error?.message || error);
+                if (indexStatusFailures < 3) {
+                    // 后端重启/大任务期间很常见，先重试，不打扰用户
+                    paintIndexStatusLabel('读取中…');
+                    scheduleIndexStatusRetry();
+                } else {
+                    paintIndexStatusLabel('读取失败 · 点击重试', {
+                        retryable: true,
+                        title: '索引状态读取失败：' + (error?.message || error) + '\n点击重试',
+                    });
+                    scheduleIndexStatusRetry();
+                }
                 return null;
             }
         }

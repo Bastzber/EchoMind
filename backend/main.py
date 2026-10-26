@@ -3735,6 +3735,86 @@ class BatchDeleteRequest(BaseModel):
     delete_source: bool = False
 
 
+
+class ReviewMoveRequest(BaseModel):
+    file_uuid: str
+    target_dir: str
+
+
+@app.get("/api/v1/db/review/unclassified")
+async def review_unclassified(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    keyword: str = Query(default=""),
+    project_id: str = Query(default="default"),
+):
+    """待归类文件列表（_待归类 / 待人工判断 目录下的文件）。"""
+    db_manager = get_db_manager()
+    where = "project_id=? AND (path LIKE '%_待归类%' OR path LIKE '%待人工判断%')"
+    params: list = [project_id]
+    if keyword.strip():
+        where += " AND (filename LIKE ? OR COALESCE(ai_description,'') LIKE ?)"
+        like = f"%{keyword.strip()}%"
+        params += [like, like]
+    with db_manager.get_cursor() as cursor:
+        total = cursor.execute(f"SELECT COUNT(*) FROM files WHERE {where}", params).fetchone()[0]
+        rows = cursor.execute(
+            f"SELECT file_uuid, path, filename, COALESCE(duration,0), COALESCE(tags,'[]'), "
+            f"COALESCE(ai_description,'') FROM files WHERE {where} ORDER BY path LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+    return {
+        "success": True,
+        "total": total,
+        "items": [
+            {
+                "file_uuid": r[0], "path": r[1], "filename": r[2],
+                "duration": float(r[3] or 0), "tags": r[4], "description": r[5],
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/v1/db/review/move")
+async def review_move_file(payload: ReviewMoveRequest):
+    """把待归类文件移动到目标目录，并同步库内路径（file_uuid 不变，索引保留）。"""
+    import shutil
+
+    from core.database import canonicalize_path
+
+    db_manager = get_db_manager()
+    project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+    with db_manager.get_cursor() as cursor:
+        row = cursor.execute(
+            "SELECT path, filename FROM files WHERE project_id=? AND file_uuid=?",
+            (project_id, payload.file_uuid),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="文件记录不存在")
+    source = Path(row[0])
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="源文件不存在")
+    target_dir = Path(payload.target_dir)
+    if not target_dir.is_dir():
+        raise HTTPException(status_code=400, detail="目标目录不存在")
+    target = target_dir / source.name
+    if target.exists() and target.resolve() != source.resolve():
+        raise HTTPException(status_code=409, detail="目标目录已有同名文件")
+    try:
+        if target.resolve() != source.resolve():
+            shutil.move(str(source), str(target))
+        with db_manager.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET path=?, canonical_path=? WHERE project_id=? AND file_uuid=?",
+                (str(target), canonicalize_path(str(target)), project_id, payload.file_uuid),
+            )
+    except Exception as exc:
+        logger.warning("[归类] 移动失败 %s -> %s: %s", source, target, exc)
+        raise SoundBotAPIError("move_failed", f"移动失败：{exc}", status_code=500)
+    return {"success": True, "path": str(target), "filename": target.name}
+
+
 @app.post("/api/v1/db/files/delete")
 async def batch_delete_db_files(payload: BatchDeleteRequest):
     """批量删除文件记录。

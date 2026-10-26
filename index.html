@@ -727,6 +727,21 @@
             <button id="loopBtn" class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5 opacity-50" data-i18n-title="player.loop">
                 <i data-lucide="repeat" class="w-5 h-5"></i>
             </button>
+            <div class="flex items-center gap-1 ml-1">
+                <select id="playbackRateSelect" class="h-8 px-1 rounded text-xs" title="倍速播放"
+                        style="background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color);">
+                    <option value="0.5">0.5×</option>
+                    <option value="0.75">0.75×</option>
+                    <option value="1" selected>1.0×</option>
+                    <option value="1.25">1.25×</option>
+                    <option value="1.5">1.5×</option>
+                    <option value="2">2.0×</option>
+                </select>
+                <button id="reverseBtn" class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        title="倒放（生成反向临时文件）">
+                    <i data-lucide="rewind" class="w-5 h-5"></i>
+                </button>
+            </div>
         </div>
         
         <!-- Progress Bar -->
@@ -1455,6 +1470,98 @@
             }
         }
         
+        // ===== 倍速 / 倒放 =====
+        let playbackRate = Number(localStorage.getItem('echomind.playbackRate') || 1) || 1;
+        let reverseMode = localStorage.getItem('echomind.reverseMode') === '1';
+        const reverseSourceCache = new Map();
+
+        function applyPlaybackRate() {
+            if (!audioPlayer) return;
+            try { audioPlayer.playbackRate = playbackRate; } catch (_) { }
+        }
+
+        function updateReverseButton() {
+            const button = document.getElementById('reverseBtn');
+            if (!button) return;
+            button.style.background = reverseMode ? 'rgba(107,138,253,0.18)' : 'transparent';
+            button.style.color = reverseMode ? 'var(--accent-color, #6b8afd)' : '';
+            button.title = reverseMode ? '倒放中（点击恢复正放）' : '倒放（生成反向临时文件）';
+        }
+
+        async function fetchReversedPath(sound) {
+            const filePath = sound?.filePath;
+            if (!filePath) throw new Error('缺少文件路径');
+            const cacheKey = filePath + '|' + (sound.duration || 0);
+            if (reverseSourceCache.has(cacheKey)) return reverseSourceCache.get(cacheKey);
+            const result = await rendererApi.post('/api/v1/audio/reverse', { path: filePath }, { timeoutMs: 120000 });
+            if (!result?.path) throw new Error(result?.detail || '倒放失败');
+            const src = 'soundmind-audio://local/' + encodeURIComponent(result.path);
+            reverseSourceCache.set(cacheKey, src);
+            return src;
+        }
+
+        // 倒放模式下优先用反向临时文件，其余照旧
+        async function resolveAudioSourceWithReverse(sound, options) {
+            if (!reverseMode) {
+                return rendererAudio.resolvePlaybackSource(sound, options);
+            }
+            try {
+                return await fetchReversedPath(sound);
+            } catch (error) {
+                console.warn('[Player] 倒放失败，回退正放:', error);
+                showNotification('倒放失败，已按正放播放：' + (error?.message || error), 'warning');
+                reverseMode = false;
+                updateReverseButton();
+                return rendererAudio.resolvePlaybackSource(sound, options);
+            }
+        }
+
+        function bindPlaybackRateAndReverse() {
+            const select = document.getElementById('playbackRateSelect');
+            if (select) {
+                select.value = String(playbackRate);
+                select.addEventListener('change', () => {
+                    playbackRate = Number(select.value) || 1;
+                    try { localStorage.setItem('echomind.playbackRate', String(playbackRate)); } catch (_) { }
+                    applyPlaybackRate();
+                });
+            }
+            const button = document.getElementById('reverseBtn');
+            if (button) {
+                updateReverseButton();
+                button.addEventListener('click', async () => {
+                    const wasPlaying = Boolean(isPlaying);
+                    const position = audioPlayer ? audioPlayer.currentTime : 0;
+                    reverseMode = !reverseMode;
+                    try { localStorage.setItem('echomind.reverseMode', reverseMode ? '1' : '0'); } catch (_) { }
+                    updateReverseButton();
+                    if (!currentSound) return;
+                    try {
+                        const source = await resolveAudioSourceWithReverse(currentSound, {
+                            api: rendererApi,
+                            projectId: currentProject?.id || 'default'
+                        });
+                        if (!audioPlayer) initAudioPlayer();
+                        audioPlayer.pause();
+                        audioPlayer.src = source;
+                        audioPlayer.load();
+                        await rendererAudio.waitForMetadata(audioPlayer);
+                        applyPlaybackRate();
+                        if (position > 0) {
+                            try { audioPlayer.currentTime = Math.min(position, audioPlayer.duration || position); } catch (_) { }
+                        }
+                        if (wasPlaying) {
+                            await audioPlayer.play();
+                            isPlaying = true;
+                        }
+                        showNotification(reverseMode ? '已切换倒放' : '已恢复正放', 'success');
+                    } catch (error) {
+                        showNotification('切换播放方向失败: ' + (error?.message || error), 'error');
+                    }
+                });
+            }
+        }
+
         function initAudioPlayer() {
             audioPlayer = new Audio();
             audioPlayer.preload = 'metadata';
@@ -1520,7 +1627,7 @@
                 // 释放旧的 Blob URL，防止内存泄漏
                 releaseCurrentBlobUrl();
 
-                let audioSrc = await rendererAudio.resolvePlaybackSource(sound, {
+                let audioSrc = await resolveAudioSourceWithReverse(sound, {
                     api: rendererApi,
                     projectId: currentProject?.id || 'default'
                 });
@@ -1542,6 +1649,7 @@
 
                 // 尝试播放
                 try {
+                    applyPlaybackRate();
                     await audioPlayer.play();
                     isPlaying = true;
                     startPlaybackAnimation(); // 启动毫秒级动画更新
@@ -10772,6 +10880,7 @@
             document.getElementById('viewListBtn')?.addEventListener('click', () => setViewMode('list'));
             document.getElementById('viewCardBtn')?.addEventListener('click', () => setViewMode('card'));
             applyViewMode();
+            bindPlaybackRateAndReverse();
             document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
             document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));
             // 启动时默认展开详情面板（用户点「详情」或 ✕ 可收起）

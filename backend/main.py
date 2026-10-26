@@ -3697,6 +3697,27 @@ async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), proje
 
 
 
+
+# ==================== 倒放 ====================
+
+class ReverseRequest(BaseModel):
+    path: str
+
+
+@app.post("/api/v1/audio/reverse")
+async def reverse_audio(payload: ReverseRequest):
+    """生成（或复用缓存的）倒放 WAV，返回本地绝对路径。"""
+    from core.audio_reverse import reverse_to_wav
+
+    if not payload.path:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, reverse_to_wav, payload.path)
+    if not result.get("ok"):
+        raise SoundBotAPIError("reverse_failed", str(result.get("error") or "倒放失败"), status_code=500)
+    return {"success": True, **result}
+
+
 # ==================== 皮肤 / 主题包 ====================
 
 class SkinImportRequest(BaseModel):

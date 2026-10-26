@@ -200,8 +200,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
           invokeBackend('scan-only', { folderPath, recursive }),
 
         // 异步导入文件夹（带进度推送）
-        importFolderAsync: (folderPath, recursive = true, clientId = 'default', projectId) =>
-          invokeBackend('import-async', { folderPath, recursive, clientId, projectId }),
+        importFolderAsync: (folderPath, recursive = true, clientId = 'default', projectId, skipExisting = false) =>
+          invokeBackend('import-async', { folderPath, recursive, clientId, projectId, skipExisting }),
 
         // 将文件路径交给后端导入任务；不再通过 IPC 搬运整文件字节数组
         importFiles: (filePaths, clientId = 'default', projectId) =>

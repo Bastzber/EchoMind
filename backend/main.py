@@ -772,12 +772,32 @@ async def scan_only(request: schemas.ScanRequest):
 
 # ==================== 异步导入（带进度推送） ====================
 
+def _filter_duplicate_paths(paths, duplicate_pairs):
+    """按「文件名小写 + 字节数」过滤掉库里已有的文件；返回 (保留列表, 跳过数量)。"""
+    if not duplicate_pairs:
+        return list(paths), 0
+    kept = []
+    skipped = 0
+    for item in paths:
+        try:
+            size = int(item.stat().st_size)
+        except OSError:
+            kept.append(item)
+            continue
+        if (item.name.lower(), size) in duplicate_pairs:
+            skipped += 1
+            continue
+        kept.append(item)
+    return kept, skipped
+
+
 async def _start_folder_import(
     project_id: str,
     folder_path: str,
     recursive: bool,
     client_id: str,
     background_tasks: BackgroundTasks,
+    skip_existing: bool = False,
 ) -> Dict[str, Any]:
     """Validate and enqueue one immutable project-scoped folder import."""
     db_manager = get_db_manager()
@@ -808,6 +828,7 @@ async def _start_folder_import(
         recursive=recursive,
         client_id=client_id,
         project_id=project_id,
+        skip_existing=skip_existing,
     )
 
     return {
@@ -901,6 +922,7 @@ async def import_project_files(
             request.recursive,
             request.client_id or "default",
             background_tasks,
+            skip_existing=bool(getattr(request, "skip_existing", False)),
         )
     payload = schemas.ImportFilesRequest(
         file_paths=request.file_paths or [],
@@ -1536,6 +1558,7 @@ async def _scan_and_import_task(
     recursive: bool,
     client_id: str,
     project_id: str,
+    skip_existing: bool = False,
 ):
     if project_id in _projects_deleting:
         get_db_manager().update_job(
@@ -1549,7 +1572,7 @@ async def _scan_and_import_task(
             )
             return
         await _scan_and_import_task_locked(
-            task_id, folder_path, recursive, client_id, project_id
+            task_id, folder_path, recursive, client_id, project_id, skip_existing
         )
 
 
@@ -1559,6 +1582,7 @@ async def _scan_and_import_task_locked(
     recursive: bool,
     client_id: str,
     project_id: str,
+    skip_existing: bool = False,
 ):
     """
     后台扫描导入任务
@@ -1598,6 +1622,31 @@ async def _scan_and_import_task_locked(
         )
         total = len(candidate_paths)
         db_manager.update_job(task_id, total=total)
+
+        # 「只导入新文件」：必须在候选入库之前判定，否则准备阶段已经把记录写进去了。
+        duplicate_pairs: set = set()
+        if skip_existing:
+            try:
+                with db_manager.get_cursor() as cursor:
+                    for row in cursor.execute(
+                        "SELECT LOWER(filename), COALESCE(file_size,0) FROM files WHERE project_id=?",
+                        (project_id,),
+                    ):
+                        duplicate_pairs.add((str(row[0]), int(row[1] or 0)))
+                logger.info("[IMPORT] 只导入新文件模式：库里已有 %d 个文件名+大小组合", len(duplicate_pairs))
+            except Exception as exc:
+                logger.warning("[IMPORT] 读取重复集合失败，退化为全部导入: %s", exc)
+                duplicate_pairs = set()
+        duplicate_skipped = 0
+        if duplicate_pairs:
+            kept_paths, duplicate_skipped = _filter_duplicate_paths(candidate_paths, duplicate_pairs)
+            logger.info(
+                "[IMPORT] 准备阶段跳过重复 %d 个，待导入 %d 个", duplicate_skipped, len(kept_paths)
+            )
+            candidate_paths = kept_paths
+            total = len(candidate_paths)
+            db_manager.update_job(task_id, total=total)
+
         candidates: Dict[str, Dict[str, Any]] = {}
         added = 0
         # 每个文件都要入库/探测，这一段是导入最慢的部分。
@@ -1641,6 +1690,11 @@ async def _scan_and_import_task_locked(
         audio_files, folder_structure = await _run_audio_work(
             scanner.scan_with_structure, folder_path, recursive
         )
+        if duplicate_skipped:
+            audio_files = [
+                item for item in audio_files
+                if canonicalize_path(item.path) in candidates
+            ]
         decoded_keys = {canonicalize_path(item.path) for item in audio_files}
         probe_failures = [
             candidate for key, candidate in candidates.items() if key not in decoded_keys
@@ -1750,6 +1804,19 @@ async def _scan_and_import_task_locked(
             # artifacts are healthy. Reconcile it instead of permanently skipping.
             candidate = candidates[canonicalize_path(audio_file.path)]
             existing_record = candidate["existing"]
+
+            # 同名同大小且不是同一条记录 → 视为重复，跳过
+            if skip_existing and duplicate_pairs and not existing_record:
+                pair = (audio_file.filename.lower(), int(getattr(audio_file, "size", 0) or 0))
+                if pair in duplicate_pairs:
+                    duplicate_skipped += 1
+                    if duplicate_skipped <= 5:
+                        logger.info("[IMPORT] 跳过重复文件: %s", audio_file.filename)
+                    await ws_manager.send_scan_progress(
+                        client_id, task_id, i, total, current_file, "skipped",
+                        progress=int(40 + progress_pct * 0.3),
+                    )
+                    continue
 
             # 发送进度 - 分析阶段 (40-70%)
             await ws_manager.send_scan_progress(
@@ -1927,8 +1994,11 @@ async def _scan_and_import_task_locked(
             )
 
         await _bump_project_index_revision(project_id)
+        if duplicate_skipped:
+            logger.info(f"其中 {duplicate_skipped} 个因同名同大小已在库中而跳过")
         await ws_manager.send_scan_complete(
-            client_id, task_id, total, added, skipped
+            client_id, task_id, total, added, skipped + duplicate_skipped,
+            "已跳过重复文件" if duplicate_skipped else None,
         )
         ws_manager.unregister_task(task_id)
         db_manager.update_job(

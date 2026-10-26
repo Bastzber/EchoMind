@@ -1704,6 +1704,83 @@
             }
         }
 
+        // ===== 导入重复处理 =====
+        let skipExistingOnImport = false;
+
+        /**
+         * 导入前发现重复时的三选一：
+         *   'new'    只导入库里没有的文件（同名同大小视为重复）
+         *   'all'    全部导入
+         *   'cancel' 取消
+         * 返回 Promise<string>，键盘 Esc = cancel，回车 = new（默认推荐）。
+         */
+        function showImportDuplicateChoice(precheck, pct) {
+            return new Promise((resolve) => {
+                document.getElementById('importDupOverlay')?.remove();
+                const overlay = document.createElement('div');
+                overlay.id = 'importDupOverlay';
+                overlay.className = 'fixed inset-0 flex items-center justify-center';
+                overlay.style.cssText = 'z-index:340;background:rgba(0,0,0,0.6)';
+
+                const panel = document.createElement('div');
+                panel.className = 'rounded-xl shadow-2xl p-5 w-[460px] flex flex-col gap-3';
+                panel.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-color);';
+
+                const total = precheck.total || 0;
+                const existing = precheck.existing || 0;
+                const fresh = Math.max(total - existing, 0);
+
+                const title = document.createElement('div');
+                title.className = 'text-sm font-semibold';
+                title.textContent = '这个文件夹之前导入过';
+                panel.appendChild(title);
+
+                const desc = document.createElement('div');
+                desc.className = 'text-xs leading-5 opacity-70';
+                desc.textContent = '共 ' + total + ' 个文件，其中 ' + existing + ' 个（' + pct + '%）已在库里（同名同大小）。';
+                panel.appendChild(desc);
+
+                const actions = document.createElement('div');
+                actions.className = 'flex flex-col gap-2 mt-1';
+
+                const mk = (label, hint, primary, handler) => {
+                    const button = document.createElement('button');
+                    button.className = 'w-full text-left px-3 py-2 rounded-lg border';
+                    button.style.cssText = 'border-color:' + (primary ? 'var(--accent-color, #6b8afd)' : 'var(--border-color)')
+                        + '; background:' + (primary ? 'rgba(107,138,253,0.14)' : 'transparent');
+                    button.innerHTML = '<div style="font-size:12px;font-weight:600">' + label + '</div>'
+                        + '<div style="font-size:11px;opacity:.55;margin-top:1px">' + hint + '</div>';
+                    button.addEventListener('click', handler);
+                    actions.appendChild(button);
+                };
+                mk('只导入新文件（推荐）', '跳过 ' + existing + ' 个重复，导入剩下的 ' + fresh + ' 个', true, () => {
+                    overlay.remove(); resolve('new');
+                });
+                mk('全部导入', '会产生 ' + existing + ' 个重复音效，之后需手动清理', false, () => {
+                    overlay.remove(); resolve('all');
+                });
+                mk('取消', '什么都不做', false, () => {
+                    overlay.remove(); resolve('cancel');
+                });
+                panel.appendChild(actions);
+
+                overlay.appendChild(panel);
+                overlay.addEventListener('mousedown', (event) => {
+                    if (event.target === overlay) { overlay.remove(); resolve('cancel'); }
+                });
+                const onKey = (event) => {
+                    if (event.key === 'Escape') { event.preventDefault(); cleanup(); resolve('cancel'); }
+                    if (event.key === 'Enter') { event.preventDefault(); cleanup(); resolve('new'); }
+                };
+                const cleanup = () => {
+                    document.removeEventListener('keydown', onKey, true);
+                    overlay.remove();
+                };
+                document.addEventListener('keydown', onKey, true);
+                document.body.appendChild(overlay);
+            });
+        }
+
         // ===== 声音克隆 =====
         const voiceState = { profiles: [], speakerId: '', lastOutput: '', samplePath: '', sampleDuration: 0 };
 
@@ -13909,13 +13986,12 @@
                             );
                             if (precheck && precheck.existing > 0) {
                                 const pct = Math.round((precheck.ratio || 0) * 100);
-                                const message = precheck.already_imported
-                                    ? `这个文件夹里有 ${precheck.existing} / ${precheck.total} 个文件（${pct}%）在库里已经存在（同名同大小），看起来整个包之前导入过。\n\n仍然继续导入吗？重复导入会产生大量重复音效。`
-                                    : `这个文件夹里有 ${precheck.existing} / ${precheck.total} 个文件（${pct}%）与库里已有文件同名同大小，可能是重复导入。\n\n继续导入吗？`;
-                                if (!confirm(message)) {
+                                const choice = await showImportDuplicateChoice(precheck, pct);
+                                if (choice === 'cancel') {
                                     showNotification('已取消导入', 'info');
                                     return;
                                 }
+                                skipExistingOnImport = (choice === 'new');
                             }
                         } catch (precheckError) {
                             console.warn('[Import] 预检失败，按原流程继续:', precheckError);
@@ -13942,7 +14018,8 @@
                                 folderPath,
                                 true,
                                 clientId,
-                                importProjectId
+                                importProjectId,
+                                skipExistingOnImport
                             );
                             console.log('[DEBUG] importFolderAsync 返回:', result);
 

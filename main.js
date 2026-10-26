@@ -1192,7 +1192,8 @@ function createBackendRequest(action, data = {}) {
           body: JSON.stringify({
             folder_path: data.folderPath,
             recursive: data.recursive ?? true,
-            client_id: data.clientId || 'default'
+            client_id: data.clientId || 'default',
+            skip_existing: Boolean(data.skipExisting)
           })
         }
       };

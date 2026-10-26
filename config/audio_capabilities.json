@@ -50,6 +50,11 @@
       "name": "Core Audio (CAF)",
       "mime_type": "audio/x-caf",
       "requires_playback_transcode": true
+    },
+    ".ape": {
+      "name": "Monkey's Audio (APE)",
+      "mime_type": "audio/x-ape",
+      "requires_playback_transcode": true
     }
   }
 }

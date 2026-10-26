@@ -1410,7 +1410,16 @@
                 const text = rendererProjects.artifactSummary(status, 'text_vector');
                 const setNum = (id, value) => {
                     const el = document.getElementById(id);
-                    if (el) el.textContent = String(Number(value || 0));
+                    if (!el) return;
+                    const next = String(Number(value || 0));
+                    const changed = el.textContent !== next && el.textContent !== '';
+                    el.textContent = next;
+                    if (changed) {
+                        // 进度在动：闪一下，用户能看出 +1
+                        el.style.transition = 'color .15s ease';
+                        el.style.color = '#22c55e';
+                        setTimeout(() => { el.style.color = ''; }, 500);
+                    }
                 };
                 setNum('audioIndexStatus', audio.ready);
                 setNum('audioPendingStatus', audio.pending);
@@ -12197,9 +12206,29 @@
             checkModelStatus();
             // 定期更新模型状态（每5秒）
             setInterval(checkModelStatus, 5000);
-            setInterval(() => {
-                if (!indexJobRunning && backendReady) refreshProjectIndexStatus();
-            }, 15000);
+            // 索引进度自适应轮询：有处理中的任务时 2 秒刷新，空闲时 15 秒
+            let indexPollTimer = null;
+            const scheduleIndexPoll = (delay) => {
+                if (indexPollTimer) clearTimeout(indexPollTimer);
+                indexPollTimer = setTimeout(async () => {
+                    indexPollTimer = null;
+                    if (!backendReady) {
+                        scheduleIndexPoll(5000);
+                        return;
+                    }
+                    const status = await refreshProjectIndexStatus();
+                    const busy = Boolean(
+                        status
+                        && (Number(status.artifacts?.audio_vector?.pending || 0)
+                            + Number(status.artifacts?.audio_vector?.processing || 0)
+                            + Number(status.artifacts?.text_vector?.pending || 0)
+                            + Number(status.artifacts?.text_vector?.processing || 0)
+                            + Number(status.artifacts?.waveform?.pending || 0)) > 0
+                    );
+                    scheduleIndexPoll(busy ? 2000 : 15000);
+                }, delay);
+            };
+            scheduleIndexPoll(3000);
 
             // ==================== 阈值调整功能 ====================
             let currentSearchThreshold = 0.15; // 默认阈值

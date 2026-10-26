@@ -10042,6 +10042,7 @@
         let scanCancelRequested = false;
 
         function finishScanModal(modal) {
+            document.getElementById('scanMiniBadge')?.remove();
             const target = modal || scanProgressModal;
             if (target && target.parentNode) target.parentNode.removeChild(target);
             if (scanProgressModal === target) scanProgressModal = null;
@@ -10072,31 +10073,42 @@
         function createScanProgressModal() {
             const modal = document.createElement('div');
             modal.className = 'scan-progress-modal';
+            // 非阻塞：固定在右下角，像下载条一样，用户可以继续用其它功能
             modal.style.cssText = `
                 position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
+                right: 16px;
+                bottom: 84px;
                 background: var(--bg-secondary);
                 border: 1px solid var(--border-color);
                 border-radius: 8px;
-                padding: 16px 20px;
-                width: 320px;
+                padding: 12px 14px;
+                width: 300px;
                 z-index: 9999;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+                box-shadow: 0 10px 40px rgba(0,0,0,0.35);
             `;
             modal.innerHTML = `
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                    <span style="font-size: 13px; font-weight: 500;">正在导入...</span>
-                    <button class="cancel-btn" style="
-                        padding: 2px 8px;
-                        background: transparent;
-                        color: var(--text-secondary);
-                        border: 1px solid var(--border-color);
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 11px;
-                    ">取消</button>
+                    <span style="font-size: 13px; font-weight: 500;">正在后台导入…</span>
+                    <span style="display:flex;gap:6px;">
+                        <button class="hide-btn" style="
+                            padding: 2px 8px;
+                            background: transparent;
+                            color: var(--text-secondary);
+                            border: 1px solid var(--border-color);
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 11px;
+                        " title="隐藏进度，导入继续在后台进行">隐藏</button>
+                        <button class="cancel-btn" style="
+                            padding: 2px 8px;
+                            background: transparent;
+                            color: #ef4444;
+                            border: 1px solid rgba(239,68,68,.4);
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 11px;
+                        " title="停止本次导入">取消</button>
+                    </span>
                 </div>
                 <div class="progress-bar-container" style="
                     background: var(--bg-primary);
@@ -10116,6 +10128,25 @@
                     <p class="current-file" style="margin: 0; font-size: 11px; color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
                 </div>
             `;
+
+            // 隐藏：导入继续在后台跑，右下角留一个迷你入口
+            modal.querySelector('.hide-btn')?.addEventListener('click', () => {
+                const mini = document.getElementById('scanMiniBadge') || document.createElement('button');
+                mini.id = 'scanMiniBadge';
+                mini.className = 'fixed z-[9999] rounded-full px-3 py-1.5 text-[11px] shadow-lg';
+                mini.style.cssText = 'right:16px; bottom:84px; background: var(--bg-secondary); border:1px solid var(--border-color); color: var(--text-secondary);';
+                mini.textContent = '导入进行中 · 点击查看';
+                mini.onclick = () => {
+                    mini.remove();
+                    if (scanProgressModal) {
+                        scanProgressModal.style.display = '';
+                        document.body.appendChild(scanProgressModal);
+                    }
+                };
+                document.body.appendChild(mini);
+                modal.remove();
+                showNotification('导入继续在后台进行，可继续使用其它功能', 'info');
+            });
 
             // 取消按钮：点了必须立刻有反应。
             // 以前只有「任务 id 和 WS 都就绪」时才发消息，否则点下去什么都不发生 ——

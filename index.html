@@ -1714,6 +1714,8 @@
         async function setEffectEnabled(enabled) {
             effectState.active = Boolean(enabled);
             try { localStorage.setItem('echomind.effectActive', effectState.active ? '1' : '0'); } catch (_) { }
+            // 重新渲染：关闭后预设不应再高亮
+            try { renderEffectPanel(currentSound || null); } catch (_) { }
             if (!currentSound) return;
             const wasPlaying = Boolean(isPlaying);
             const position = audioPlayer ? audioPlayer.currentTime : 0;

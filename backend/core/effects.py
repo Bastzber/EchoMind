@@ -17,13 +17,13 @@ from typing import Dict, List
 # 预设：decay 衰减时间(秒) / predelay 预延迟(毫秒) / wet 默认干湿比 / damp 高频衰减
 PRESETS = {
     "dry":        {"name": "干声", "decay": 0.0, "predelay": 0, "wet": 0.0, "damp": 0.0},
-    "room_small": {"name": "小房间", "decay": 0.35, "predelay": 8, "wet": 0.18, "damp": 0.35},
-    "room_large": {"name": "大房间", "decay": 0.85, "predelay": 16, "wet": 0.26, "damp": 0.30},
-    "hall":       {"name": "大厅", "decay": 1.8, "predelay": 28, "wet": 0.32, "damp": 0.25},
-    "church":     {"name": "教堂", "decay": 3.2, "predelay": 45, "wet": 0.38, "damp": 0.20},
-    "tunnel":     {"name": "隧道", "decay": 1.2, "predelay": 10, "wet": 0.34, "damp": 0.15},
-    "outdoor":    {"name": "户外", "decay": 0.5, "predelay": 35, "wet": 0.12, "damp": 0.45},
-    "plate":      {"name": "板式", "decay": 1.5, "predelay": 5, "wet": 0.30, "damp": 0.10},
+    "room_small": {"name": "小房间", "decay": 0.55, "predelay": 6, "wet": 0.34, "damp": 0.30},
+    "room_large": {"name": "大房间", "decay": 1.15, "predelay": 12, "wet": 0.44, "damp": 0.25},
+    "hall":       {"name": "大厅", "decay": 2.4, "predelay": 22, "wet": 0.52, "damp": 0.20},
+    "church":     {"name": "教堂", "decay": 3.8, "predelay": 38, "wet": 0.58, "damp": 0.16},
+    "tunnel":     {"name": "隧道", "decay": 1.7, "predelay": 8, "wet": 0.52, "damp": 0.12},
+    "outdoor":    {"name": "户外", "decay": 0.75, "predelay": 28, "wet": 0.30, "damp": 0.40},
+    "plate":      {"name": "板式", "decay": 1.9, "predelay": 4, "wet": 0.50, "damp": 0.08},
 }
 
 DEFAULT_PRESET = "room_large"
@@ -91,7 +91,9 @@ def _impulse_response(rate: int, decay: float, predelay: float, damp: float):
             acc = alpha * ir[index] + (1 - alpha) * acc
             smoothed[index] = acc
         ir = smoothed
-    ir /= (np.max(np.abs(ir)) + 1e-9)
+    # 按能量归一化：让卷积后的湿声和干声量级接近，否则听起来"几乎没效果"
+    energy = float(np.sqrt(np.sum(ir.astype(np.float64) ** 2)))
+    ir = ir / (energy + 1e-9)
     pad = int(rate * predelay / 1000.0)
     if pad > 0:
         ir = np.concatenate([np.zeros(pad, dtype=np.float32), ir])
@@ -99,13 +101,14 @@ def _impulse_response(rate: int, decay: float, predelay: float, damp: float):
 
 
 def _fft_convolve(signal, ir):
+    """完整卷积：保留混响尾巴，否则听起来会"没有混响"。"""
     import numpy as np
 
     size = len(signal) + len(ir) - 1
     nfft = 1 << (size - 1).bit_length()
     spec_signal = np.fft.rfft(signal, nfft)
     spec_ir = np.fft.rfft(ir, nfft)
-    return np.fft.irfft(spec_signal * spec_ir, nfft)[: len(signal)].astype(np.float32)
+    return np.fft.irfft(spec_signal * spec_ir, nfft)[:size].astype(np.float32)
 
 
 def apply_effect(source: str, preset: str = DEFAULT_PRESET, wet: float = -1.0) -> Dict[str, object]:
@@ -138,12 +141,25 @@ def apply_effect(source: str, preset: str = DEFAULT_PRESET, wet: float = -1.0) -
                 wet_signal = _fft_convolve(data[channel], ir)
                 wet_channels.append(wet_signal)
             wet_data = np.stack(wet_channels)
-            peak = float(np.max(np.abs(wet_data))) or 1.0
-            wet_data = wet_data / peak
-            processed = (1.0 - wet_value) * data + wet_value * wet_data
+            # 湿声量级对齐干声（按 RMS 缩放），再按用户湿声比例混合
+            dry_rms = float(np.sqrt(np.mean(data.astype(np.float64) ** 2))) or 1e-6
+            wet_rms = float(np.sqrt(np.mean(wet_data.astype(np.float64) ** 2))) or 1e-6
+            # 湿声再抬一档：按 RMS 对齐后尾巴仍然偏轻，乘一个固定增益
+            wet_data = wet_data * (dry_rms / wet_rms) * 5.0
+            # 干声补零到湿声长度，尾巴才不会丢
+            if wet_data.shape[1] > data.shape[1]:
+                pad = wet_data.shape[1] - data.shape[1]
+                data = np.pad(data, ((0, 0), (0, pad)))
+            # 感知曲线：用户拖到 50% 时实际混入更多湿声
+            mix = float(wet_value) ** 0.7
+            processed = (1.0 - mix) * data + mix * wet_data
+        # 软限幅：硬归一会把混响尾巴一起压小，听起来就"没效果"
         peak_out = float(np.max(np.abs(processed))) or 1.0
-        if peak_out > 0.99:
-            processed = processed * (0.99 / peak_out)
+        if peak_out > 1.0:
+            processed = np.tanh(processed)
+            peak_out = float(np.max(np.abs(processed))) or 1.0
+            if peak_out > 0.99:
+                processed = processed * (0.99 / peak_out)
 
         layout = {1: "mono", 2: "stereo"}.get(int(processed.shape[0]), "stereo")
         tmp = target.with_suffix(".tmp.wav")

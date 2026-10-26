@@ -27,15 +27,17 @@
 
 ## 📥 下载
 
-**网盘里的安装包：v0.3.0-beta.6（测试版 V6）· Windows x64**
+**网盘里的安装包：v0.3.0-beta.11（测试版 V11 · r8）· Windows x64**
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| **完整安装包（V6）**（约 3.3 GB） | 解压即用，**仅含软件本体，不含任何音效素材** | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
-| 一句话描述包 | 已内置在安装包根目录，无需单独下载 | `win-unpacked\EchoMind-描述包.json` |
+| **完整安装包（V11 / r8）**（3.39 GB） | 解压即用，**仅含软件本体，不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
+| **增量包 r7 → r8**（65.2 MB） | 已装 r7 的用户覆盖到 `win-unpacked` 即可 | 同网盘 / [Releases](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.11-r8) |
+| 描述包（64,781 条） | 安装包根目录已带；也可单独下载 | `EchoMind-描述包.json` |
+| 标签包（64,983 条） | 系统标签 + 用户标签 + 3,993 词表 | `EchoMind-标签包.json` |
 
-> ⚠ **源码已经到 `v0.3.0-beta.11`（测试版 V11），但网盘上放的仍是 V6 的包**，V11 安装包尚未上传。
-> 安装包约 3.3 GB，超过 GitHub 单附件 2 GB 上限，只能走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面只放版本说明。
+> 安装包 3.39 GB，超过 GitHub 单附件上限，走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面放版本说明、增量包和校验值。
+> 校验值见 [`release/V11更新说明-r8.md`](release/V11更新说明-r8.md)。
 >
 > 解压后双击 `win-unpacked\EchoMind.exe` 即可运行。首次启动会加载 CLAP 模型（30~60 秒）并索引音效库。
 

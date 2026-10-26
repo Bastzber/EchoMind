@@ -1388,7 +1388,9 @@
             label.title = title || text;
             label.style.cursor = retryable ? 'pointer' : '';
             label.style.color = retryable ? '#f59e0b' : '';
-            label.onclick = retryable ? (() => { indexStatusFailures = 0; refreshProjectIndexStatus(); }) : null;
+            label.onclick = retryable
+                ? (() => { indexStatusFailures = 0; refreshProjectIndexStatus({ showPlaceholder: true }); })
+                : null;
         }
 
         function scheduleIndexStatusRetry() {
@@ -1399,9 +1401,13 @@
             }, 2000);
         }
 
-        async function refreshProjectIndexStatus() {
+        async function refreshProjectIndexStatus(options = {}) {
+            // 只有首次加载/手动重试才显示「读取中…」；
+            // 例行轮询（每 2 秒）不显示，否则界面会不停闪。
             const label = document.getElementById('indexJobStatus');
-            if (label && !label.textContent) paintIndexStatusLabel('读取中…');
+            if (options.showPlaceholder && label && !label.textContent) {
+                paintIndexStatusLabel('读取中…');
+            }
             try {
                 const status = await rendererProjects.indexStatus(currentProject?.id || 'default');
                 indexStatusFailures = 0;
@@ -1462,8 +1468,8 @@
                 indexStatusFailures += 1;
                 console.warn('[Index] 读取索引状态失败（第 ' + indexStatusFailures + ' 次）:', error?.message || error);
                 if (indexStatusFailures < 3) {
-                    // 后端重启/大任务期间很常见，先重试，不打扰用户
-                    paintIndexStatusLabel('读取中…');
+                    // 后端重启/大任务期间很常见，先静默重试，不打扰用户
+                    if (options.showPlaceholder) paintIndexStatusLabel('读取中…');
                     scheduleIndexStatusRetry();
                 } else {
                     paintIndexStatusLabel('读取失败 · 点击重试', {

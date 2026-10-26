@@ -874,6 +874,7 @@
                 { id: 'tags', label: '标签管理', icon: 'tags', help: '批量改名、合并同义标签、删除空标签，也能套用 21 个预设标签。', run: () => showTagManagerModal() },
                 { id: 'rename', label: '批量重命名', icon: 'pencil-line', help: '按规则批量改文件名，先在列表里选好音效。', run: () => { const t = requireTargets('重命名'); if (t) showBatchRenameModal(t); } },
                 { id: 'transcode', label: '转码', icon: 'repeat', help: '把 OGG / CAF / APE / WMA 等转成 WAV 或 MP3，先在列表里选好音效。', run: () => { const t = requireTargets('转码'); if (t) showTranscodeModal(t); } },
+                { id: 'fx', label: '效果器', icon: 'sliders', help: '给当前音效加混响（房间/大厅/教堂…），可试听并导出为新文件。', run: () => { openEffectPanel(); } },
                 { id: 'devocal', label: '去人声', icon: 'mic-off', help: '把选中音乐里的人声消掉，生成伴奏 WAV（输出到原文件夹的 _去人声 子目录）。原理是中置声道消除，人声居中的歌曲效果最好。', run: async () => {
                     const targets = requireTargets('去人声');
                     if (!targets) return;
@@ -1735,6 +1736,27 @@
             } catch (error) {
                 showNotification('应用效果器失败: ' + (error?.message || error), 'error');
             }
+        }
+
+        function openEffectPanel() {
+            if (!currentSound) {
+                showNotification('先选一个音效，再加效果器', 'info');
+                return;
+            }
+            setDetailPanelOpen(true);
+            const section = document.getElementById('effectPanel');
+            if (!section) {
+                showNotification('详情面板还没渲染好，稍等一下再点', 'info');
+                return;
+            }
+            const bodyEl = section.querySelector('.effect-body');
+            const chevron = section.querySelector('.effect-chevron');
+            if (bodyEl && bodyEl.classList.contains('hidden')) {
+                bodyEl.classList.remove('hidden');
+                if (chevron) chevron.style.transform = 'rotate(90deg)';
+            }
+            renderEffectPanel(currentSound);
+            section.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }
 
         function renderEffectPanel(sound) {
@@ -7913,7 +7935,9 @@
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             loadAiConfig();
-            loadWindowPrefs?.();
+            // loadWindowPrefs 定义在「设置」初始化作用域里，这里通过全局钩子调用，
+            // 直接引用该标识符会抛 ReferenceError（它在别的作用域里）
+            try { window.__loadWindowPrefs?.(); } catch (error) { console.warn('[Settings] 读取窗口设置失败:', error); }
         }
 
         function closeSettingsModal() {
@@ -13077,6 +13101,7 @@
             // ===== 窗口与托盘设置 =====
             const CLOSE_BEHAVIOR_LABELS = { tray: '最小化到托盘', minimize: '最小化到任务栏', quit: '直接退出程序' };
 
+            window.__loadWindowPrefs = loadWindowPrefs;
             async function loadWindowPrefs() {
                 try {
                     if (!window.electronAPI?.windowPrefs) return;

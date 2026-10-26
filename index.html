@@ -890,13 +890,13 @@
                 { id: 'devocal', label: '去人声', icon: 'mic-off', help: '把选中音乐里的人声消掉，生成伴奏 WAV（输出到原文件夹的 _去人声 子目录）。原理是中置声道消除，人声居中的歌曲效果最好。', run: async () => {
                     const targets = requireTargets('去人声');
                     if (!targets) return;
-                    const music = targets.filter((item) => (item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
+                    const music = targets.filter((item) => (item.filePath || item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
                     if (!music.length) { showNotification('选中的文件里没有可处理的音乐', 'warning'); return; }
                     if (!confirm('对 ' + music.length + ' 首音乐做去人声？\n\n会生成伴奏 WAV 到原文件夹的「_去人声」子目录，原文件不动。')) return;
                     showNotification('正在去人声，请稍等…', 'info');
                     try {
                         const result = await rendererApi.post('/api/v1/audio/remove-vocals', {
-                            paths: music.map((item) => item.path),
+                            paths: music.map((item) => item.filePath || item.path),
                         }, { timeoutMs: 600000 });
                         showNotification('去人声完成：成功 ' + result.ok + ' 个' + (result.failed ? '，失败 ' + result.failed : ''), result.failed ? 'warning' : 'success');
                         if (result.failed && result.results) {
@@ -910,13 +910,13 @@
                 { id: 'separate', label: 'AI 分轨', icon: 'layers', help: '用 Demucs 神经网络把音乐拆成人声/鼓/贝斯/其他四轨，并另存一版伴奏（去人声）。首次使用会下载模型（约 300 MB），之后每首十几到几十秒。输出到原文件夹的 _分轨 子目录。', run: async () => {
                     const targets = requireTargets('分轨');
                     if (!targets) return;
-                    const music = targets.filter((item) => (item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
+                    const music = targets.filter((item) => (item.filePath || item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
                     if (!music.length) { showNotification('选中的文件里没有可处理的音乐', 'warning'); return; }
                     if (!confirm('对 ' + music.length + ' 首做 AI 分轨？\n\n会拆出 人声/鼓/贝斯/其他 四轨，并另存一版伴奏，输出到原文件夹的「_分轨」子目录。\n首次使用需要下载模型（约 300 MB），之后每首十几到几十秒。')) return;
                     showNotification('正在分轨（首次会下载模型，请耐心等）…', 'info');
                     try {
                         const result = await rendererApi.post('/api/v1/audio/separate', {
-                            paths: music.map((item) => item.path),
+                            paths: music.map((item) => item.filePath || item.path),
                         }, { timeoutMs: 3600000 });
                         showNotification('分轨完成：成功 ' + result.ok + ' 首' + (result.failed ? '，失败 ' + result.failed : ''), result.failed ? 'warning' : 'success');
                         if (result.failed && result.results) {
@@ -5262,7 +5262,8 @@
                 button.disabled = true;
                 button.style.opacity = '0.5';
 
-                const paths = list.map(item => item.path || item.file_path).filter(Boolean);
+                // 列表对象用的是 filePath（历史遗留有 path/file_path 两种），三个都要兼容
+                const paths = list.map(item => item.filePath || item.path || item.file_path).filter(Boolean);
                 const resultsEl = overlay.querySelector('#tcResults');
                 const outHint = overlay.querySelector('#tcOutHint');
                 let done = 0, ok = 0, salvaged = 0, failed = 0;

@@ -6240,7 +6240,7 @@ async def _repair_index_task_locked(
                 # CUDA 偶发挂起；按 256 条分块（2048 实测 chroma rust upsert
                 # 长时间停滞，512 实测 mel 内存峰值可致进程崩溃），块间清空显存。
                 # 分块大小调小，配合"每块落库即标记"，前端进度能持续跳动
-                AUDIO_FLUSH_CHUNK = 8
+                AUDIO_FLUSH_CHUNK = 4
                 ok_set: set = set()
                 marked_audio: set = set()
                 marked_count = 0
@@ -6251,7 +6251,7 @@ async def _repair_index_task_locked(
                         # 单批看门狗：坏文件会让编码永久挂起，超时后标记失败并重启 worker
                         chunk_ok = await asyncio.wait_for(
                             _run_model_work(audio_target.add_audio_batch, chunk),
-                            timeout=180,
+                            timeout=600,
                         )
                         if chunk_ok:
                             ok_set.update(chunk_ok)

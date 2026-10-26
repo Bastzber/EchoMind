@@ -1418,6 +1418,15 @@
                 setNum('textIndexStatus', text.ready);
                 setNum('textPendingStatus', text.pending);
                 setNum('textFailedStatus', text.failed);
+
+                // 读成功但当前没有索引任务 → 清掉「读取中…／读取失败」这类临时文案
+                const label = document.getElementById('indexJobStatus');
+                if (label && !indexJobRunning) {
+                    const text = label.textContent || '';
+                    if (text === '读取中…' || text.startsWith('读取失败')) {
+                        paintIndexStatusLabel('');
+                    }
+                }
                 return status;
             } catch (error) {
                 indexStatusFailures += 1;

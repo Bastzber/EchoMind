@@ -391,6 +391,23 @@ async def lifespan(app: FastAPI):
     file_count = db_manager.get_file_count()
     logger.info(f"SQLite 数据库已加载，当前文件数: {file_count}")
 
+    # 上次进程被强杀时，artifacts 会停在 processing，之后 reconcile 只挑
+    # pending/stale/failed，导致这些条目永远不再被处理（数字冻结）。
+    # 启动时没有任务在跑，统一把它们退回 pending，让自动补索引能接手。
+    try:
+        with db_manager.get_cursor() as cursor:
+            running = cursor.execute(
+                "SELECT COUNT(*) FROM jobs WHERE state IN ('running','pending')"
+            ).fetchone()[0]
+            if not running:
+                fixed = cursor.execute(
+                    "UPDATE file_artifacts SET state='pending' WHERE state='processing'"
+                ).rowcount
+                if fixed:
+                    logger.info("启动自愈：%d 条中断的 processing 状态已退回 pending", fixed)
+    except Exception as exc:
+        logger.warning("启动自愈失败: %s", exc)
+
     # 使用动态获取的临时文件目录
     temp_dir = Path(config.get_temp_clip_dir())
     temp_dir.mkdir(parents=True, exist_ok=True)

@@ -6176,8 +6176,12 @@ async def _repair_index_task_locked(
                 # 分块落库：整批 5 万条一次性编码容易触发批量规模相关的
                 # CUDA 偶发挂起；按 256 条分块（2048 实测 chroma rust upsert
                 # 长时间停滞，512 实测 mel 内存峰值可致进程崩溃），块间清空显存。
-                AUDIO_FLUSH_CHUNK = 256
+                # 分块大小调小，配合"每块落库即标记"，前端进度能持续跳动
+                AUDIO_FLUSH_CHUNK = 64
                 ok_set: set = set()
+                marked_audio: set = set()
+                marked_count = 0
+                queue_by_uuid = {item[1]: item for item in audio_batch_queue}
                 for ci in range(0, len(entries), AUDIO_FLUSH_CHUNK):
                     chunk = entries[ci:ci + AUDIO_FLUSH_CHUNK]
                     try:
@@ -6200,9 +6204,39 @@ async def _repair_index_task_locked(
                                 _torch.cuda.empty_cache()
                         except Exception:
                             pass
-                    # 落库心跳：遍历已结束、job 不再自然更新，前端看门狗会把
-                    # 长时间无更新的落库阶段误判为卡死并重启后端（导致反复
-                    # 重跑）。每批刷新 updated_at，保证落库期间任务始终存活。
+                    # 立即落库这一块：前端「已索引」能随处理逐块 +N
+                    for _p2, _fid2, _m2 in chunk:
+                        if _fid2 in marked_audio:
+                            continue
+                        marked_audio.add(_fid2)
+                        pair = queue_by_uuid.get(_fid2)
+                        if pair is None:
+                            continue
+                        _path3, _uuid3, _meta3, _is_shadow3, _fp3 = pair
+                        if _fid2 in ok_set:
+                            if _is_shadow3:
+                                shadow_success["audio_vector"].append(_fid2)
+                            else:
+                                db_manager.set_artifact_state(
+                                    project_id, _fid2, "audio_vector", "ready",
+                                    source_fingerprint=_fp3,
+                                )
+                        else:
+                            failures["audio_vector"] += 1
+                            if _is_shadow3:
+                                shadow_outcomes["audio_vector"][_fid2] = {
+                                    "state": "failed",
+                                    "error_code": "audio_index_failed",
+                                    "error_message": "批量编码未产出向量",
+                                    "permanent": False,
+                                }
+                            else:
+                                db_manager.set_artifact_state(
+                                    project_id, _fid2, "audio_vector", "failed",
+                                    error_code="audio_index_failed",
+                                    error_message="批量编码未产出向量",
+                                )
+                        marked_count += 1
                     try:
                         db_manager.update_job(
                             job_id, processed=index, stage="audio_vector"
@@ -6210,6 +6244,8 @@ async def _repair_index_task_locked(
                     except Exception:
                         pass
                 for path, file_uuid, _meta, is_shadow, source_fingerprint in audio_batch_queue:
+                    if file_uuid in marked_audio:
+                        continue
                     if file_uuid in ok_set:
                         if is_shadow:
                             shadow_success["audio_vector"].append(file_uuid)

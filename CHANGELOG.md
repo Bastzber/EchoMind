@@ -4,13 +4,13 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ## [0.3.0-beta.11] - 2026-10-25
 
-> 测试版 V11。这一版做的是「库整合」：把大羽音效库和你原来的两个库合并成一套 14 类体系，顺带补了转码、标签批量管理、路径修复。 / Beta 11 focuses on library consolidation: the Dayu pack and the two existing libraries now share one 14-category taxonomy, plus transcoding, batch tag management and path repair.
+> 测试版 V11。这一版做的是「库整合」：把外部音效库和你原来的两个库合并成一套 14 类体系，顺带补了转码、标签批量管理、路径修复。 / Beta 11 focuses on library consolidation: the Dayu pack and the two existing libraries now share one 14-category taxonomy, plus transcoding, batch tag management and path repair.
 
 ### Added / 新增
 
 - **统一分类体系**：14 个一级 / 88 个二级，目录最多 3 层，形态词只做标签 / **Unified taxonomy**: 14 top-level and 88 second-level categories, directories never deeper than three levels, form words live in tags only
 - **库迁移工具**：dry-run 出清单、确认后批量移动并同步库内路径，带回滚清单 / **Library migration tool**: dry-run report, confirmed batch move with database path sync and a rollback manifest
-- **大羽标注导入**：一次写入 3.4 万条描述和 6 个标签，并重建标签分层 / **Dayu annotation import**: writes 34k descriptions and six tags per file in one pass and rebuilds the tag layers
+- **外部标注导入**：一次写入 3.4 万条描述和 6 个标签，并重建标签分层 / **Dayu annotation import**: writes 34k descriptions and six tags per file in one pass and rebuilds the tag layers
 - **音频转码**：右键即可转成 WAV 或 MP3，坏文件容错解码尽量救回 / **Audio transcoding**: convert to WAV or MP3 from the context menu, tolerating broken files to salvage what decodes
 - **标签批量管理**：多选合并、删除，一键套用 21 个预设标签 / **Batch tag management**: merge or delete several tags at once and apply 21 preset tags in one click
 - **路径修复**：磁盘改名或移动后按同名同大小修正库内路径 / **Path repair**: relink database paths by name and size after folders are renamed or moved on disk
@@ -90,7 +90,7 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
   或者「撤回备份」按清单把文件还原回**原来的目录**。
 - **重复音效检测支持三种处理方式**：每组可「只删库记录」「删源文件（回收站）」「移到备份文件夹」，
   底部还能对全部组一键执行。判定重复用 sha256（字节级一致），删哪一份都不丢内容。
-- **目录树按根分组建层级**：以前只给"文件最多的那个根"建层级，其他根（比如 F 盘大羽包）被压成
+- **目录树按根分组建层级**：以前只给"文件最多的那个根"建层级，其他根（比如 F 盘外部包）被压成
   根级平铺，只显示最后一级目录名 —— 于是「单次」「短尾」「连续」这种同名目录看起来一模一样，
   删掉其中一个、别的同名目录还在，就像"删了没生效"。现在每个根各自建树，同名目录挂在不同父目录下。
 - **匿名使用统计**（默认开启，设置里可关）：每次启动只上报「启动次数 / 当天启动 / 版本 / 平台 / 首次安装」
@@ -138,7 +138,7 @@ All notable changes to SoundBot are documented here. The format follows [Keep a 
 
 ## [0.3.0-beta.7] - 2026-10-24 (Prerelease / 预发布)
 
-测试版 V7。借用大羽音效库的两个高频功能。
+测试版 V7。借用外部音效库的两个高频功能。
 
 ### Added / 新增
 

@@ -1,0 +1,10 @@
+{
+  "_comment": "打包前扫描用的禁词表；命中即失败，需先清理文案/文件",
+  "terms": [
+    "大羽"
+  ],
+  "allowPaths": [
+    "resources/backend/soundbot-backend/_internal/jieba",
+    "config/forbidden-terms.json"
+  ]
+}

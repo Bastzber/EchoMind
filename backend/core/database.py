@@ -3541,7 +3541,7 @@ class DatabaseManager:
         return mapping
 
     def list_library_roots(self, project_id: str) -> List[str]:
-        """列出库的根目录（取每个路径的前两段，如 D:\资源库 / F:\大羽包）。"""
+        """列出库的根目录（取每个路径的前两段，如 D:\资源库 / F:\另一个资源包）。"""
         roots = set()
         with self.get_cursor() as cursor:
             for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (str(project_id),)):

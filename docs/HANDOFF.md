@@ -4,6 +4,11 @@
 
 ## 〇、工作约定（必须遵守）
 
+0. **更新包里不允许出现「大羽」字眼**（人名/品牌名）。打包前必须跑
+   `python scripts/check_package_terms.py dist-v11-build/win-unpacked`，
+   命中即中止打包；禁词表在 `config/forbidden-terms.json`。
+
+
 1. **不要每改一次就打包**。只有用户明确说「打包 / 出安装包 / 发版」时才执行 `build_update_package` / zip。
    日常改完代码，验证 + 提交即可，包是发版时一次性生成。
 2. 改完必须自测（前端契约 + 相关后端单测），并把结论写清楚。

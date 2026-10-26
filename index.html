@@ -285,6 +285,14 @@
                         <path d="M6 18.6h12" stroke="url(#recipeGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>
                     </svg><span>拟音工坊</span>
                 </button>
+                <button id="voiceCloneBtn" class="nav-btn" title="用一段 15 秒人声克隆音色，再让它念你要的台词">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+                        <path d="M19 11a7 7 0 0 1-14 0"/>
+                        <path d="M12 18v4"/>
+                        <path d="M8.5 21.5h7"/>
+                    </svg><span>声音克隆</span>
+                </button>
             </div>
         </nav>
         
@@ -1687,6 +1695,201 @@
                 });
                 input.addEventListener('blur', () => setTimeout(() => menu.classList.add('hidden'), 120));
             }
+        }
+
+        // ===== 声音克隆 =====
+        const voiceState = { profiles: [], speakerId: '', lastOutput: '', samplePath: '', sampleDuration: 0 };
+
+        async function loadVoiceProfiles() {
+            try {
+                const data = await rendererApi.get('/api/v1/voice/profiles');
+                voiceState.profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+                if (!voiceState.speakerId && voiceState.profiles.length) {
+                    voiceState.speakerId = voiceState.profiles[0].speaker_id;
+                }
+            } catch (error) {
+                console.warn('[Voice] 读取音色失败:', error);
+                voiceState.profiles = [];
+            }
+            return voiceState.profiles;
+        }
+
+
+        function showVoiceCloneModal() {
+            document.getElementById('voiceCloneOverlay')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'voiceCloneOverlay';
+            overlay.className = 'fixed inset-0 flex items-center justify-center';
+            overlay.style.cssText = 'z-index:330;background:rgba(0,0,0,0.6)';
+            overlay.innerHTML = [
+                "                <div class=\"rounded-xl shadow-2xl w-[560px] max-h-[86vh] overflow-y-auto p-5 flex flex-col gap-3\"",
+                "                     style=\"background: var(--bg-secondary); border: 1px solid var(--border-color);\">",
+                "                    <div class=\"flex items-center gap-2\">",
+                "                        <span class=\"w-7 h-7 rounded-lg flex items-center justify-center\" style=\"background: rgba(107,138,253,0.22);\">",
+                "                            <span style=\"font-size:11px;font-weight:700;color:#8ea7ff\">声</span>",
+                "                        </span>",
+                "                        <div class=\"flex flex-col leading-tight\">",
+                "                            <span class=\"text-sm font-semibold\">声音克隆</span>",
+                "                            <span class=\"text-[11px] opacity-50\">选一段约 15 秒人声 → 复刻音色 → 输入台词生成语音</span>",
+                "                        </div>",
+                "                        <button id=\"voiceCloseBtn\" class=\"ml-auto text-xs opacity-50 hover:opacity-100\">关闭</button>",
+                "                    </div>",
+                "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
+                "                        <div class=\"text-xs font-medium mb-2\">① 选择样音</div>",
+                "                        <div class=\"flex items-center gap-2\">",
+                "                            <button id=\"voicePickFileBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">选择音频文件…</button>",
+                "                            <button id=\"voiceUseCurrentBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">用列表里选中的音效</button>",
+                "                            <span id=\"voiceSampleInfo\" class=\"text-[11px] opacity-55 truncate\"></span>",
+                "                        </div>",
+                "                        <div class=\"flex items-center gap-2 mt-2\">",
+                "                            <span class=\"text-[11px] opacity-50\">音色名称</span>",
+                "                            <input id=\"voiceNameInput\" class=\"flex-1 px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"例如：我的声音\">",
+                "                        </div>",
+                "                    </div>",
+                "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
+                "                        <div class=\"text-xs font-medium mb-2\">② 克隆音色</div>",
+                "                        <div class=\"flex items-center gap-2\">",
+                "                            <button id=\"voiceCloneRunBtn\" class=\"px-3 py-1.5 rounded text-xs font-medium\" style=\"background:#3b82f6;color:#fff\">开始克隆</button>",
+                "                            <span id=\"voiceCloneStatus\" class=\"text-[11px] opacity-55\"></span>",
+                "                        </div>",
+                "                        <div id=\"voiceProfileList\" class=\"mt-2 flex flex-col gap-1\"></div>",
+                "                    </div>",
+                "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
+                "                        <div class=\"text-xs font-medium mb-2\">③ 用这个音色说话</div>",
+                "                        <textarea id=\"voiceTextInput\" rows=\"3\" class=\"w-full px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
+                "                        <div class=\"flex items-center gap-2 mt-2\">",
+                "                            <button id=\"voiceSpeakBtn\" class=\"px-3 py-1.5 rounded text-xs font-medium\" style=\"background:#3b82f6;color:#fff\">生成语音</button>",
+                "                            <span id=\"voiceSpeakStatus\" class=\"text-[11px] opacity-55\"></span>",
+                "                        </div>",
+                "                    </div>",
+                "                </div>"
+            ].join('');
+            document.body.appendChild(overlay);
+            overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
+            overlay.querySelector('#voiceCloseBtn').addEventListener('click', () => overlay.remove());
+
+            const sampleInfo = overlay.querySelector('#voiceSampleInfo');
+            const nameInput = overlay.querySelector('#voiceNameInput');
+            const statusEl = overlay.querySelector('#voiceCloneStatus');
+            const speakStatus = overlay.querySelector('#voiceSpeakStatus');
+
+            const useSample = (path, duration) => {
+                voiceState.samplePath = path;
+                voiceState.sampleDuration = Number(duration) || 0;
+                const name = String(path || '').split(/[\\/]/).pop();
+                sampleInfo.textContent = name + (voiceState.sampleDuration ? ' · ' + voiceState.sampleDuration.toFixed(1) + 's' : '');
+                if (!nameInput.value) nameInput.value = name.replace(/\.[^.]+$/, '').slice(0, 20);
+            };
+
+            overlay.querySelector('#voicePickFileBtn').addEventListener('click', async () => {
+                try {
+                    const picked = await window.electronAPI?.dialog?.openFile?.({
+                        filters: [{ name: '音频', extensions: ['wav', 'mp3', 'flac', 'm4a', 'ogg', 'caf', 'aiff'] }],
+                    });
+                    const path = picked?.filePath || picked?.filePaths?.[0] || picked;
+                    if (path) useSample(String(path), 0);
+                } catch (error) {
+                    showNotification('选择文件失败: ' + (error?.message || error), 'error');
+                }
+            });
+
+            overlay.querySelector('#voiceUseCurrentBtn').addEventListener('click', () => {
+                if (!currentSound?.filePath) { showNotification('先在列表里选一个音效', 'info'); return; }
+                const duration = Number(currentSound.duration) > 1000 ? Number(currentSound.duration) / 1000 : Number(currentSound.duration) || 0;
+                useSample(currentSound.filePath, duration);
+            });
+
+            const renderProfiles = () => {
+                const host = overlay.querySelector('#voiceProfileList');
+                host.innerHTML = '';
+                if (!voiceState.profiles.length) {
+                    host.innerHTML = '<div class="text-[11px] opacity-40">还没有克隆过音色</div>';
+                    return;
+                }
+                voiceState.profiles.forEach((profile) => {
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center gap-2 text-[11px] px-2 py-1 rounded';
+                    row.style.cssText = 'border:1px solid ' + (profile.speaker_id === voiceState.speakerId ? 'var(--accent-color,#6b8afd)' : 'var(--border-color)');
+                    const label = document.createElement('span');
+                    label.textContent = profile.name || '未命名';
+                    label.style.color = 'var(--text-primary)';
+                    const meta = document.createElement('span');
+                    meta.className = 'opacity-45';
+                    meta.textContent = profile.speaker_id ? String(profile.speaker_id).slice(0, 10) : '';
+                    const pick = document.createElement('button');
+                    pick.className = 'ml-auto opacity-60 hover:opacity-100';
+                    pick.textContent = profile.speaker_id === voiceState.speakerId ? '使用中' : '使用';
+                    pick.addEventListener('click', () => { voiceState.speakerId = profile.speaker_id; renderProfiles(); });
+                    const del = document.createElement('button');
+                    del.className = 'opacity-40 hover:opacity-100';
+                    del.textContent = '删除';
+                    del.addEventListener('click', async () => {
+                        try {
+                            await rendererApi.delete('/api/v1/voice/profiles/' + encodeURIComponent(profile.id));
+                            await loadVoiceProfiles();
+                            renderProfiles();
+                        } catch (error) {
+                            showNotification('删除失败: ' + (error?.message || error), 'error');
+                        }
+                    });
+                    row.appendChild(label); row.appendChild(meta); row.appendChild(pick); row.appendChild(del);
+                    host.appendChild(row);
+                });
+            };
+
+            overlay.querySelector('#voiceCloneRunBtn').addEventListener('click', async () => {
+                if (!voiceState.samplePath) { showNotification('先选一段样音', 'info'); return; }
+                statusEl.textContent = '正在上传样音并复刻…';
+                try {
+                    const result = await rendererApi.post('/api/v1/voice/clone', {
+                        path: voiceState.samplePath,
+                        name: nameInput.value.trim() || '我的音色',
+                        duration: voiceState.sampleDuration || 0,
+                    }, { timeoutMs: 240000 });
+                    voiceState.speakerId = result?.speaker_id || '';
+                    statusEl.textContent = '克隆完成：' + (result?.profile?.name || '');
+                    await loadVoiceProfiles();
+                    renderProfiles();
+                } catch (error) {
+                    statusEl.textContent = '';
+                    showNotification(error?.message || String(error), 'error');
+                }
+            });
+
+            overlay.querySelector('#voiceSpeakBtn').addEventListener('click', async () => {
+                const text = overlay.querySelector('#voiceTextInput').value.trim();
+                if (!text) { showNotification('先输入要念的台词', 'info'); return; }
+                if (!voiceState.speakerId) { showNotification('先克隆一个音色', 'info'); return; }
+                speakStatus.textContent = '正在合成…';
+                try {
+                    const result = await rendererApi.post('/api/v1/voice/speak', {
+                        text,
+                        speaker_id: voiceState.speakerId,
+                    }, { timeoutMs: 240000 });
+                    voiceState.lastOutput = result?.path || '';
+                    speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();
+                    if (result?.path) {
+                        const src = 'soundmind-audio://local/' + encodeURIComponent(result.path);
+                        if (!audioPlayer) initAudioPlayer();
+                        audioPlayer.src = src;
+                        audioPlayer.load();
+                        await audioPlayer.play();
+                        isPlaying = true;
+                    }
+                } catch (error) {
+                    speakStatus.textContent = '';
+                    showNotification(error?.message || String(error), 'error');
+                }
+            });
+
+            loadVoiceProfiles().then(renderProfiles);
+        }
+
+
+        function bindVoiceClone() {
+            document.getElementById('voiceCloneBtn')?.addEventListener('click', () => {
+                showVoiceCloneModal();
+            });
         }
 
         // ===== 效果器（混响）=====
@@ -11583,6 +11786,7 @@
             bindPlaybackRateAndReverse();
             bindChannelBar();
             bindHistoryPanels();
+            bindVoiceClone();
             loadEffectPresets().then(() => renderEffectPanel(currentSound || null));
             document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
             document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));

@@ -3700,6 +3700,64 @@ async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), proje
 
 
 
+
+# ==================== 声音克隆 ====================
+
+class VoiceCloneRequest(BaseModel):
+    path: str
+    name: str = ""
+    duration: Optional[float] = 0.0
+
+
+class VoiceSpeakRequest(BaseModel):
+    text: str
+    speaker_id: str
+    save_dir: Optional[str] = None
+
+
+@app.get("/api/v1/voice/profiles")
+async def voice_profiles():
+    """已克隆的音色列表。"""
+    from core.voice_clone import load_profiles, engine_name
+
+    return {"success": True, "engine": engine_name(), "profiles": load_profiles()}
+
+
+@app.post("/api/v1/voice/clone")
+async def voice_clone_endpoint(payload: VoiceCloneRequest):
+    """用一段人声复刻音色。"""
+    from core.voice_clone import clone_voice
+
+    if not payload.path:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, clone_voice, payload.path, payload.name, payload.duration or 0.0)
+    if not result.get("ok"):
+        raise SoundBotAPIError("voice_clone_failed", str(result.get("error") or "复刻失败"), status_code=400)
+    return {"success": True, **result}
+
+
+@app.post("/api/v1/voice/speak")
+async def voice_speak_endpoint(payload: VoiceSpeakRequest):
+    """用克隆音色合成语音。"""
+    from core.voice_clone import speak
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, speak, payload.text, payload.speaker_id, payload.save_dir)
+    if not result.get("ok"):
+        raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)
+    return {"success": True, **result}
+
+
+@app.delete("/api/v1/voice/profiles/{profile_id}")
+async def voice_delete_profile(profile_id: str):
+    from core.voice_clone import delete_profile
+
+    if not delete_profile(profile_id):
+        raise HTTPException(status_code=404, detail="音色不存在")
+    return {"success": True}
+
+
 # ==================== 效果器（混响） ====================
 
 class EffectRequest(BaseModel):

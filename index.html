@@ -341,11 +341,11 @@
                  style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
                 <span class="opacity-60">音频</span>
                 <span>已索引 <span id="audioIndexStatus" class="font-mono">0</span></span>
-                <span>待处理 <span id="audioPendingStatus" class="font-mono">0</span></span>
+                <span><span id="audioPendingLabel">待索引</span> <span id="audioPendingStatus" class="font-mono">0</span></span>
                 <span>失败 <span id="audioFailedStatus" class="font-mono">0</span></span>
                 <span class="opacity-60">文本</span>
                 <span>已索引 <span id="textIndexStatus" class="font-mono">0</span></span>
-                <span>待处理 <span id="textPendingStatus" class="font-mono">0</span></span>
+                <span><span id="textPendingLabel">待索引</span> <span id="textPendingStatus" class="font-mono">0</span></span>
                 <span>失败 <span id="textFailedStatus" class="font-mono">0</span></span>
             </div>
             <span class="help-dot" data-help="索引状态&#10;&#10;上排音频：听感指纹，用于按声音找相似。&#10;下排文本：文件名/标签/描述编成向量，用于按描述搜。&#10;已索引 = 可用，待处理 = 排队中，失败 = 解不出（多为文件损坏）。&#10;状态不对时点常用条里的「修复索引」「重建索引」。">?</span>
@@ -1418,6 +1418,23 @@
                 setNum('textIndexStatus', text.ready);
                 setNum('textPendingStatus', text.pending);
                 setNum('textFailedStatus', text.failed);
+
+                // 「待处理」容易被误解成"需要我点修复索引"：
+                // 后台正在跑 → 显示「处理中」；没在跑但有积压 → 「待索引」。
+                const busy = indexJobRunning
+                    || Number(status?.artifacts?.audio_vector?.processing || 0) > 0
+                    || Number(status?.artifacts?.text_vector?.processing || 0) > 0;
+                const pendingLabel = busy ? '处理中' : '待索引';
+                ['audioPendingLabel', 'textPendingLabel'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = pendingLabel;
+                });
+                const audioPendingEl = document.getElementById('audioPendingStatus');
+                if (audioPendingEl) {
+                    audioPendingEl.title = busy
+                        ? '后台正在排队处理，无需操作'
+                        : '还没建立索引；可点常用条的「修复索引」，或等下次启动自动补';
+                }
 
                 // 读成功但当前没有索引任务 → 清掉「读取中…／读取失败」这类临时文案
                 const label = document.getElementById('indexJobStatus');

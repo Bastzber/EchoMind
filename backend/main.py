@@ -5631,9 +5631,22 @@ def _schedule_model_ready_reconcile() -> None:
     """
     if _shutting_down:
         return
+    # 如果有积压（上次导入/索引被进程退出打断），必须立刻补，不能被 24h 节流挡住。
+    pending_backlog = 0
+    try:
+        counts = get_db_manager().get_artifact_counts(
+            getattr(config, "CURRENT_PROJECT_ID", "default")
+        )
+        for kind in ("audio_vector", "text_vector"):
+            pending_backlog += int(counts.get(kind, {}).get("pending", 0) or 0)
+    except Exception as exc:
+        logger.debug("读取积压数量失败: %s", exc)
+    if pending_backlog:
+        logger.info("检测到 %d 条待补索引，跳过 24 小时节流直接补", pending_backlog)
+
     marker = config.get_user_data_dir() / ".last_auto_reconcile"
     try:
-        if marker.exists():
+        if marker.exists() and not pending_backlog:
             last = float(marker.read_text(encoding="utf-8").strip() or 0)
             if (time.time() - last) < 24 * 3600:
                 logger.info("自动对账已在本日内执行过，跳过本轮")

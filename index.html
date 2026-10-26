@@ -348,7 +348,7 @@
                 <span><span id="textPendingLabel">待索引</span> <span id="textPendingStatus" class="font-mono">0</span></span>
                 <span>失败 <span id="textFailedStatus" class="font-mono">0</span></span>
             </div>
-            <span class="help-dot" data-help="索引状态&#10;&#10;上排音频：听感指纹，用于按声音找相似。&#10;下排文本：文件名/标签/描述编成向量，用于按描述搜。&#10;已索引 = 可用，待处理 = 排队中，失败 = 解不出（多为文件损坏）。&#10;状态不对时点常用条里的「修复索引」「重建索引」。">?</span>
+            <span class="help-dot" data-help="索引状态&#10;&#10;上排音频：听感指纹（CLAP），用于「按声音找相似」。&#10;下排文本：文件名 / 标签 / 描述编成向量，用于「按描述搜」。&#10;&#10;已索引 = 可用&#10;处理中 = 后台正在算（后面数字是这批任务的进度，如 840/1641）&#10;待索引 = 还没建；可点常用条「修复索引」，或等下次启动自动补&#10;失败 = 解不出来（多是文件损坏或格式异常）&#10;&#10;数字每 2 秒自动刷新，变化时会闪绿。&#10;状态长期不动或数字对不上，点常用条的「修复索引」；&#10;整片出错再用「重建索引」（会重算全部，比较久）。">?</span>
             <span id="indexJobStatus" class="max-w-24 truncate opacity-60 text-xs shrink-0"></span>
 
 

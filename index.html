@@ -1768,6 +1768,27 @@
             }
         }
 
+        // ===== 批量选择 / 批量删除 =====
+        let lastCheckedIndex = -1;
+
+        function refreshSelectionUI() {
+            document.querySelectorAll('#soundList .sound-row, #soundList > div').forEach((row) => {
+                const checkbox = row.querySelector('.sound-checkbox');
+                if (!checkbox) return;
+                const id = checkbox.dataset.soundId || checkbox.getAttribute('data-id');
+                const checked = id ? selectedSounds.has(id) : checkbox.checked;
+                checkbox.checked = checked;
+                row.classList.toggle('selected', checked);
+            });
+            document.querySelectorAll('#soundList .sound-checkbox').forEach((checkbox) => {
+                const id = checkbox.dataset.soundId || checkbox.getAttribute('data-id');
+                if (!id) return;
+                const checked = selectedSounds.has(id);
+                checkbox.checked = checked;
+                checkbox.closest('div[class*="border"]')?.classList.toggle('selected', checked);
+            });
+        }
+
         // ===== 导入重复处理 =====
         let skipExistingOnImport = false;
 
@@ -5238,7 +5259,8 @@
                 '      </select></div>' +
                 '    <div class="flex items-center gap-2"><span class="w-20 opacity-70">输出到</span>' +
                 '      <input id="tcOutDir" type="text" class="flex-1 px-2 py-1 rounded" style="background: var(--bg-tertiary);" placeholder="留空 = 原文件夹下的 _转码 子目录"></div>' +
-                '    <label class="flex items-center gap-2 opacity-70"><input id="tcOverwrite" type="checkbox"> 覆盖同名文件</label>' +
+                '    <label class="flex items-center gap-2 opacity-70"><input id="tcKeepSource" type="checkbox" checked> 转码后替换源文件（库里记录改成新格式，标签/索引保留）</label>' +
+                '    <label class="flex items-center gap-2 opacity-70"><input id="tcOverwrite" type="checkbox"> 同名输出文件直接覆盖</label>' +
                 '    <div class="text-xs opacity-50">损坏的文件会自动尽量救回能解码的部分（救回多少算多少）。</div>' +
                 '    <div id="tcProgress" class="text-xs opacity-60 h-4"></div>' +
                 '    <div id="tcResults" class="max-h-44 overflow-y-auto text-[11px] space-y-1 pr-1"></div>' +
@@ -5257,6 +5279,7 @@
                 const format = overlay.querySelector('#tcFormat').value;
                 const outDir = overlay.querySelector('#tcOutDir').value.trim();
                 const overwrite = overlay.querySelector('#tcOverwrite').checked;
+                const replaceSource = overlay.querySelector('#tcKeepSource')?.checked ?? false;
                 const progress = overlay.querySelector('#tcProgress');
                 const button = overlay.querySelector('#tcStart');
                 button.disabled = true;
@@ -5293,8 +5316,9 @@
                         const result = await rendererApi.post('/api/v1/transcode', {
                             paths: chunk,
                             target_format: format,
-                            out_dir: outDir || null,
+                            out_dir: replaceSource ? null : (outDir || null),
                             overwrite,
+                            replace_source: replaceSource,
                         }, { timeoutMs: 600000 });
                         ok += result.ok || 0;
                         failed += result.failed || 0;
@@ -5328,12 +5352,58 @@
                     }
                 }
                 showNotification('转码完成：' + ok + ' 个成功' + (salvaged ? '，' + salvaged + ' 个是救回的' : ''), failed ? 'warning' : 'success');
+                if (ok > 0) {
+                    // 替换模式下文件名/格式变了，刷新列表让用户立刻看到 .wav
+                    try {
+                        await loadFilesFromDatabase({ reset: true });
+                        if (currentSound) renderSoundDetail(currentSound);
+                    } catch (refreshError) {
+                        console.warn('[Transcode] 刷新列表失败:', refreshError);
+                    }
+                }
                 button.disabled = false;
                 button.style.opacity = '1';
             });
             lucide.createIcons();
         }
 
+
+        async function batchDeleteSounds(targets, deleteSource) {
+            const list = (targets || []).filter(Boolean);
+            if (!list.length) return;
+            const names = list.slice(0, 5).map(item => item.name).join('\n');
+            const more = list.length > 5 ? '\n… 等 ' + list.length + ' 个' : '';
+            const ok = confirm(
+                (deleteSource
+                    ? '删除 ' + list.length + ' 个音效的源文件（送回收站）并从库移除？'
+                    : '从软件中移除 ' + list.length + ' 条记录（磁盘文件保留）？')
+                + '\n\n' + names + more
+            );
+            if (!ok) return;
+
+            const paths = list.map(item => item.filePath || item.path).filter(Boolean);
+            showNotification('正在处理 ' + paths.length + ' 个…', 'info');
+            try {
+                if (deleteSource) {
+                    const trashed = await window.electronAPI?.fileImport?.trashFiles?.(paths);
+                    if (trashed && trashed.failed && trashed.failed.length) {
+                        console.warn('[Delete] 部分文件未能送回收站:', trashed.failed.slice(0, 5));
+                    }
+                }
+                const result = await rendererApi.post('/api/v1/db/files/delete', { paths, delete_source: deleteSource },
+                    { timeoutMs: 600000 });
+                selectedSounds.clear();
+                lastCheckedIndex = -1;
+                await loadFilesFromDatabase({ reset: true });
+                showNotification(
+                    '已' + (deleteSource ? '删除源文件并' : '') + '移除 ' + (result?.removed ?? paths.length) + ' 条记录'
+                    + (result?.failed ? '，失败 ' + result.failed : ''),
+                    result?.failed ? 'warning' : 'success'
+                );
+            } catch (error) {
+                showNotification('删除失败: ' + (error?.message || error), 'error');
+            }
+        }
 
         function showSoundContextMenu(event, sound) {
             closeSoundContextMenu();
@@ -5419,6 +5489,24 @@
             }
             menu.appendChild(makeMenuItem('重命名', 'edit-3', () => renameSoundFile(sound)));
             menu.appendChild(makeMenuItem('复制文件', 'file-copy', () => copySoundFile(sound)));
+            const extras = document.createElement('div');
+            extras.className = 'border-t mt-1 pt-1';
+            extras.style.borderColor = 'var(--border-color)';
+            const mkExtra = (label, danger, handler) => {
+                const item = document.createElement('button');
+                item.className = 'w-full text-left px-3 py-1.5 text-xs hover:bg-white/10';
+                if (danger) item.style.color = '#ef4444';
+                item.textContent = label;
+                item.addEventListener('click', () => { closeSoundContextMenu(); handler(); });
+                extras.appendChild(item);
+            };
+            const targetsForDelete = () => (selectedSounds.size && selectedSounds.has(sound.id))
+                ? soundData.filter(item => selectedSounds.has(item.id))
+                : [sound];
+            mkExtra('仅从软件中移除（保留文件）', false, () => batchDeleteSounds(targetsForDelete(), false));
+            mkExtra('删除源文件并从库移除（回收站）', true, () => batchDeleteSounds(targetsForDelete(), true));
+            menu.appendChild(extras);
+
             menu.appendChild(makeMenuItem('重新分析该素材', 'refresh-cw', () => reanalyzeSound(sound)));
 
             const closeMenu = (e) => {
@@ -7179,7 +7267,7 @@
 
                 row.innerHTML = `
                     <div class="w-10 flex justify-center">
-                        <input type="checkbox" class="w-4 h-4 rounded sound-checkbox" ${selectedSounds.has(sound.id) ? 'checked' : ''}>
+                        <input type="checkbox" class="w-4 h-4 rounded sound-checkbox" data-sound-id="${sound.id}" ${selectedSounds.has(sound.id) ? 'checked' : ''}>
                     </div>
                     <div class="w-12 flex justify-center">
                         <div class="w-8 h-8 rounded border flex items-center justify-center overflow-hidden" style="border-color: var(--border-color);">
@@ -7260,12 +7348,25 @@
                 row.addEventListener('click', (e) => {
                     if (e.target.closest('.sound-checkbox')) {
                         const checkbox = e.target.closest('.sound-checkbox');
-                        if (checkbox.checked) {
-                            selectedSounds.add(sound.id);
+                        const listIndex = filteredSounds.findIndex(item => item.id === sound.id);
+                        if (e.shiftKey && lastCheckedIndex >= 0 && listIndex >= 0) {
+                            // Shift：从上次位置到当前位置整段选中/取消
+                            const [from, to] = lastCheckedIndex < listIndex
+                                ? [lastCheckedIndex, listIndex]
+                                : [listIndex, lastCheckedIndex];
+                            for (let idx = from; idx <= to; idx += 1) {
+                                const target = filteredSounds[idx];
+                                if (!target) continue;
+                                if (checkbox.checked) selectedSounds.add(target.id);
+                                else selectedSounds.delete(target.id);
+                            }
+                            refreshSelectionUI();
                         } else {
-                            selectedSounds.delete(sound.id);
+                            if (checkbox.checked) selectedSounds.add(sound.id);
+                            else selectedSounds.delete(sound.id);
+                            row.classList.toggle('selected', checkbox.checked);
                         }
-                        row.classList.toggle('selected', checkbox.checked);
+                        lastCheckedIndex = listIndex;
                     } else if (e.target.closest('.play-sound-btn')) {
                         playSound(sound);
                     } else {

@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     validateFileType: (filePath) => ipcRenderer.invoke('file-import', 'validate-type', filePath),
     // 在资源管理器中定位文件
     revealInExplorer: (filePath) => ipcRenderer.invoke('file-import', 'reveal-in-explorer', filePath),
+      trashFiles: (paths) => ipcRenderer.invoke('file-import', 'trash-files', { paths }),
     // 复制文件到系统剪贴板
     copyFileToClipboard: (filePath) => ipcRenderer.invoke('file-import', 'copy-file-clipboard', filePath),
     // 磁盘重命名文件（含数据库同步）

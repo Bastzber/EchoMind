@@ -3634,9 +3634,18 @@ class TranscodeRequest(BaseModel):
     bitrate: Optional[str] = None
     out_dir: Optional[str] = None
     overwrite: bool = False
+    # 转码后用新文件替换源文件，并同步库里的路径（保留标签/索引）
+    replace_source: bool = False
 
 
-def _transcode_one(source: str, target_format: str, bitrate: Optional[str], out_dir: Optional[str], overwrite: bool) -> Dict[str, Any]:
+def _transcode_one(
+    source: str,
+    target_format: str,
+    bitrate: Optional[str],
+    out_dir: Optional[str],
+    overwrite: bool,
+    replace_source: bool = False,
+) -> Dict[str, Any]:
     from core.transcode import target_extension, transcode_file
 
     try:
@@ -3648,7 +3657,10 @@ def _transcode_one(source: str, target_format: str, bitrate: Optional[str], out_
     if not source_path.is_file():
         return {"source": source, "ok": False, "error": "文件不存在"}
 
+    # 替换模式：输出到源文件同级目录（同主名 + 新扩展名）
     destination_dir = Path(out_dir) if out_dir else source_path.parent / "_转码"
+    if replace_source:
+        destination_dir = source_path.parent
     destination = destination_dir / (source_path.stem + extension)
     if destination.exists() and not overwrite:
         index = 2
@@ -3657,16 +3669,96 @@ def _transcode_one(source: str, target_format: str, bitrate: Optional[str], out_
             index += 1
 
     result = transcode_file(str(source_path), str(destination), target_format, bitrate=bitrate, tolerate_errors=True)
-    return {
+    payload = {
         "source": source,
         "destination": str(destination),
         "ok": bool(result.get("ok")),
         "salvaged": bool(result.get("salvaged")),
         "frames": int(result.get("frames") or 0),
         "error": result.get("error") or "",
+        "replaced": False,
     }
 
+    if payload["ok"] and replace_source and destination.resolve() != source_path.resolve():
+        # 先改库里的路径，再删源文件：顺序反了会导致记录瞬间指向不存在的文件
+        try:
+            from core.database import canonicalize_path
 
+            db_manager = get_db_manager()
+            project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+            new_canon = canonicalize_path(str(destination))
+            with db_manager.get_cursor() as cursor:
+                cursor.execute(
+                    "UPDATE files SET path=?, canonical_path=?, filename=? "
+                    "WHERE project_id=? AND canonical_path=?",
+                    (str(destination), new_canon, destination.name, project_id,
+                     canonicalize_path(str(source_path))),
+                )
+            try:
+                source_path.unlink()
+            except Exception as exc:
+                logger.warning("[转码] 删除源文件失败: %s", exc)
+            payload["replaced"] = True
+            logger.info("[转码] 已替换源文件: %s -> %s", source_path.name, destination.name)
+        except Exception as exc:
+            payload["error"] = f"替换源文件失败：{exc}"
+            payload["replaced"] = False
+
+    return payload
+
+
+
+
+
+class BatchDeleteRequest(BaseModel):
+    paths: List[str]
+    delete_source: bool = False
+
+
+@app.post("/api/v1/db/files/delete")
+async def batch_delete_db_files(payload: BatchDeleteRequest):
+    """批量删除文件记录（可选同时删除源文件）。
+
+    源文件删除由 Electron 主进程送回收站；这里只负责库记录 + 向量。
+    """
+    if not payload.paths:
+        raise HTTPException(status_code=422, detail="paths 不能为空")
+    project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+    if project_id in _projects_deleting:
+        raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
+
+    db_manager = get_db_manager()
+    removed = 0
+    failed = 0
+    async with _get_project_index_lock(project_id):
+        for raw_path in payload.paths:
+            record = db_manager.get_file(str(raw_path), project_id)
+            if not record:
+                failed += 1
+                continue
+            try:
+                try:
+                    await _run_model_work(
+                        _get_active_audio_indexer(project_id).remove_audio,
+                        record.path,
+                        record.file_uuid,
+                    )
+                    await _run_model_work(
+                        _get_active_text_indexer(project_id).remove,
+                        file_id=record.file_uuid,
+                    )
+                except Exception as exc:
+                    logger.warning("[批量删除] 向量清理失败 %s: %s", record.path, exc)
+                with db_manager.get_cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM files WHERE project_id=? AND file_uuid=?",
+                        (project_id, record.file_uuid),
+                    )
+                removed += 1
+            except Exception as exc:
+                logger.warning("[批量删除] 删除失败 %s: %s", record.path, exc)
+                failed += 1
+    return {"success": True, "removed": removed, "failed": failed, "total": len(payload.paths)}
 
 
 @app.get("/api/v1/db/library/folder-health")
@@ -4126,6 +4218,7 @@ async def transcode_files(payload: TranscodeRequest):
                 payload.bitrate,
                 payload.out_dir,
                 payload.overwrite,
+                bool(getattr(payload, "replace_source", False)),
             )
         )
     ok = sum(1 for item in results if item["ok"])

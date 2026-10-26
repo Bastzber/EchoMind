@@ -2371,6 +2371,20 @@ ipcMain.handle('dialog-save', async (event, options) => {
             extension
           };
         }
+        case 'trash-files': {
+          const list = Array.isArray(payload?.paths) ? payload.paths : [];
+          const ok = [], failed = [];
+          for (const target of list) {
+            try {
+              if (!target || !fs.existsSync(target)) { failed.push({ path: target, error: '文件不存在' }); continue; }
+              await shell.trashItem(target);   // 送系统回收站，可还原
+              ok.push(target);
+            } catch (error) {
+              failed.push({ path: target, error: error?.message || String(error) });
+            }
+          }
+          return { success: failed.length === 0, ok, failed };
+        }
         case 'reveal-in-explorer': {
           // 在系统资源管理器中定位文件
           const target = typeof payload === 'string' ? payload : (payload?.filePath || '');

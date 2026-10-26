@@ -613,6 +613,8 @@ class AudioIndexer:
                     added.append(file_id)
             return added
 
+        from core import index_progress
+
         success: List[str] = []
         try:
             self._ensure_engine_compatible(getattr(embedder, "fingerprint", ""))
@@ -639,6 +641,7 @@ class AudioIndexer:
                     embedding_map[p] = encoded.get(p)
             # 攒齐本批的向量后统一批量 upsert，避免 5 万条逐条
             # chroma 写入（每条都带写锁 + revision + 引擎记录，串行开销巨大）
+            from core import index_progress as _ip
             pending: List[Tuple[str, Sequence[float], Dict[str, Any]]] = []
             for file_path, file_id, metadata in batch:
                 embedding = embedding_map.get(file_path)
@@ -660,6 +663,10 @@ class AudioIndexer:
                 except Exception as exc:
                     logger.error("批量添加文件向量失败 %s: %s", file_path, exc)
             if pending:
+                try:
+                    _ip.bump("audio", len(pending))
+                except Exception:
+                    pass
                 with self._write_lock:
                     self._ensure_engine_compatible(embedder.fingerprint)
                     self.collection.upsert(

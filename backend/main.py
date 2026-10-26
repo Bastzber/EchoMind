@@ -5844,7 +5844,7 @@ async def get_project_index_status(project_id: str):
         "total_files": db_manager.get_file_count(project_id),
         "artifacts": db_manager.get_artifact_counts(project_id),
         "active_job": active_job,
-        "progress": dict(_index_progress),
+        "progress": {**_index_progress, **(lambda: __import__("core.index_progress", fromlist=["stats"]).stats())()},
         "manifests": {
             kind: db_manager.get_index_manifest(project_id, kind) or {}
             for kind in ("audio_vector", "text_vector")

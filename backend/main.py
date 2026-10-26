@@ -6268,7 +6268,10 @@ async def _repair_index_task_locked(
                             pass
                     try:
                         db_manager.update_job(
-                            job_id, processed=index, stage="audio_vector"
+                            job_id,
+                            processed=min(ci + len(chunk), len(entries)),
+                            total=len(entries),
+                            stage="audio_vector",
                         )
                     except Exception:
                         pass
@@ -6332,6 +6335,15 @@ async def _repair_index_task_locked(
                             )
                             break
                         ok_count = 0
+                    try:
+                        db_manager.update_job(
+                            job_id,
+                            processed=min(i + len(chunk), len(text_batch_queue)),
+                            total=len(text_batch_queue),
+                            stage="text_vector",
+                        )
+                    except Exception:
+                        pass
                     for j, (_p, file_uuid, _meta, is_shadow, source_fingerprint) in enumerate(chunk):
                         if j < ok_count:
                             if is_shadow:

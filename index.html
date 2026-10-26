@@ -1471,11 +1471,9 @@
                 });
                 const progress = status?.progress || {};
                 const encoded = Number(progress.audio || 0) + Number(progress.text || 0);
-                const jobDetail = encoded > 0
-                    ? '（本次已编码 ' + encoded + ' 条）'
-                    : (job && Number(job.total) > 0
-                        ? '（任务进度 ' + Number(job.processed || 0) + '/' + Number(job.total) + '）'
-                        : '');
+                const jobDetail = job && Number(job.total) > 0
+                    ? '（已编码 ' + Number(job.processed || 0) + ' / ' + Number(job.total) + '）'
+                    : (encoded > 0 ? '（本次已编码 ' + encoded + ' 条）' : '');
                 ['audioPendingStatus', 'textPendingStatus'].forEach((id) => {
                     const el = document.getElementById(id);
                     if (!el) return;

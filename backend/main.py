@@ -3698,6 +3698,40 @@ async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), proje
 
 
 
+
+# ==================== 多声道 ====================
+
+class ChannelMixRequest(BaseModel):
+    path: str
+    audible: List[int]
+
+
+@app.get("/api/v1/audio/channels")
+async def audio_channels(path: str = Query(...), points: int = 400):
+    """逐声道波形峰值（最多 8 条），用于播放器下方的声道条。"""
+    from core.channel_tools import channel_peaks
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, channel_peaks, path, points)
+    if not result.get("ok"):
+        raise SoundBotAPIError("channels_failed", str(result.get("error") or "读取声道失败"), status_code=500)
+    return {"success": True, **result}
+
+
+@app.post("/api/v1/audio/channel-mix")
+async def audio_channel_mix(payload: ChannelMixRequest):
+    """生成只保留指定声道的试听文件（其余静音），用于单独听某个声道。"""
+    from core.channel_tools import render_channel_mix
+
+    if not payload.path:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, render_channel_mix, payload.path, payload.audible)
+    if not result.get("ok"):
+        raise SoundBotAPIError("channel_mix_failed", str(result.get("error") or "生成失败"), status_code=500)
+    return {"success": True, **result}
+
+
 # ==================== 倒放 ====================
 
 class ReverseRequest(BaseModel):

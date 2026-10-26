@@ -705,6 +705,19 @@
     </div>
     
     <!-- ==================== BOTTOM CONTROLS ==================== -->
+    <!-- 多声道条（>2 声道时自动展开） -->
+    <div id="channelBar" class="hidden h-[104px] px-3 py-1.5 border-t flex items-stretch gap-1.5 overflow-x-auto shrink-0"
+         style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+        <div class="flex items-center pr-1 shrink-0">
+            <span class="text-[10px] opacity-40 leading-tight" style="writing-mode:vertical-rl">声道</span>
+        </div>
+        <div id="channelStrips" class="flex items-stretch gap-1.5"></div>
+        <div class="flex flex-col items-center justify-center gap-1 pl-1 shrink-0">
+            <button id="channelResetBtn" class="px-2 py-0.5 rounded text-[10px] border" style="border-color: var(--border-color)">全部可听</button>
+            <span id="channelInfo" class="text-[10px] opacity-40"></span>
+        </div>
+    </div>
+
     <footer id="playerFooter" class="h-16 border-t flex items-center justify-between px-4 shrink-0 transition-colors duration-300"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
@@ -737,6 +750,10 @@
                     <option value="1.5">1.5×</option>
                     <option value="2">2.0×</option>
                 </select>
+                <button id="channelToggleBtn" class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        title="显示/隐藏声道条（多声道音效会自动显示）">
+                    <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+                </button>
                 <button id="reverseBtn" class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                         title="倒放（生成反向临时文件）">
                     <i data-lucide="rewind" class="w-5 h-5"></i>
@@ -1470,6 +1487,212 @@
             }
         }
         
+        // ===== 多声道条 =====
+        const channelState = {
+            count: 0,
+            peaks: [],
+            mutes: new Set(),
+            solos: new Set(),
+            paths: new Map(),
+        };
+
+        function audibleChannels() {
+            const total = channelState.count;
+            if (!total) return [];
+            if (channelState.solos.size) {
+                return Array.from(channelState.solos)
+                    .filter(i => !channelState.mutes.has(i))
+                    .sort((a, b) => a - b);
+            }
+            const kept = [];
+            for (let i = 1; i <= total; i += 1) {
+                if (!channelState.mutes.has(i)) kept.push(i);
+            }
+            return kept;
+        }
+
+        function channelMixKey() {
+            return channelState.count + ':' + audibleChannels().join(',');
+        }
+
+        function drawChannelWave(canvas, peaks, muted) {
+            const ratio = window.devicePixelRatio || 1;
+            const width = canvas.clientWidth || 64;
+            const height = canvas.clientHeight || 46;
+            canvas.width = Math.floor(width * ratio);
+            canvas.height = Math.floor(height * ratio);
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            ctx.clearRect(0, 0, width, height);
+            const middle = height / 2;
+            ctx.strokeStyle = muted ? 'rgba(160,160,170,0.30)' : (getComputedStyle(document.documentElement).getPropertyValue('--accent-color') || '#6b8afd');
+            ctx.globalAlpha = muted ? 0.5 : 0.95;
+            ctx.beginPath();
+            const data = Array.isArray(peaks) ? peaks : [];
+            if (!data.length) { ctx.stroke(); return; }
+            data.forEach((value, index) => {
+                const x = (index / Math.max(data.length - 1, 1)) * width;
+                const amplitude = Math.max(0, Math.min(1, Number(value) || 0)) * (middle - 2);
+                ctx.moveTo(x, middle - amplitude);
+                ctx.lineTo(x, middle + amplitude);
+            });
+            ctx.stroke();
+        }
+
+        function renderChannelStrips() {
+            const bar = document.getElementById('channelBar');
+            const strips = document.getElementById('channelStrips');
+            const info = document.getElementById('channelInfo');
+            if (!bar || !strips) return;
+            // 默认只有 >2 声道才自动展开；双声道可用「声道」按钮手动打开
+            const pinned = localStorage.getItem('echomind.channelBar') === '1';
+            if (!channelState.count || (channelState.count < 3 && !pinned)) {
+                bar.classList.add('hidden');
+                return;
+            }
+            bar.classList.remove('hidden');
+            strips.innerHTML = '';
+
+            const mutedNow = new Set();
+            if (channelState.solos.size) {
+                for (let i = 1; i <= channelState.count; i += 1) {
+                    if (!channelState.solos.has(i)) mutedNow.add(i);
+                }
+            }
+            channelState.mutes.forEach(i => mutedNow.add(i));
+
+            channelState.peaks.forEach((peaks, index) => {
+                const channel = index + 1;
+                const strip = document.createElement('div');
+                strip.className = 'flex flex-col items-center gap-0.5 shrink-0';
+                strip.style.width = '64px';
+
+                const label = document.createElement('div');
+                label.className = 'text-[10px] opacity-60';
+                label.textContent = 'CH' + channel;
+                strip.appendChild(label);
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'rounded';
+                canvas.style.width = '64px';
+                canvas.style.height = '46px';
+                canvas.style.background = 'var(--bg-tertiary)';
+                strip.appendChild(canvas);
+                drawChannelWave(canvas, peaks, mutedNow.has(channel));
+
+                const buttons = document.createElement('div');
+                buttons.className = 'flex gap-0.5';
+
+                const mkToggle = (text, active, color, handler) => {
+                    const button = document.createElement('button');
+                    button.className = 'w-7 h-5 rounded text-[10px] border';
+                    button.textContent = text;
+                    button.style.borderColor = 'var(--border-color)';
+                    button.style.background = active ? color : 'transparent';
+                    button.style.color = active ? '#fff' : 'var(--text-secondary)';
+                    button.addEventListener('click', handler);
+                    return button;
+                };
+                buttons.appendChild(mkToggle('S', channelState.solos.has(channel), '#3b82f6', () => {
+                    if (channelState.solos.has(channel)) channelState.solos.delete(channel);
+                    else channelState.solos.add(channel);
+                    renderChannelStrips();
+                    applyChannelSelection();
+                }));
+                buttons.appendChild(mkToggle('M', channelState.mutes.has(channel), '#ef4444', () => {
+                    if (channelState.mutes.has(channel)) channelState.mutes.delete(channel);
+                    else channelState.mutes.add(channel);
+                    renderChannelStrips();
+                    applyChannelSelection();
+                }));
+                strip.appendChild(buttons);
+                strips.appendChild(strip);
+            });
+
+            if (info) info.textContent = channelState.count + ' 声道';
+        }
+
+        async function loadChannelsFor(sound) {
+            const filePath = sound?.filePath;
+            if (!filePath) return;
+            try {
+                const data = await rendererApi.get('/api/v1/audio/channels?path=' + encodeURIComponent(filePath) + '&points=160');
+                channelState.count = Number(data?.channels || 0);
+                channelState.peaks = Array.isArray(data?.peaks) ? data.peaks : [];
+                channelState.mutes.clear();
+                channelState.solos.clear();
+                channelState.paths.clear();
+                renderChannelStrips();
+            } catch (error) {
+                console.warn('[Channels] 读取声道失败:', error);
+                channelState.count = 0;
+                channelState.peaks = [];
+                renderChannelStrips();
+            }
+        }
+
+        async function resolveChannelSource(sound) {
+            if (!channelState.count || !sound?.filePath) return null;
+            const audible = audibleChannels();
+            if (!audible.length) return null;
+            if (audible.length === channelState.count) return null; // 全开 = 原始文件
+            const key = channelMixKey();
+            if (channelState.paths.has(key)) return channelState.paths.get(key);
+            const result = await rendererApi.post('/api/v1/audio/channel-mix',
+                { path: sound.filePath, audible }, { timeoutMs: 120000 });
+            if (!result?.path) return null;
+            const src = 'soundmind-audio://local/' + encodeURIComponent(result.path);
+            channelState.paths.set(key, src);
+            return src;
+        }
+
+        async function applyChannelSelection() {
+            if (!currentSound) return;
+            const wasPlaying = Boolean(isPlaying);
+            const position = audioPlayer ? audioPlayer.currentTime : 0;
+            try {
+                const mixed = await resolveChannelSource(currentSound);
+                if (!audioPlayer) initAudioPlayer();
+                const base = await rendererAudio.resolvePlaybackSource(currentSound, {
+                    api: rendererApi,
+                    projectId: currentProject?.id || 'default',
+                });
+                const src = mixed || base;
+                audioPlayer.pause();
+                audioPlayer.src = src;
+                audioPlayer.load();
+                await rendererAudio.waitForMetadata(audioPlayer);
+                applyPlaybackRate();
+                try { audioPlayer.currentTime = Math.min(position, audioPlayer.duration || position); } catch (_) { }
+                if (wasPlaying) { await audioPlayer.play(); isPlaying = true; }
+            } catch (error) {
+                showNotification('切换声道失败: ' + (error?.message || error), 'error');
+            }
+        }
+
+        function bindChannelBar() {
+            const toggle = document.getElementById('channelToggleBtn');
+            if (toggle) {
+                const paint = () => {
+                    const on = localStorage.getItem('echomind.channelBar') === '1';
+                    toggle.style.background = on ? 'rgba(107,138,253,0.18)' : 'transparent';
+                };
+                paint();
+                toggle.addEventListener('click', () => {
+                    const on = localStorage.getItem('echomind.channelBar') === '1';
+                    try { localStorage.setItem('echomind.channelBar', on ? '0' : '1'); } catch (_) { }
+                    paint();
+                    renderChannelStrips();
+                });
+            }
+            document.getElementById('channelResetBtn')?.addEventListener('click', () => {
+                channelState.mutes.clear();
+                channelState.solos.clear();
+                renderChannelStrips();
+                applyChannelSelection();
+            });
+        }
+
         // ===== 倍速 / 倒放 =====
         let playbackRate = Number(localStorage.getItem('echomind.playbackRate') || 1) || 1;
         let reverseMode = localStorage.getItem('echomind.reverseMode') === '1';
@@ -1502,7 +1725,14 @@
 
         // 倒放模式下优先用反向临时文件，其余照旧
         async function resolveAudioSourceWithReverse(sound, options) {
+            // 倒放优先级最高；其次看是否只选了部分声道
             if (!reverseMode) {
+                try {
+                    const mixed = await resolveChannelSource(sound);
+                    if (mixed) return mixed;
+                } catch (error) {
+                    console.warn('[Channels] 混音失败，回退原文件:', error);
+                }
                 return rendererAudio.resolvePlaybackSource(sound, options);
             }
             try {
@@ -1626,6 +1856,8 @@
 
                 // 释放旧的 Blob URL，防止内存泄漏
                 releaseCurrentBlobUrl();
+
+                await loadChannelsFor(sound);
 
                 let audioSrc = await resolveAudioSourceWithReverse(sound, {
                     api: rendererApi,
@@ -10881,6 +11113,7 @@
             document.getElementById('viewCardBtn')?.addEventListener('click', () => setViewMode('card'));
             applyViewMode();
             bindPlaybackRateAndReverse();
+            bindChannelBar();
             document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
             document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));
             // 启动时默认展开详情面板（用户点「详情」或 ✕ 可收起）

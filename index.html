@@ -763,15 +763,11 @@
                 <i data-lucide="repeat" class="w-5 h-5"></i>
             </button>
             <div class="flex items-center gap-1 ml-1">
-                <select id="playbackRateSelect" class="h-8 px-1 rounded text-xs" title="倍速播放"
-                        style="background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color);">
-                    <option value="0.5">0.5×</option>
-                    <option value="0.75">0.75×</option>
-                    <option value="1" selected>1.0×</option>
-                    <option value="1.25">1.25×</option>
-                    <option value="1.5">1.5×</option>
-                    <option value="2">2.0×</option>
-                </select>
+                <div id="playbackRateWrap" class="flex items-center gap-1.5 px-1" title="拖动调速；点数字复位 1.0×">
+                    <button id="playbackRateLabel" class="text-xs font-mono w-9 text-right" style="color: var(--text-secondary);">1.0×</button>
+                    <input id="playbackRateSlider" type="range" min="0.25" max="2" step="0.05" value="1"
+                           class="h-1 cursor-pointer" style="width: 70px; accent-color: var(--accent-color, #6b8afd);">
+                </div>
                 <button id="channelToggleBtn" class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                         title="显示/隐藏声道条（多声道音效会自动显示）">
                     <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
@@ -2044,8 +2040,20 @@
         const reverseSourceCache = new Map();
 
         function applyPlaybackRate() {
-            if (!audioPlayer) return;
-            try { audioPlayer.playbackRate = playbackRate; } catch (_) { }
+            if (audioPlayer) {
+                try { audioPlayer.playbackRate = playbackRate; } catch (_) { }
+            }
+            const label = document.getElementById('playbackRateLabel');
+            if (label) label.textContent = playbackRate.toFixed(2).replace(/0$/, '') + '×';
+            const slider = document.getElementById('playbackRateSlider');
+            if (slider && Number(slider.value) !== playbackRate) slider.value = String(playbackRate);
+        }
+
+        function setPlaybackRate(value) {
+            const next = Math.min(2, Math.max(0.25, Number(value) || 1));
+            playbackRate = Math.round(next * 20) / 20;   // 0.05 步进
+            try { localStorage.setItem('echomind.playbackRate', String(playbackRate)); } catch (_) { }
+            applyPlaybackRate();
         }
 
         function updateReverseButton() {
@@ -2100,15 +2108,20 @@
         }
 
         function bindPlaybackRateAndReverse() {
-            const select = document.getElementById('playbackRateSelect');
-            if (select) {
-                select.value = String(playbackRate);
-                select.addEventListener('change', () => {
-                    playbackRate = Number(select.value) || 1;
-                    try { localStorage.setItem('echomind.playbackRate', String(playbackRate)); } catch (_) { }
-                    applyPlaybackRate();
-                });
+            const slider = document.getElementById('playbackRateSlider');
+            if (slider) {
+                slider.value = String(playbackRate);
+                slider.addEventListener('input', () => setPlaybackRate(slider.value));
+                slider.addEventListener('change', () => setPlaybackRate(slider.value));
+                // 双击滑条中部 = 复位
+                slider.addEventListener('dblclick', () => setPlaybackRate(1));
             }
+            const label = document.getElementById('playbackRateLabel');
+            if (label) {
+                label.addEventListener('click', () => setPlaybackRate(1));
+                label.addEventListener('dblclick', () => setPlaybackRate(1));
+            }
+            applyPlaybackRate();
             const button = document.getElementById('reverseBtn');
             if (button) {
                 updateReverseButton();

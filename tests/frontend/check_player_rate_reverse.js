@@ -8,7 +8,9 @@ const root = path.resolve(__dirname, '..', '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainPy = fs.readFileSync(path.join(root, 'backend', 'main.py'), 'utf8');
 
-assert(html.includes('id="playbackRateSelect"'), '缺倍速下拉');
+assert(html.includes('id="playbackRateSlider"'), '缺倍速滑条');
+assert(html.includes('id="playbackRateLabel"'), '缺倍速数值');
+assert(html.includes("setPlaybackRate(1)"), '缺复位到 1.0×');
 assert(html.includes("localStorage.getItem('echomind.playbackRate')"), '倍速没有持久化');
 assert(html.includes('applyPlaybackRate()'), '缺倍速应用函数');
 assert(html.includes('id="reverseBtn"'), '缺倒放按钮');

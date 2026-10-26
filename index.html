@@ -5397,6 +5397,9 @@
                         outHint.textContent = '输出位置：每个源文件同级的「_转码」子文件夹';
                     }
                 }
+                if (typeof rememberEvent === 'function') {
+                    list.slice(0, 20).forEach((item) => rememberEvent('usage', item, '转码'));
+                }
                 showNotification('转码完成：' + ok + ' 个成功' + (salvaged ? '，' + salvaged + ' 个是救回的' : ''), failed ? 'warning' : 'success');
                 if (ok > 0) {
                     // 替换模式下文件名/格式变了，刷新列表让用户立刻看到 .wav
@@ -6554,6 +6557,7 @@
                 }
                 withButtonFeedback(nameSave, '重命名中…', '✓ 已重命名', async () => {
                     await renameSoundViaBackend(sound, next);
+                    if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '重命名');
                     titleEl.textContent = sound.name || '';
                     pathEl.textContent = sound.filePath || '';
                     nameInput.value = sound.name || '';
@@ -7383,6 +7387,7 @@
                                 { favorite: next },
                                 { timeoutMs: 15000 }
                             );
+                            if (typeof rememberEvent === 'function') rememberEvent('usage', sound, next ? '收藏' : '取消收藏');
                             loadFavoriteCount();
                         } catch (error) {
                             sound.favorite = !next;

@@ -3699,6 +3699,76 @@ async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), proje
 
 
 
+
+# ==================== 效果器（混响） ====================
+
+class EffectRequest(BaseModel):
+    path: str
+    preset: str = "room_large"
+    wet: Optional[float] = None
+
+
+class EffectExportRequest(BaseModel):
+    path: str
+    preset: str = "room_large"
+    wet: Optional[float] = None
+    out_dir: Optional[str] = None
+
+
+@app.post("/api/v1/audio/export-effect")
+async def export_effect_endpoint(payload: EffectExportRequest):
+    """处理并落盘：默认输出到原文件同目录 <名字>_<预设>.wav。"""
+    from core.effects import apply_effect, PRESETS
+    import shutil
+
+    if not payload.path:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+    loop = asyncio.get_running_loop()
+    wet = -1.0 if payload.wet is None else float(payload.wet)
+    result = await loop.run_in_executor(None, apply_effect, payload.path, payload.preset, wet)
+    if not result.get("ok"):
+        raise SoundBotAPIError("effect_failed", str(result.get("error") or "处理失败"), status_code=500)
+
+    source = Path(payload.path)
+    out_dir = Path(payload.out_dir) if payload.out_dir else source.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    preset_name = (PRESETS.get(payload.preset) or {}).get("name") or payload.preset
+    target = out_dir / f"{source.stem}_{preset_name}.wav"
+    index = 2
+    while target.exists():
+        target = out_dir / f"{source.stem}_{preset_name} ({index}).wav"
+        index += 1
+    await loop.run_in_executor(None, shutil.copyfile, result["path"], str(target))
+    return {"success": True, "path": str(target), "preset": result.get("preset"), "wet": result.get("wet")}
+
+
+@app.get("/api/v1/audio/effect-presets")
+async def list_effect_presets():
+    """可用效果器预设（混响空间）。"""
+    from core.effects import PRESETS
+
+    items = [
+        {"id": key, "name": value["name"], "decay": value["decay"], "wet": value["wet"]}
+        for key, value in PRESETS.items()
+    ]
+    return {"success": True, "presets": items}
+
+
+@app.post("/api/v1/audio/apply-effect")
+async def apply_effect_endpoint(payload: EffectRequest):
+    """给干声加混响，返回可试听的临时 WAV。"""
+    from core.effects import apply_effect
+
+    if not payload.path:
+        raise HTTPException(status_code=422, detail="path 不能为空")
+    loop = asyncio.get_running_loop()
+    wet = -1.0 if payload.wet is None else float(payload.wet)
+    result = await loop.run_in_executor(None, apply_effect, payload.path, payload.preset, wet)
+    if not result.get("ok"):
+        raise SoundBotAPIError("effect_failed", str(result.get("error") or "处理失败"), status_code=500)
+    return {"success": True, **result}
+
+
 # ==================== 多声道 ====================
 
 class ChannelMixRequest(BaseModel):

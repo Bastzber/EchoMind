@@ -318,6 +318,20 @@ assets/         # 背景图、图标替换（可选）
 
 ## 八、发版与检查更新
 
+### r8 发版记录（2026-10-26）
+
+| 项 | 内容 |
+|---|---|
+| 版本 | 0.3.0-beta.11-r8 |
+| 提交 | a588703（tag `v0.3.0-beta.11-r8` 已推送） |
+| 完整包 | `EchoMind测试版V11.zip` 3.39 GB → 百度网盘 https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca 提取码 73ca |
+| 增量包 | `update-0.3.0-beta.11-r8.zip` 65.2 MB（r7 → r8） |
+| 数据包 | 描述包 64,781 条 / 标签包 64,983 条（均随包 + 可单独分发） |
+| 文档 | `release/V11更新说明-r8.md`、`docs/安装说明.md`、`docs/更新统计-r8.md` |
+| 基线 | `manifests/0.3.0-beta.11-r8.manifest.json`（4,734 文件） |
+| 备注 | GitHub Release 页需手动创建并粘贴 `release/V11更新说明-r8.md` 内容 |
+
+
 发一版只需要四步：
 
 1. 改版本号（`package.json` + `backend/config.py` 的 `APP_VERSION`，两处必须一致）

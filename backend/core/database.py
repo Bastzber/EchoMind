@@ -1685,6 +1685,7 @@ class DatabaseManager:
 
         inserted = 0
         batch: List[tuple] = []
+        user_tags_by_file: Dict[str, List[str]] = {}
         with self.get_cursor() as cursor:
             cursor.execute("DELETE FROM files_fts WHERE project_id=?", (project_id,))
             rows = cursor.execute(
@@ -1692,6 +1693,17 @@ class DatabaseManager:
                 "FROM files WHERE project_id=?",
                 (project_id,),
             ).fetchall()
+            try:
+                for uuid_value, tag_name in cursor.execute(
+                    "SELECT ft.file_uuid, t.name FROM file_tags ft "
+                    "JOIN tags t ON t.id = ft.tag_id AND t.project_id = ft.project_id "
+                    "WHERE ft.project_id=?",
+                    (project_id,),
+                ).fetchall():
+                    if tag_name:
+                        user_tags_by_file.setdefault(str(uuid_value), []).append(str(tag_name))
+            except Exception:
+                user_tags_by_file = {}
         for row in rows:
             file_uuid, filename, path, description, tags = row
             name = str(filename or "")
@@ -1703,6 +1715,9 @@ class DatabaseManager:
                 tag_text = " ".join(str(t) for t in tag_list if t)
             except Exception:
                 tag_text = str(tags or "")
+            extras = user_tags_by_file.get(str(file_uuid))
+            if extras:
+                tag_text = (tag_text + " " + " ".join(extras)).strip()
             batch.append(
                 (
                     str(file_uuid),
@@ -1775,6 +1790,19 @@ class DatabaseManager:
             for row in rows
         ]
 
+    def _user_tag_text(self, cursor, project_id: str, file_uuid: str) -> str:
+        """「我的标签」拼成文本，供 FTS 收录（系统标签 + 用户标签都能搜到）。"""
+        try:
+            rows = cursor.execute(
+                "SELECT t.name FROM file_tags ft "
+                "JOIN tags t ON t.id = ft.tag_id AND t.project_id = ft.project_id "
+                "WHERE ft.project_id=? AND ft.file_uuid=?",
+                (str(project_id), str(file_uuid)),
+            ).fetchall()
+        except Exception:
+            return ""
+        return " ".join(str(r[0]) for r in rows if r[0])
+
     def update_fts_row(self, project_id: str, file_uuid: str) -> None:
         """描述/标签改动后同步 FTS 行（失败不影响主流程）。"""
         from core.zh_tokenizer import tokenize
@@ -1794,6 +1822,9 @@ class DatabaseManager:
                     tag_text = " ".join(str(t) for t in tag_list if t)
                 except Exception:
                     tag_text = str(row["tags"] or "")
+                user_tag_text = self._user_tag_text(cursor, project_id, file_uuid)
+                if user_tag_text:
+                    tag_text = (tag_text + " " + user_tag_text).strip()
                 cursor.execute(
                     "DELETE FROM files_fts WHERE file_uuid=?", (file_uuid,)
                 )

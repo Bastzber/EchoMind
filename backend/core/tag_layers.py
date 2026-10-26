@@ -168,6 +168,21 @@ def file_tag_ids(cursor: sqlite3.Cursor, project_id: str, file_uuid: str) -> Lis
     ]
 
 
+def file_tag_names(cursor: sqlite3.Cursor, project_id: str, file_uuid: str) -> List[str]:
+    """某个文件挂的「我的标签」名字列表。"""
+    return [
+        r[0]
+        for r in cursor.execute(
+            "SELECT t.name FROM file_tags ft "
+            "JOIN tags t ON t.id = ft.tag_id AND t.project_id = ft.project_id "
+            "WHERE ft.project_id=? AND ft.file_uuid=? "
+            "ORDER BY t.name",
+            (project_id, file_uuid),
+        ).fetchall()
+        if r[0]
+    ]
+
+
 def set_file_tags(
     cursor: sqlite3.Cursor, project_id: str, file_uuid: str, tag_ids: List[str]
 ) -> None:

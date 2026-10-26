@@ -5186,8 +5186,13 @@
                 });
             });
 
-            // ---- 标签 ----
-            body.appendChild(detailSectionTitle('标签'));
+            // ---- 系统标签（6 维，不进左侧栏）----
+            body.appendChild(detailSectionTitle('系统标签'));
+            const sysHint = document.createElement('div');
+            sysHint.className = 'text-[11px] opacity-40 -mt-1 mb-1';
+            sysHint.textContent = '音效自带的属性标签，只在详情里改，不会出现在左侧「我的标签」';
+            body.appendChild(sysHint);
+
             const chipsEl = document.createElement('div');
             chipsEl.className = 'flex flex-wrap gap-1 mb-1';
             body.appendChild(chipsEl);
@@ -5214,7 +5219,7 @@
             tagsInput.placeholder = '逗号分隔，如：城市, 环境';
             tagsInput.value = (Array.isArray(sound.tags) ? sound.tags : []).join(', ');
             body.appendChild(tagsInput);
-            const tagsSave = detailSaveButton('保存标签', null);
+            const tagsSave = detailSaveButton('保存系统标签', null);
             body.appendChild(tagsSave);
             tagsSave.addEventListener('click', () => withButtonFeedback(tagsSave, '保存中…', '✓ 已保存', async () => {
                 const nextTags = parseTagsInput(tagsInput.value);
@@ -5223,13 +5228,72 @@
                 renderChips();          // 先把界面改了，别等接口
                 try {
                     await setSoundTags(sound, nextTags, { silent: true });
-                    // 侧栏标签树读的是同一张表，但界面不会自己刷新 —— 这里主动拉一次
-                    await loadTagStats();
                 } catch (error) {
                     sound.tags = previous;
                     renderChips();
                     throw error;
                 }
+            }));
+
+            // ---- 用户标签（我的标签，进左侧栏）----
+            body.appendChild(detailSectionTitle('用户标签'));
+            const userHint = document.createElement('div');
+            userHint.className = 'text-[11px] opacity-40 -mt-1 mb-1';
+            userHint.textContent = '你自己的分类标签，会出现在左侧「我的标签」；不进系统标签';
+            body.appendChild(userHint);
+
+            const userChips = document.createElement('div');
+            userChips.className = 'flex flex-wrap gap-1 mb-1';
+            body.appendChild(userChips);
+            let userTagNames = [];
+            const renderUserChips = () => {
+                userChips.innerHTML = '';
+                if (!userTagNames.length) {
+                    const none = document.createElement('span');
+                    none.className = 'text-xs opacity-40';
+                    none.textContent = '（暂无）';
+                    userChips.appendChild(none);
+                    return;
+                }
+                userTagNames.forEach(tag => {
+                    const chip = document.createElement('span');
+                    chip.className = 'px-1.5 py-0.5 rounded text-[11px]';
+                    chip.style.cssText = 'background: rgba(107,138,253,0.16); color: var(--text-primary);';
+                    chip.textContent = tag;
+                    userChips.appendChild(chip);
+                });
+            };
+
+            const userInput = detailInput('detail-user-tags');
+            userInput.placeholder = '逗号分隔，如：常用, 片头';
+            body.appendChild(userInput);
+            const userSave = detailSaveButton('保存用户标签', null);
+            body.appendChild(userSave);
+
+            const fileUuid = sound.fileId || sound.file_uuid || '';
+            const reloadUserTags = async () => {
+                if (!fileUuid) { renderUserChips(); return; }
+                try {
+                    const data = await rendererApi.get('/api/v1/files/' + encodeURIComponent(fileUuid) + '/user-tags');
+                    userTagNames = Array.isArray(data?.names) ? data.names : [];
+                } catch (_) {
+                    userTagNames = [];
+                }
+                renderUserChips();
+                userInput.value = userTagNames.join(', ');
+            };
+            renderUserChips();
+            reloadUserTags();
+
+            userSave.addEventListener('click', () => withButtonFeedback(userSave, '保存中…', '✓ 已保存', async () => {
+                if (!fileUuid) throw new Error('这个音效还没有入库记录');
+                const names = parseTagsInput(userInput.value);
+                await rendererApi.post('/api/v1/files/' + encodeURIComponent(fileUuid) + '/tags',
+                    { names, tag_ids: [] }, { timeoutMs: 60000 });
+                userTagNames = names;
+                renderUserChips();
+                await loadTagStats();
+                renderFolderTree();
             }));
 
             // ---- 一句话描述 ----

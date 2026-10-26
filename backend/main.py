@@ -4288,6 +4288,17 @@ async def set_file_description(
     return {"success": True, "description": description, "reindex_queued": True}
 
 
+@app.get("/api/v1/files/{file_uuid}/user-tags")
+async def get_file_user_tags(file_uuid: str, project_id: str = Query(default="default")):
+    """读取某个文件的「我的标签」（用户自定义，和 6 维系统标签分开）。"""
+    from core import tag_layers
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        names = tag_layers.file_tag_names(cursor, project_id, file_uuid)
+    return {"success": True, "names": names}
+
+
 @app.post("/api/v1/files/{file_uuid}/tags")
 async def set_file_tags(
     file_uuid: str,
@@ -4298,17 +4309,51 @@ async def set_file_tags(
     from core import tag_layers
 
     tag_ids = payload.get("tag_ids") or []
+    names = payload.get("names")
     if not isinstance(tag_ids, list):
         raise HTTPException(status_code=422, detail="tag_ids 必须是数组")
     db_manager = get_db_manager()
     with db_manager.get_cursor() as cursor:
+        # 允许前端直接传名字：不存在的标签自动建（attr 层）
+        if isinstance(names, list):
+            resolved = []
+            for raw in names:
+                name = str(raw or "").strip()
+                if not name:
+                    continue
+                row = cursor.execute(
+                    "SELECT id FROM tags WHERE project_id=? AND name=?", (project_id, name)
+                ).fetchone()
+                if row:
+                    resolved.append(str(row[0]))
+                else:
+                    tag_id = uuid.uuid4().hex
+                    cursor.execute(
+                        "INSERT INTO tags (id, project_id, name, layer, created_at) VALUES (?,?,?,?,?)",
+                        (tag_id, project_id, name, "attr", datetime.now().isoformat()),
+                    )
+                    resolved.append(tag_id)
+            tag_ids = resolved
         try:
             tag_layers.set_file_tags(cursor, project_id, file_uuid, [str(t) for t in tag_ids])
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        cursor.connection.commit()
-    # 两套标签分离：这里只写 file_tags，不改 files.tags
-    return {"success": True, "reindex_queued": False}
+
+    # 改完用户标签：刷新这一行的 FTS（关键词搜索能命中），并把文本向量标脏
+    try:
+        db_manager.update_fts_row(project_id, file_uuid)
+    except Exception as exc:
+        logger.debug("刷新 FTS 失败: %s", exc)
+    try:
+        with db_manager.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE file_artifacts SET state='stale' WHERE kind='text_vector' AND file_uuid=?",
+                (file_uuid,),
+            )
+    except Exception:
+        pass
+    background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "user_tags")
+    return {"success": True, "reindex_queued": True}
 
 
 @app.get("/api/v1/db/folder/stats")

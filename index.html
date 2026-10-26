@@ -401,13 +401,6 @@
                         <span>外观 / 皮肤</span>
                         <span id="skinNameText" class="ml-auto text-[10px] opacity-40"></span>
                     </button>
-                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
-                    <button id="themeToggle" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="moon" id="themeIconMoon" class="w-4 h-4"></i>
-                        <i data-lucide="sun" id="themeIconSun" class="w-4 h-4 hidden"></i>
-                        <span id="themeTextLight" data-i18n="theme.dark">切换深色模式</span>
-                        <span id="themeTextDark" class="hidden" data-i18n="theme.light">切换浅色模式</span>
-                    </button>
                 </div>
             </div>
         </div>
@@ -3982,9 +3975,13 @@
                 const categoryName = categoryId.replace('tag-', '');
                 filtered = soundData.filter(s => s.category === categoryName);
             } else if (categoryId.startsWith('mytag:')) {
-                // 我的标签 - 按标签过滤
+                // 「我的标签」是用户分类，存在 tags/file_tags 里，
+                // 和文件自带的 6 维标签（files.tags）是两套，所以走后端查询。
                 const tagName = categoryId.slice(6);
-                filtered = soundData.filter(s => (s.tags || []).includes(tagName));
+                loadFilesFromDatabase({ reset: true, tag: tagName }).then(() => {
+                    renderCategoryTree();
+                });
+                return;
             }
             
             renderSoundList(document.getElementById('searchInput').value, filtered);
@@ -5264,7 +5261,11 @@
             const attrs = document.createElement('div');
             attrs.className = 'mt-4 pt-3 border-t';
             attrs.style.borderColor = 'var(--border-color)';
-            const ext = (sound.type || (sound.name || '').match(/\.[^.]+$/) || '').replace('.', '').toUpperCase();
+            // match() 返回数组，直接 .replace 会炸；这里统一转成字符串
+            const rawExt = sound.type
+                || ((sound.name || '').match(/\.[^.]+$/) || [''])[0]
+                || '';
+            const ext = String(rawExt).replace('.', '').toUpperCase();
             const seconds = Number(sound.duration) > 0 ? (Number(sound.duration) / 1000).toFixed(2) + ' 秒' : '';
             const khz = Number(sound.sampleRate) > 0 ? (Number(sound.sampleRate) / 1000).toFixed(Number(sound.sampleRate) % 1000 === 0 ? 0 : 1) + ' kHz' : '';
             attrs.appendChild(detailRow('格式', ext));
@@ -5286,6 +5287,8 @@
 
         function applySkin(skin) {
             const root = document.documentElement;
+            const mode = (skin && skin.mode) === 'light' ? 'light' : 'dark';
+            root.classList.toggle('dark', mode === 'dark');
             const colors = (skin && skin.colors) || {};
             Object.entries(colors).forEach(([name, value]) => {
                 root.style.setProperty(name, String(value));
@@ -5301,10 +5304,15 @@
             try { localStorage.setItem(SKIN_STORAGE_KEY, activeSkinId); } catch (_) { }
             const label = document.getElementById('skinNameText');
             if (label) label.textContent = (skin && skin.name) || '';
+            try {
+                drawMiniWaveforms();
+                drawMainWaveform();
+            } catch (_) { }
         }
 
         function clearSkin() {
             const root = document.documentElement;
+            root.classList.add('dark');
             skinList.flatMap(skin => Object.keys(skin.colors || {})).forEach((name) => {
                 root.style.removeProperty(name);
             });
@@ -10324,7 +10332,10 @@
             throw lastError;
         }
 
-        async function loadFilesFromDatabase({ reset = true } = {}) {
+        let fileListTagFilter = '';
+
+        async function loadFilesFromDatabase({ reset = true, tag = null } = {}) {
+            if (tag !== null) fileListTagFilter = String(tag || '');
             if ((fileListLoading && !reset) || (!reset && !fileListNextCursor)) return;
             const loadToken = reset ? ++fileListLoadToken : fileListLoadToken;
             const projectId = currentProject?.id || 'default';
@@ -10339,7 +10350,10 @@
 
             try {
                 const result = await withDbRetry(
-                    () => rendererProjects.listFiles(projectId, { limit: 200, cursor }),
+                    () => fileListTagFilter
+                        ? rendererApi.get('/api/v1/files?limit=500&tag=' + encodeURIComponent(fileListTagFilter)
+                            + '&project_id=' + encodeURIComponent(projectId))
+                        : rendererProjects.listFiles(projectId, { limit: 200, cursor }),
                     { label: '文件列表' }
                 );
                 if (loadToken !== fileListLoadToken || projectId !== currentProject?.id) return null;
@@ -10788,7 +10802,7 @@
                 }
             });
             
-            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+            document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
             
             // 临时文件目录按钮
             document.getElementById('tempDirBtn').addEventListener('click', (e) => {

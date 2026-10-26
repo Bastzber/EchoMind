@@ -49,7 +49,7 @@ class TagBatchOpsTests(unittest.TestCase):
         import json
         return json.loads(row[0]) if row and row[0] else []
 
-    def test_rename_moves_files_and_updates_files_tags(self) -> None:
+    def test_rename_moves_files_but_keeps_file_tags(self) -> None:
         self.manager.update_tags(str(self.audios[0]), ["7-情节搭设"], "default")
         self.manager.sync_layers_from_files_tags("default", path=str(self.audios[0]))
 
@@ -57,7 +57,10 @@ class TagBatchOpsTests(unittest.TestCase):
         self.assertEqual(result["renamed"], 1)
         self.assertIn("情节搭设", self._names())
         self.assertNotIn("7-情节搭设", self._names())
-        self.assertEqual(self._files_tags(self.audios[0]), ["情节搭设"], "files.tags 也要跟着改")
+        self.assertEqual(
+            self._files_tags(self.audios[0]), ["7-情节搭设"],
+            "files.tags 不该被「我的标签」的改名影响",
+        )
 
     def test_merge_into_existing_tag(self) -> None:
         for audio, tag in ((self.audios[0], "配乐"), (self.audios[1], "短配乐")):
@@ -70,14 +73,18 @@ class TagBatchOpsTests(unittest.TestCase):
         self.assertEqual(self._usage("配乐"), 2, "两个文件都应该挂在「配乐」下")
         self.assertNotIn("短配乐", self._names())
 
-    def test_delete_tag_removes_links_and_cleans_files_tags(self) -> None:
+    def test_delete_tag_removes_links_but_keeps_file_tags(self) -> None:
+        """「我的标签」和 files.tags 是两套：删前者不该动后者。"""
         self.manager.update_tags(str(self.audios[0]), ["临时标签", "保留"], "default")
         self.manager.sync_layers_from_files_tags("default", path=str(self.audios[0]))
 
         result = self.manager.delete_tag_by_name("default", "临时标签")
         self.assertEqual(result["deleted"], 1)
-        self.assertNotIn("临时标签", self._names())
-        self.assertEqual(self._files_tags(self.audios[0]), ["保留"])
+        self.assertNotIn("临时标签", self._names(), "分层表里应删掉")
+        self.assertEqual(
+            self._files_tags(self.audios[0]), ["临时标签", "保留"],
+            "files.tags（音效自带标签）不应被改动",
+        )
 
     def test_usage_counts(self) -> None:
         for audio in self.audios:

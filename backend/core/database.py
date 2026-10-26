@@ -2820,12 +2820,15 @@ class DatabaseManager:
                 files = self._files_touched_by_tag(cursor, project_id, old_id)
                 cursor.execute("UPDATE tags SET name=? WHERE id=?", (new_name, old_id))
 
-        for file_uuid in files:
-            self.sync_tags_from_layers(project_id, file_uuid)
         return {"renamed": 0 if merged else 1, "merged": merged, "files": len(files)}
 
     def delete_tag_by_name(self, project_id: str, name: str) -> Dict[str, int]:
-        """删除一个标签（含文件关联），并把受影响的 files.tags 同步回去。"""
+        """删除「我的标签」里的一个标签（只动 tags/file_tags）。
+
+        注意：这是**用户自定义标签**，和 files.tags 里的 6 维标签是两套东西，
+        删这里不会改动音效自带的标签。以前逐文件回写 files.tags，标签挂几千个
+        文件时界面会卡死；现在只有两条 DELETE，毫秒级。
+        """
         name = str(name or "").strip()
         if not name:
             return {"deleted": 0, "files": 0}
@@ -2843,8 +2846,6 @@ class DatabaseManager:
                 (str(project_id), tag_id),
             )
             cursor.execute("DELETE FROM tags WHERE id=?", (tag_id,))
-        for file_uuid in files:
-            self.sync_tags_from_layers(project_id, file_uuid)
         return {"deleted": 1, "files": len(files)}
 
     def list_tag_usage(self, project_id: str) -> List[Dict[str, Any]]:

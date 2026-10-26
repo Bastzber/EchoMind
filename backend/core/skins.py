@@ -47,8 +47,36 @@ BUILTIN: List[Dict[str, object]] = [
         "author": "回声",
         "version": "1.0",
         "builtin": True,
+        "mode": "dark",
         "colors": {},
         "css": "",
+    },
+    {
+        "id": "light",
+        "name": "浅色",
+        "author": "回声",
+        "version": "1.0",
+        "builtin": True,
+        "mode": "light",
+        "colors": {
+            "--bg-primary": "#f4f6f9",
+            "--bg-secondary": "#ffffff",
+            "--bg-tertiary": "#e9edf3",
+            "--border-color": "#d5dae2",
+            "--text-primary": "#1b1d23",
+            "--text-secondary": "#4a4f5b",
+            "--accent-color": "#3b6cf6",
+            "--header-bg": "#ffffff",
+            "--sidebar-bg": "#f7f9fc",
+        },
+        "css": (
+            "html:not(.dark) body{background:var(--bg-primary);color:var(--text-primary)}"
+            "html:not(.dark) .hover\\:bg-white\\/10:hover{background:rgba(0,0,0,.06)}"
+            "html:not(.dark) .hover\\:bg-black\\/5:hover{background:rgba(0,0,0,.05)}"
+            "html:not(.dark) ::-webkit-scrollbar-thumb{background:#c3c9d4}"
+            "html:not(.dark) input,html:not(.dark) textarea{background:#fff;color:#1b1d23}"
+            "html:not(.dark) .menu-btn{color:#1b1d23}"
+        ),
     },
     {
         "id": "midnight",
@@ -56,6 +84,7 @@ BUILTIN: List[Dict[str, object]] = [
         "author": "回声",
         "version": "1.0",
         "builtin": True,
+        "mode": "dark",
         "colors": {
             "--bg-primary": "#0b1020",
             "--bg-secondary": "#121a2e",
@@ -75,6 +104,7 @@ BUILTIN: List[Dict[str, object]] = [
         "author": "回声",
         "version": "1.0",
         "builtin": True,
+        "mode": "dark",
         "colors": {
             "--bg-primary": "#141414",
             "--bg-secondary": "#1c1c1c",
@@ -143,6 +173,7 @@ def load_user_skin(directory: Path) -> Optional[Dict[str, object]]:
         "author": str(data.get("author") or "未知"),
         "version": str(data.get("version") or "1.0"),
         "builtin": False,
+        "mode": "light" if str(data.get("mode") or "").lower() == "light" else "dark",
         "colors": _validate_colors(data.get("colors") or {}),
         "css": css,
     }

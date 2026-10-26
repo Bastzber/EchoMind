@@ -2056,8 +2056,8 @@ async def update_file_tags(
 
         if not success:
             raise HTTPException(status_code=404, detail="文件不存在")
-        # 老入口只写 files.tags；补一层同步到 tags/file_tags，侧栏标签树才看得到
-        db_manager.sync_layers_from_files_tags(current_project_id, path=file_path)
+        # 说明：files.tags（6 维标签）和「我的标签」（tags/file_tags）是两套，
+        # 这里不再互相同步——按用户要求分开管理。
         try:
             await _get_project_searcher(current_project_id).clear_cache()
         except Exception as exc:
@@ -2271,7 +2271,6 @@ async def batch_set_tags(
         applied = 0
         for path in payload.paths:
             if db_manager.update_tags(path, tags, current_project_id):
-                db_manager.sync_layers_from_files_tags(current_project_id, path=path)
                 applied += 1
         try:
             await _get_project_searcher(current_project_id).clear_cache()
@@ -2316,8 +2315,6 @@ async def rename_tag(
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         if changed > 0:
-            for file_uuid in affected_uuids:
-                db_manager.sync_layers_from_files_tags(current_project_id, file_uuid=file_uuid)
             job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
             background_tasks.add_task(
                 _repair_index_task,
@@ -3507,7 +3504,6 @@ async def merge_duplicates_into_tags(payload: Dict[str, Any], project_id: str = 
 
     if merged_tags:
         db_manager.update_tags(keep_path, merged_tags, project_id)
-        db_manager.sync_layers_from_files_tags(project_id, path=keep_path)
 
     moved = 0
     removed = 0
@@ -4243,9 +4239,7 @@ async def update_tag(
             ok = tag_layers.set_layer(cursor, project_id, tag_id, payload["layer"]) and ok
         cursor.connection.commit()
     if ok and named:
-        # 标签名变了，成员文件的 files.tags 也得跟着改
-        for file_uuid in affected:
-            db_manager.sync_tags_from_layers(project_id, file_uuid)
+        # 只改「我的标签」，不动音效自带的 6 维标签
         background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
     return {"success": ok}
 
@@ -4264,8 +4258,7 @@ async def delete_tag(
         ok = tag_layers.delete_tag(cursor, project_id, tag_id)
         cursor.connection.commit()
     if ok:
-        for file_uuid in affected:
-            db_manager.sync_tags_from_layers(project_id, file_uuid)
+        # 只删「我的标签」，不影响 files.tags
         background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
     return {"success": ok}
 
@@ -4314,11 +4307,8 @@ async def set_file_tags(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         cursor.connection.commit()
-    # 分层标签只写在 file_tags 里，列表/搜索/向量读的是 files.tags，这里回写并标脏
-    changed = db_manager.sync_tags_from_layers(project_id, file_uuid)
-    if changed:
-        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
-    return {"success": True, "reindex_queued": bool(changed)}
+    # 两套标签分离：这里只写 file_tags，不改 files.tags
+    return {"success": True, "reindex_queued": False}
 
 
 @app.get("/api/v1/db/folder/stats")

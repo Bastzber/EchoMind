@@ -1450,6 +1450,16 @@
                     if (el) el.textContent = pendingLabel;
                 });
 
+                // 失败数 > 0 标红，提醒需要处理
+                ['audioFailedStatus', 'textFailedStatus'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    const failed = Number(el.textContent || 0);
+                    el.style.color = failed > 0 ? '#ef4444' : '';
+                    el.style.fontWeight = failed > 0 ? '600' : '';
+                    el.title = failed > 0 ? '有文件解不出（多为文件损坏）；可在损坏文件里查看' : '';
+                });
+
                 // 后台确实在跑 → 数字变绿（表示"正在动"），不额外塞 1641/1641
                 ['audioPendingStatus', 'textPendingStatus'].forEach((id) => {
                     const el = document.getElementById(id);

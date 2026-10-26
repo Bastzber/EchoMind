@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Dict, List
 
 MAX_CHANNELS = 8
+# 算法版本：改动 DSP 时递增，自动作废旧缓存
+CACHE_VERSION = "2"
 
 
 def cache_dir() -> Path:
@@ -24,7 +26,7 @@ def cache_dir() -> Path:
 
 def _key(source: Path, extra: str = "") -> str:
     stat = source.stat()
-    raw = f"{source.resolve()}|{int(stat.st_mtime)}|{stat.st_size}|{extra}".encode("utf-8", "ignore")
+    raw = f"{CACHE_VERSION}|{source.resolve()}|{int(stat.st_mtime)}|{stat.st_size}|{extra}".encode("utf-8", "ignore")
     return hashlib.sha1(raw).hexdigest()
 
 

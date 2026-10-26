@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Dict
 
 
+# 算法版本：改动 DSP 时递增，自动作废旧缓存
+CACHE_VERSION = "2"
+
+
 def reverse_cache_dir() -> Path:
     base = Path(tempfile.gettempdir()) / "echomind-reverse"
     base.mkdir(parents=True, exist_ok=True)
@@ -21,7 +25,7 @@ def reverse_cache_dir() -> Path:
 
 def _cache_key(source: Path) -> str:
     stat = source.stat()
-    raw = f"{source.resolve()}|{int(stat.st_mtime)}|{stat.st_size}".encode("utf-8", "ignore")
+    raw = f"{CACHE_VERSION}|{source.resolve()}|{int(stat.st_mtime)}|{stat.st_size}".encode("utf-8", "ignore")
     return hashlib.sha1(raw).hexdigest()
 
 

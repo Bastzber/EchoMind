@@ -2371,6 +2371,36 @@ ipcMain.handle('dialog-save', async (event, options) => {
             extension
           };
         }
+        case 'mascot-load': {
+          try {
+            const file = path.join(app.getPath('userData'), 'mascot.png');
+            if (!fs.existsSync(file)) return { success: true, image: null };
+            const buf = fs.readFileSync(file);
+            if (buf.length > 4 * 1024 * 1024) return { success: false, error: '图片过大（>4MB）' };
+            return { success: true, image: 'data:image/png;base64,' + buf.toString('base64') };
+          } catch (error) {
+            return { success: false, error: error?.message || String(error) };
+          }
+        }
+        case 'mascot-pick': {
+          try {
+            const result = await dialog.showOpenDialog(mainWindow, {
+              title: '选择吉祥物图片',
+              filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+              properties: ['openFile'],
+            });
+            if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+            const source = result.filePaths[0];
+            const target = path.join(app.getPath('userData'), 'mascot.png');
+            fs.copyFileSync(source, target);
+            const buf = fs.readFileSync(target);
+            const ext = path.extname(source).toLowerCase();
+            const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : (ext === '.webp' ? 'image/webp' : 'image/png');
+            return { success: true, image: 'data:' + mime + ';base64,' + buf.toString('base64') };
+          } catch (error) {
+            return { success: false, error: error?.message || String(error) };
+          }
+        }
         case 'trash-files': {
           const list = Array.isArray(payload?.paths) ? payload.paths : [];
           const ok = [], failed = [];

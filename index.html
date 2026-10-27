@@ -191,6 +191,84 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.45; }
         }
+
+        /* ===== 微动画（克制型） ===== */
+        @keyframes emPopIn {
+            from { opacity: 0; transform: translateY(6px) scale(0.985); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes emFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes emSlideDown {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes emPulseOnce {
+            0% { transform: scale(1); }
+            40% { transform: scale(1.12); }
+            100% { transform: scale(1); }
+        }
+
+        /* 弹窗面板：轻微上浮 + 淡入 */
+        [id$="Overlay"] > div,
+        [id$="Modal"] > div,
+        [id$="overlay"] > div,
+        [id$="modal"] > div {
+            animation: emPopIn 0.16s ease-out both;
+        }
+
+        /* 下拉菜单 */
+        .dropdown-menu,
+        [id$="Dropdown"],
+        [id$="Menu"]:not(#soundContextMenu) {
+            animation: emSlideDown 0.12s ease-out both;
+        }
+
+        /* 列表行：进入淡入 + hover 轻微位移 */
+        #soundList > div {
+            animation: emFadeIn 0.16s ease-out both;
+            transition: transform 0.12s ease, background-color 0.12s ease;
+        }
+        #soundList > div:hover {
+            transform: translateX(1px);
+        }
+
+        /* 按钮按压反馈 */
+        button:active:not(:disabled),
+        .quick-btn:active:not(:disabled) {
+            transform: scale(0.97);
+        }
+        button, .quick-btn {
+            transition: transform 0.09s ease, background-color 0.15s ease, border-color 0.15s ease;
+        }
+
+        /* 播放按钮：点击时弹一下 */
+        #playPauseBtn:active {
+            animation: emPulseOnce 0.22s ease-out;
+        }
+
+        /* 标签胶囊 hover */
+        #categoryTree button:hover,
+        #folderTree button:hover {
+            transform: translateY(-1px);
+        }
+
+        /* 侧栏折叠块：展开时淡入 */
+        .history-list:not(.hidden),
+        .effect-body:not(.hidden) {
+            animation: emFadeIn 0.15s ease-out both;
+        }
+
+        /* 尊重系统「减少动态效果」 */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.001ms !important;
+            }
+        }
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

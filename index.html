@@ -269,6 +269,46 @@
                 transition-duration: 0.001ms !important;
             }
         }
+
+        /* ===== 大肥鱼（顶栏宠物） ===== */
+        @keyframes fishBob {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-2.5px); }
+        }
+        @keyframes fishTailWag {
+            0%, 100% { transform: rotate(-7deg); }
+            50% { transform: rotate(9deg); }
+        }
+        @keyframes fishBlink {
+            0%, 92%, 100% { transform: scaleY(1); }
+            95% { transform: scaleY(0.15); }
+        }
+        @keyframes fishBubble {
+            0% { transform: translateY(0); opacity: .8; }
+            100% { transform: translateY(-9px); opacity: 0; }
+        }
+        #navFish { overflow: visible; }
+        #fishTail {
+            transform-origin: 9px 16px;
+            animation: fishTailWag 1.5s ease-in-out infinite;
+        }
+        #navFish {
+            animation: fishBob 3.2s ease-in-out infinite;
+        }
+        #fishEye {
+            transform-origin: 35px 13px;
+            animation: fishBlink 4.5s ease-in-out infinite;
+        }
+        #fishBubble1 { animation: fishBubble 2.4s ease-out infinite; }
+        #fishBubble2 { animation: fishBubble 2.4s ease-out .8s infinite; }
+
+        /* 播放中：游得更快、气泡更密 */
+        #navFishWrap.playing #fishTail { animation-duration: 0.55s; }
+        #navFishWrap.playing #navFish { animation-duration: 1.6s; }
+        #navFishWrap.playing #fishBubble1 { animation-duration: 1.1s; }
+        #navFishWrap.playing #fishBubble2 { animation-duration: 1.1s; }
+
+        #navFishWrap.hidden-fish { display: none; }
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -383,6 +423,34 @@
                     </svg><span>声音克隆</span>
                 </button>
             </div>
+
+            <!-- 大肥鱼：顶栏宠物 -->
+            <div id="navFishWrap" class="relative flex items-center justify-center" style="width:52px;height:40px;">
+                <button id="navFishBtn" title="大肥鱼：点击看状态 / 右键隐藏" style="
+                    background:none;border:none;padding:0;cursor:pointer;line-height:0;
+                    filter: drop-shadow(0 2px 6px rgba(56,132,255,.35));
+                ">
+                    <svg id="navFish" width="46" height="32" viewBox="0 0 46 32" aria-label="大肥鱼">
+                        <defs>
+                            <linearGradient id="fishBody" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#7cc0ff"/>
+                                <stop offset="100%" stop-color="#3b82f6"/>
+                            </linearGradient>
+                        </defs>
+                        <g id="fishTail">
+                            <path d="M6 16 C2 10, 2 22, 6 16 Z" fill="#5aa9f5"/>
+                            <path d="M8 16 L0 9 L2 16 L0 23 Z" fill="#8ecbff" opacity=".95"/>
+                        </g>
+                        <ellipse id="fishBodyShape" cx="26" cy="16" rx="17" ry="12" fill="url(#fishBody)"/>
+                        <ellipse cx="24" cy="11" rx="9" ry="4" fill="#bcdcff" opacity=".55"/>
+                        <circle id="fishEye" cx="35" cy="13" r="3.4" fill="#0b2a52"/>
+                        <circle cx="36" cy="12" r="1.1" fill="#ffffff"/>
+                        <path d="M20 24 C24 28, 30 28, 33 24" stroke="#2f6fd0" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".7"/>
+                        <circle id="fishBubble1" cx="44" cy="8" r="1.6" fill="#9ed2ff" opacity=".8"/>
+                        <circle id="fishBubble2" cx="46" cy="4" r="1.1" fill="#9ed2ff" opacity=".55"/>
+                    </svg>
+                </button>
+            </div>
         </nav>
         
         <!-- Right: Search & Disk Space -->
@@ -478,6 +546,9 @@
                         <span data-i18n="settings.cache.clear">清理临时裁切文件</span>
                     </button>
                     <div class="border-t my-2" style="border-color: var(--border-color);"></div>
+                <button id="fishToggleBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
+                    <i data-lucide="fish" class="w-4 h-4"></i><span id="fishToggleLabel">藏起大肥鱼</span>
+                </button>
                     <button id="aboutAppBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="info" class="w-4 h-4"></i>
                         <span>关于回声</span>
@@ -1680,6 +1751,7 @@
         
         // 使用 requestAnimationFrame 实现毫秒级平滑播放头更新
         function startPlaybackAnimation() {
+            try { fishSetPlaying(true); } catch (_) { }
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
             
             function update() {
@@ -1717,6 +1789,7 @@
         }
         
         function stopPlaybackAnimation() {
+            try { fishSetPlaying(false); } catch (_) { }
             if (animationFrameId) {
                 cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
@@ -2184,6 +2257,90 @@
             document.getElementById('voiceCloneBtn')?.addEventListener('click', () => {
                 showVoiceCloneModal();
             });
+        }
+
+        // ===== 大肥鱼（顶栏宠物）=====
+        function fishSetPlaying(playing) {
+            const wrap = document.getElementById('navFishWrap');
+            if (!wrap) return;
+            wrap.classList.toggle('playing', Boolean(playing));
+        }
+
+        function fishApplyVisibility() {
+            const wrap = document.getElementById('navFishWrap');
+            if (!wrap) return;
+            const hidden = localStorage.getItem('echomind.fishHidden') === '1';
+            wrap.classList.toggle('hidden-fish', hidden);
+        }
+
+        function showFishPopover(anchor) {
+            document.getElementById('fishPopover')?.remove();
+            const pop = document.createElement('div');
+            pop.id = 'fishPopover';
+            pop.className = 'fixed rounded-xl shadow-2xl p-3 text-xs';
+            pop.style.cssText = 'z-index:341;background:var(--bg-secondary);border:1px solid var(--border-color);width:230px';
+            pop.innerHTML = [
+                '<div class="flex items-center gap-2 mb-2">',
+                '  <span style="font-size:13px;font-weight:600">大肥鱼</span>',
+                '  <span id="fishStatusText" class="opacity-50" style="font-size:10px">待机中</span>',
+                '</div>',
+                '<div id="fishStats" class="space-y-1" style="font-size:11px"></div>',
+                '<div class="flex items-center gap-2 mt-2 pt-2" style="border-top:1px solid var(--border-color)">',
+                '  <button id="fishHideBtn" class="px-2 py-1 rounded border" style="border-color:var(--border-color)">藏起来</button>',
+                '  <button id="fishCloseBtn" class="ml-auto opacity-50 hover:opacity-100">关闭</button>',
+                '</div>'
+            ].join('');
+            const rect = anchor.getBoundingClientRect();
+            pop.style.left = Math.min(rect.left, window.innerWidth - 250) + 'px';
+            pop.style.top = (rect.bottom + 8) + 'px';
+            document.body.appendChild(pop);
+
+            const stats = pop.querySelector('#fishStats');
+            stats.innerHTML = '<div class="opacity-50">读取中…</div>';
+            (async () => {
+                try {
+                    const data = await rendererApi.get('/api/v1/projects/default/index/status');
+                    const a = data.artifacts?.audio_vector || {};
+                    const tx = data.artifacts?.text_vector || {};
+                    const playing = currentSound ? (currentSound.name || '') : '（未播放）';
+                    stats.innerHTML = [
+                        '<div class="flex justify-between"><span class="opacity-60">音乐索引</span><span>', String(a.ready || 0), ' / ', String((a.ready || 0) + (a.pending || 0) + (a.stale || 0) + (a.failed || 0)), '</span></div>',
+                        '<div class="flex justify-between"><span class="opacity-60">文本索引</span><span>', String(tx.ready || 0), ' / ', String((tx.ready || 0) + (tx.pending || 0) + (tx.stale || 0)), '</span></div>',
+                        '<div class="flex justify-between gap-2"><span class="opacity-60 shrink-0">正在播放</span><span class="truncate" title="', playing, '">', playing, '</span></div>'
+                    ].join('');
+                } catch (error) {
+                    stats.innerHTML = '<div class="opacity-50">状态读不到</div>';
+                }
+            })();
+
+            pop.querySelector('#fishCloseBtn').addEventListener('click', () => pop.remove());
+            pop.querySelector('#fishHideBtn').addEventListener('click', () => {
+                localStorage.setItem('echomind.fishHidden', '1');
+                fishApplyVisibility();
+                pop.remove();
+                showNotification('大肥鱼藏起来了，可在设置里叫回来', 'info');
+            });
+            const close = (e) => {
+                if (!pop.contains(e.target) && e.target.id !== 'navFishBtn') {
+                    pop.remove();
+                    document.removeEventListener('mousedown', close);
+                }
+            };
+            setTimeout(() => document.addEventListener('mousedown', close), 0);
+        }
+
+        function bindNavFish() {
+            fishApplyVisibility();
+            const btn = document.getElementById('navFishBtn');
+            if (!btn) return;
+            btn.addEventListener('click', () => showFishPopover(btn));
+            btn.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                localStorage.setItem('echomind.fishHidden', '1');
+                fishApplyVisibility();
+                showNotification('大肥鱼已隐藏，右键顶栏空白处可恢复（或设置里）', 'info');
+            });
+            fishSetPlaying(typeof isPlaying !== 'undefined' ? isPlaying : false);
         }
 
         // ===== 待归类审阅面板 =====
@@ -12391,6 +12548,22 @@
             bindChannelBar();
             bindHistoryPanels();
             bindVoiceClone();
+            bindNavFish();
+            (function bindFishToggle() {
+                const btn = document.getElementById('fishToggleBtn');
+                const label = document.getElementById('fishToggleLabel');
+                const paint = () => {
+                    const hidden = localStorage.getItem('echomind.fishHidden') === '1';
+                    if (label) label.textContent = hidden ? '叫出大肥鱼' : '藏起大肥鱼';
+                };
+                paint();
+                btn?.addEventListener('click', () => {
+                    const hidden = localStorage.getItem('echomind.fishHidden') === '1';
+                    localStorage.setItem('echomind.fishHidden', hidden ? '0' : '1');
+                    fishApplyVisibility();
+                    paint();
+                });
+            })();
             loadEffectPresets().then(() => renderEffectPanel(currentSound || null));
             document.getElementById('detailToggleBtn')?.addEventListener('click', () => setDetailPanelOpen(!detailPanelOpen));
             document.getElementById('detailCloseBtn')?.addEventListener('click', () => setDetailPanelOpen(false));

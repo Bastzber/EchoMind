@@ -427,7 +427,17 @@ async def lifespan(app: FastAPI):
 
     def on_model_progress(stage: str, _progress: float) -> None:
         if stage == "complete" and not _shutting_down:
-            event_loop.call_soon_threadsafe(_schedule_model_ready_reconcile)
+            # 延后 60 秒：模型就绪立刻开跑会把启动阶段拖住，HTTP 端口迟迟不绑定
+            def _later() -> None:
+                try:
+                    time.sleep(60)
+                    event_loop.call_soon_threadsafe(_schedule_model_ready_reconcile)
+                except Exception as exc:
+                    logger.debug("延后对账失败: %s", exc)
+            try:
+                threading.Thread(target=_later, daemon=True).start()
+            except Exception:
+                event_loop.call_soon_threadsafe(_schedule_model_ready_reconcile)
 
     # 限制 torch 的 CPU 线程数，避免与检索线程抢核心
     try:
@@ -3741,6 +3751,27 @@ class ReviewMoveRequest(BaseModel):
     target_dir: str
 
 
+
+@app.get("/api/v1/db/review/targets")
+async def review_targets(limit: int = Query(default=400, ge=1, le=1000), project_id: str = Query(default="default")):
+    """归类目标目录候选：库里已有文件所在的目录（按文件数排序）。"""
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            "SELECT path FROM files WHERE project_id=?", (project_id,)
+        ).fetchall()
+    counts: dict = {}
+    for (path,) in rows:
+        parent = str(Path(path).parent)
+        counts[parent] = counts.get(parent, 0) + 1
+    items = [
+        {"path": p, "count": n}
+        for p, n in sorted(counts.items(), key=lambda kv: -kv[1])
+        if "_转码" not in p and "_分轨" not in p and "_待删" not in p
+    ][:limit]
+    return {"success": True, "total": len(items), "items": items}
+
+
 @app.get("/api/v1/db/review/unclassified")
 async def review_unclassified(
     limit: int = Query(default=50, ge=1, le=200),
@@ -5897,6 +5928,12 @@ def _schedule_model_ready_reconcile() -> None:
             pending_backlog += int(counts.get(kind, {}).get("pending", 0) or 0)
     except Exception as exc:
         logger.debug("读取积压数量失败: %s", exc)
+    if pending_backlog > 2000:
+        logger.warning(
+            "检测到 %d 条待补索引，数量过大，跳过自动补索引（避免启动卡死）。"
+            "请在空闲时用常用条的「重建索引」处理", pending_backlog
+        )
+        return
     if pending_backlog:
         logger.info("检测到 %d 条待补索引，跳过 24 小时节流直接补", pending_backlog)
 

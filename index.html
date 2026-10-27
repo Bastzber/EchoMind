@@ -2137,7 +2137,8 @@
                 '  </div>',
                 '  <div class="px-4 py-2 flex items-center gap-2 text-xs border-b" style="border-color: var(--border-color);">',
                 '    <span class="opacity-60">移动到</span>',
-                '    <input id="reviewTarget" class="flex-1 px-2 py-1 rounded text-xs" style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary)" placeholder="目标文件夹绝对路径，例如 F:\\CJ音效库整合包V1\\生活与器具\\厨房">',
+                '    <input id="reviewTarget" list="reviewTargetList" class="flex-1 px-2 py-1 rounded text-xs" style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary)" placeholder="输入或从下拉选已有目录">',
+                '    <datalist id="reviewTargetList"></datalist>',
                 '    <button id="reviewApply" class="px-3 py-1 rounded text-xs text-white" style="background:#8b5cf6">归类 (回车)</button>',
                 '  </div>',
                 '  <div id="reviewBody" class="flex-1 overflow-y-auto p-2 min-h-0"></div>',
@@ -2239,6 +2240,20 @@
             overlay.addEventListener('keydown', (e) => {
                 if (e.key === ' ') { e.preventDefault(); playCurrent(); }
             });
+
+            // 目标目录候选（库里已有目录，按文件数排序）
+            try {
+                const targets = await rendererApi.get('/api/v1/db/review/targets');
+                const list = overlay.querySelector('#reviewTargetList');
+                (targets?.items || []).forEach((item) => {
+                    const opt = document.createElement('option');
+                    opt.value = item.path;
+                    opt.label = item.path + '（' + item.count + '）';
+                    list.appendChild(opt);
+                });
+            } catch (error) {
+                console.warn('[Review] 读取目标目录失败:', error);
+            }
 
             await load('');
         }

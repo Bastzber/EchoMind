@@ -2492,6 +2492,18 @@
                 '  <span id="fishStatusText" class="opacity-50" style="font-size:10px">待机中</span>',
                 '</div>',
                 '<div id="fishStats" class="space-y-1" style="font-size:11px"></div>',
+                '<div class="flex items-center gap-2 mt-2" style="font-size:11px">',
+                '  <span class="opacity-60">配色</span>',
+                '  <select id="fishSchemeSelect" class="flex-1 px-1 py-0.5 rounded" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)">',
+                MASCOT_SCHEMES.map((s) => '<option value="' + s.id + '"' + (s.id === mascotScheme() ? ' selected' : '') + '>' + s.label + '</option>').join(''),
+                '  </select>',
+                '</div>',
+                '<div class="flex items-center gap-2 mt-1" style="font-size:11px">',
+                '  <span class="opacity-60">表情</span>',
+                '  <select id="fishExprSelect" class="flex-1 px-1 py-0.5 rounded" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)">',
+                MASCOT_EXPRESSIONS.map((s) => '<option value="' + s.id + '"' + (s.id === mascotExpression() ? ' selected' : '') + '>' + s.label + '</option>').join(''),
+                '  </select>',
+                '</div>',
                 '<div class="flex items-center gap-2 mt-2 pt-2" style="border-top:1px solid var(--border-color)">',
                 '  <button id="fishPickBtn" class="px-2 py-1 rounded border" style="border-color:var(--border-color)">换成我的图</button>',
                 '  <button id="fishHideBtn" class="px-2 py-1 rounded border" style="border-color:var(--border-color)">藏起来</button>',
@@ -2533,6 +2545,14 @@
                     showNotification('换图失败: ' + (error?.message || error), 'error');
                 }
             });
+            pop.querySelector('#fishSchemeSelect')?.addEventListener('change', (e) => {
+                localStorage.setItem('echomind.mascotScheme', e.target.value);
+                fishSetImage('assets/mascot/baked/' + mascotScheme() + '-' + mascotExpression() + '-head.png');
+            });
+            pop.querySelector('#fishExprSelect')?.addEventListener('change', (e) => {
+                localStorage.setItem('echomind.mascotExpression', e.target.value);
+                fishSetImage('assets/mascot/baked/' + mascotScheme() + '-' + mascotExpression() + '-head.png');
+            });
             pop.querySelector('#fishCloseBtn').addEventListener('click', () => pop.remove());
             pop.querySelector('#fishHideBtn').addEventListener('click', () => {
                 localStorage.setItem('echomind.fishHidden', '1');
@@ -2547,6 +2567,42 @@
                 }
             };
             setTimeout(() => document.addEventListener('mousedown', close), 0);
+        }
+
+        const MASCOT_SCHEMES = [
+            { id: 'deepseek', label: 'DeepSeek（原版）' },
+            { id: 'harness', label: 'DeepSeek Harness' },
+            { id: 'chatgpt', label: 'ChatGPT' },
+            { id: 'claude', label: 'Claude' },
+            { id: 'gemini', label: 'Gemini' },
+            { id: 'kimi', label: 'Kimi' },
+            { id: 'minimax', label: 'MiniMax' },
+            { id: 'qwen', label: 'Qwen' },
+        ];
+        const MASCOT_EXPRESSIONS = [
+            { id: 'neutral', label: '平常' },
+            { id: 'happy', label: '开心' },
+            { id: 'sleep', label: '睡着' },
+            { id: 'surprised', label: '惊讶' },
+        ];
+        function mascotScheme() { return localStorage.getItem('echomind.mascotScheme') || 'deepseek'; }
+        function mascotExpression() { return localStorage.getItem('echomind.mascotExpression') || 'neutral'; }
+
+        function fishSetImage(src) {
+            const wrap = document.getElementById('navFishWrap');
+            if (!wrap || !src) return;
+            let img = wrap.querySelector('#navFishCustom');
+            if (!img) {
+                wrap.querySelector('#navFish')?.remove();
+                img = document.createElement('img');
+                img.id = 'navFishCustom';
+                img.alt = '吉祥物';
+                img.style.cssText = 'width:48px;height:62px;object-fit:contain;pointer-events:none;';
+                img.style.filter = 'drop-shadow(0 2px 6px rgba(56,132,255,.35))';
+                img.style.animation = 'fishBob 3.2s ease-in-out infinite';
+                wrap.querySelector('button')?.appendChild(img);
+            }
+            if (img.getAttribute('src') !== src) img.src = src;
         }
 
         async function fishApplyCustomImage() {
@@ -2569,10 +2625,13 @@
                         wrap.querySelector('button')?.appendChild(img);
                     }
                     img.src = res.image;
+                    return;
                 }
             } catch (error) {
                 console.warn('[Fish] 读取自定义图片失败:', error);
             }
+            // 没有自定义图：用烘焙好的 Coopanion 皮肤
+            fishSetImage('assets/mascot/baked/' + mascotScheme() + '-' + mascotExpression() + '-head.png');
         }
 
         function bindNavFish() {

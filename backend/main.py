@@ -3846,6 +3846,22 @@ async def review_move_file(payload: ReviewMoveRequest):
     return {"success": True, "path": str(target), "filename": target.name}
 
 
+
+class AssistantChatRequest(BaseModel):
+    messages: List[Dict[str, str]]
+    project_id: str = "default"
+
+
+@app.post("/api/v1/assistant/chat")
+async def assistant_chat(payload: AssistantChatRequest):
+    """大肥鱼 AI 助理：带工具调用的多步对话。"""
+    from core.assistant import run_assistant
+
+    if not payload.messages:
+        raise HTTPException(status_code=422, detail="messages 不能为空")
+    result = await run_assistant(payload.messages[-12:], payload.project_id or "default")
+    return {"success": True, **result}
+
 @app.post("/api/v1/db/files/delete")
 async def batch_delete_db_files(payload: BatchDeleteRequest):
     """批量删除文件记录。

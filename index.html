@@ -2361,6 +2361,125 @@
             wrap.classList.toggle('hidden-fish', hidden);
         }
 
+        // ===== 大肥鱼 AI 助理 =====
+        const fishChat = { messages: [], busy: false };
+
+        function fishChatHistory() {
+            try {
+                return JSON.parse(localStorage.getItem('echomind.fishChat') || '[]');
+            } catch (_) { return []; }
+        }
+
+        function fishChatSave(list) {
+            try { localStorage.setItem('echomind.fishChat', JSON.stringify((list || []).slice(-20))); } catch (_) { }
+        }
+
+        function showFishChat(anchor) {
+            document.getElementById('fishChatPanel')?.remove();
+            const panel = document.createElement('div');
+            panel.id = 'fishChatPanel';
+            panel.className = 'fixed rounded-xl shadow-2xl flex flex-col';
+            panel.style.cssText = 'z-index:342;background:var(--bg-secondary);border:1px solid var(--border-color);width:380px;height:460px;overflow:hidden';
+            panel.innerHTML = [
+                '<div class="flex items-center gap-2 px-3 py-2 border-b" style="border-color:var(--border-color)">',
+                '  <span style="font-size:13px;font-weight:600">大肥鱼</span>',
+                '  <span class="opacity-40" style="font-size:10px">AI 助理</span>',
+                '  <button id="fishChatClear" class="ml-auto opacity-50 hover:opacity-100" style="font-size:11px">清空</button>',
+                '  <button id="fishChatClose" class="opacity-50 hover:opacity-100" style="font-size:11px">关闭</button>',
+                '</div>',
+                '  <div id="fishChatBody" class="flex-1 overflow-y-auto px-3 py-2 space-y-2" style="font-size:12px;min-height:0"></div>',
+                '  <div class="px-3 py-2 border-t flex items-center gap-2" style="border-color:var(--border-color)">',
+                '    <input id="fishChatInput" class="flex-1 px-2 py-1.5 rounded text-xs" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)" placeholder="问大肥鱼：找雨声 / 索引还有多少 / 帮我看看待归类">',
+                '    <button id="fishChatSend" class="px-3 py-1.5 rounded text-xs text-white" style="background:#8b5cf6">发送</button>',
+                '  </div>'
+            ].join('');
+            document.body.appendChild(panel);
+            const rect = anchor.getBoundingClientRect();
+            panel.style.left = Math.max(8, Math.min(rect.left - 160, window.innerWidth - 396)) + 'px';
+            panel.style.top = Math.min(rect.bottom + 8, window.innerHeight - 476) + 'px';
+
+            const body = panel.querySelector('#fishChatBody');
+            const input = panel.querySelector('#fishChatInput');
+
+            const paint = () => {
+                body.innerHTML = '';
+                if (!fishChat.messages.length) {
+                    body.innerHTML = '<div class="opacity-50" style="font-size:11px;line-height:1.7">'
+                        + '我是大肥鱼，住在你顶栏。<br>可以问我：<br>'
+                        + '· 找雨声 / 找玻璃碎裂<br>· 索引还有多少没跑<br>· 库里还有多少待归类</div>';
+                    return;
+                }
+                fishChat.messages.forEach((m) => {
+                    if (m.role === 'tool') {
+                        const chip = document.createElement('div');
+                        chip.className = 'inline-block px-2 py-0.5 rounded';
+                        chip.style.cssText = 'background:rgba(107,138,253,.14);font-size:10px;opacity:.85';
+                        chip.textContent = '🔧 ' + m.text;
+                        body.appendChild(chip);
+                        return;
+                    }
+                    const bubble = document.createElement('div');
+                    const mine = m.role === 'user';
+                    bubble.style.cssText = 'max-width:88%;padding:6px 9px;border-radius:8px;line-height:1.6;white-space:pre-wrap;'
+                        + (mine ? 'margin-left:auto;background:rgba(139,92,246,.22);' : 'background:rgba(255,255,255,.06);');
+                    bubble.textContent = m.text;
+                    body.appendChild(bubble);
+                });
+                body.scrollTop = body.scrollHeight;
+            };
+
+            const send = async () => {
+                const text = input.value.trim();
+                if (!text || fishChat.busy) return;
+                fishChat.busy = true;
+                input.value = '';
+                fishChat.messages.push({ role: 'user', text: text });
+                paint();
+                const thinking = document.createElement('div');
+                thinking.id = 'fishThinking';
+                thinking.className = 'opacity-50';
+                thinking.style.fontSize = '11px';
+                thinking.textContent = '大肥鱼正在想…';
+                body.appendChild(thinking);
+                body.scrollTop = body.scrollHeight;
+                try {
+                    const payload = {
+                        messages: fishChat.messages.filter((m) => m.role !== 'tool').map((m) => ({ role: m.role, content: m.text })),
+                        project_id: 'default'
+                    };
+                    const res = await rendererApi.post('/api/v1/assistant/chat', payload, { timeoutMs: 120000 });
+                    (res?.traces || []).forEach((tr) => {
+                        let desc = tr.action;
+                        if (tr.action === 'search') desc += '「' + (tr.args?.query || '') + '」→ ' + (tr.result?.count ?? '?') + ' 条';
+                        if (tr.action === 'stats') desc += ' → 文件 ' + (tr.result?.total_files ?? '?');
+                        if (tr.action === 'unclassified') desc += ' → 待归类 ' + (tr.result?.total ?? '?');
+                        if (tr.action === 'status') desc += ' → 已读';
+                        fishChat.messages.push({ role: 'tool', text: desc });
+                    });
+                    fishChat.messages.push({ role: 'assistant', text: res?.reply || '（没有回复）' });
+                    fishChatSave(fishChat.messages);
+                } catch (error) {
+                    fishChat.messages.push({ role: 'assistant', text: '出错了：' + (error?.message || error) });
+                } finally {
+                    fishChat.busy = false;
+                    paint();
+                }
+            };
+
+            panel.querySelector('#fishChatClose').addEventListener('click', () => panel.remove());
+            panel.querySelector('#fishChatClear').addEventListener('click', () => {
+                fishChat.messages = [];
+                fishChatSave([]);
+                paint();
+            });
+            panel.querySelector('#fishChatSend').addEventListener('click', send);
+            input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') send(); });
+
+            fishChat.messages = fishChatHistory();
+            paint();
+            input.focus();
+        }
+
         function showFishPopover(anchor) {
             document.getElementById('fishPopover')?.remove();
             const pop = document.createElement('div');
@@ -2461,7 +2580,8 @@
             fishApplyCustomImage();
             const btn = document.getElementById('navFishBtn');
             if (!btn) return;
-            btn.addEventListener('click', () => showFishPopover(btn));
+            btn.addEventListener('click', () => showFishChat(btn));
+            btn.addEventListener('dblclick', () => showFishPopover(btn));
             btn.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 localStorage.setItem('echomind.fishHidden', '1');

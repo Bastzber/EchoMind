@@ -441,3 +441,27 @@ assets/         # 背景图、图标替换（可选）
 - E:\AI音效管理器\failed-encode-20261027.csv（197：172 截断 mp3 + 25 APE）
 
 **注意**：语义建议在 0.6 附近有误判（吉普车开过→吉他音箱），因此未批量写库，等人工确认。
+
+## 十、2026-10-28 夜间：吉祥物重做 + AI 助理扩展
+
+### 完成
+
+| 项 | 结果 |
+|---|---|
+| 吉祥物 | 弃用 Coopanion 立绘，改为原创「回声小精灵」（SVG，蓝紫渐变 + 耳机 + 天线 + 声波），眨眼动画，48px 可辨 |
+| 助理写工具 | tag（打标签）、move（移动目录）、transcode（转码）、remember（记忆） |
+| 语音 | /assistant/speak 走 core.voice_clone.speak；前端聊天面板「语音开/关」；需先在声音克隆复刻音色 |
+| 主动提醒 | /assistant/events + 前端 60s 轮询；失败数增加、索引任务完成时顶栏气泡 |
+| 长期记忆 | 表 assistant_memory；remember 工具写入；每轮注入 system prompt |
+| 增量包 | update-0.3.0-beta.11-r10.zip（62.1 MB，基线 r9） |
+
+### 未完成（明确记录）
+
+1. **文本向量重建仍未修好**：
+   - 现象：触发 reconcile 时，若 text collection 的 engine metadata 不一致，`needs_rebuild` 恒为真 → 每次都会把 6.5 万条全部拉进 shadow 快照 → 内存爆掉
+   - 后果：本次尝试直接把系统搞崩（Windows 事件 6008/41，00:31:15 非正常关机）
+   - 离线脚本 `scripts/rebuild_text_vectors.py` 另测：CLAP 文本编码器在独立进程里「CLAP 模型不可用」，需 app 内部环境
+   - 下一步建议：给 reconcile 增加 `--limit` 参数（只处理前 N 条），或在 app 内分批点「修复索引」，**不要**再整库触发
+2. 语音/主动提醒未实测（缺复刻音色与豆包语音 Key）
+3. 待归类 9,622、标签建议 2,230、损坏文件 25+172 仍需人工决策
+4. 氛围混音、皮肤视觉、导航栏拓展位仍需拍板

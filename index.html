@@ -442,100 +442,65 @@
                     background:none;border:none;padding:0;cursor:pointer;line-height:0;
                     filter: drop-shadow(0 2px 6px rgba(56,132,255,.35));
                 ">
-                    <svg id="navFish" width="48" height="62" viewBox="0 0 64 84" aria-label="大肥鱼">
+                    <svg id="navFish" width="48" height="48" viewBox="0 0 96 96" aria-label="回声小精灵">
                         <defs>
-                            <linearGradient id="hairGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#8fc0ff"/>
-                                <stop offset="100%" stop-color="#2f5fd0"/>
+                            <linearGradient id="mbBody" x1="0.15" y1="0.05" x2="0.85" y2="1">
+                                <stop offset="0%" stop-color="#a5f3ff"/>
+                                <stop offset="40%" stop-color="#5cc8f7"/>
+                                <stop offset="100%" stop-color="#6f6ff2"/>
                             </linearGradient>
-                            <linearGradient id="dressGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#2a4677"/>
-                                <stop offset="100%" stop-color="#16243f"/>
+                            <linearGradient id="mbIris" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#2b3c7a"/>
+                                <stop offset="60%" stop-color="#12204a"/>
+                                <stop offset="100%" stop-color="#0a1330"/>
                             </linearGradient>
-                            <linearGradient id="tailGrad" x1="0" y1="0" x2="1" y2="1">
-                                <stop offset="0%" stop-color="#a8ecd4"/>
-                                <stop offset="100%" stop-color="#3fa9a0"/>
+                            <linearGradient id="mbCup" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#465a9e"/>
+                                <stop offset="100%" stop-color="#1b2450"/>
                             </linearGradient>
-                            <radialGradient id="gemGrad" cx="0.35" cy="0.3" r="0.8">
-                                <stop offset="0%" stop-color="#ffffff"/>
-                                <stop offset="50%" stop-color="#9fe8ff"/>
-                                <stop offset="100%" stop-color="#b98bff"/>
+                            <radialGradient id="mbGlow" cx="0.5" cy="0.5" r="0.5">
+                                <stop offset="0%" stop-color="#ffe08a" stop-opacity="0.9"/>
+                                <stop offset="100%" stop-color="#ffe08a" stop-opacity="0"/>
                             </radialGradient>
                         </defs>
-
-                        <g id="fishHalo">
-                            <ellipse cx="32" cy="8" rx="11.5" ry="3.2" fill="none" stroke="#ff9aa8" stroke-width="2.4"/>
+                        <ellipse cx="48" cy="87" rx="21" ry="3.6" fill="#000" opacity="0.2"/>
+                        <g id="mbAntenna">
+                            <path d="M48 21 C48 17 48 15 48 13" stroke="#7fd8ff" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="48" cy="10" r="5.5" fill="url(#mbGlow)"/>
+                            <circle cx="48" cy="10" r="3.2" fill="#ffd166"/>
                         </g>
-
-                        <!-- 鱼尾（右侧身后） -->
-                        <g id="fishTail">
-                            <path d="M46 64 C54 68, 60 76, 55 82 C50 86, 44 78, 43 71 Z" fill="url(#tailGrad)" opacity=".95"/>
-                            <path d="M48 70 C52 74, 54 78, 52 80" stroke="#2f8f88" stroke-width="1.1" fill="none" opacity=".55"/>
+                        <path d="M48 23 C66.5 23 78 35 78 52 C78 70 65.5 80.5 48 80.5 C30.5 80.5 18 70 18 52 C18 35 29.5 23 48 23 Z" fill="url(#mbBody)"/>
+                        <ellipse cx="37" cy="35" rx="8.5" ry="5.5" fill="#ffffff" opacity="0.4" transform="rotate(-20 37 35)"/>
+                        <path d="M21 47 C21 30.5 33 22.5 48 22.5 C63 22.5 75 30.5 75 47" fill="none" stroke="#3a4a86" stroke-width="5.5" stroke-linecap="round"/>
+                        <g id="mbCups">
+                            <rect x="11.5" y="41" width="15" height="21" rx="7.5" fill="url(#mbCup)"/>
+                            <rect x="69.5" y="41" width="15" height="21" rx="7.5" fill="url(#mbCup)"/>
+                            <rect x="15" y="45.5" width="4.2" height="12" rx="2.1" fill="#9ff0ff" opacity="0.9"/>
+                            <rect x="76.8" y="45.5" width="4.2" height="12" rx="2.1" fill="#9ff0ff" opacity="0.9"/>
                         </g>
-
-                        <!-- 后发 -->
-                        <path d="M32 15 C17 15, 12 27, 13 40 C14 52, 17 60, 19 66 L45 66 C47 60, 50 52, 51 40 C52 27, 47 15, 32 15 Z" fill="url(#hairGrad)"/>
-
-                        <!-- 脸 -->
-                        <ellipse cx="32" cy="37" rx="14" ry="13" fill="#ffe8dc"/>
-
-                        <!-- 眼睛（大眼，占脸比更大） -->
-                        <g id="fishEyes">
-                            <ellipse cx="25.2" cy="37.4" rx="5" ry="5.8" fill="#ffffff"/>
-                            <ellipse cx="38.8" cy="37.4" rx="5" ry="5.8" fill="#ffffff"/>
-                            <ellipse cx="25.4" cy="38" rx="3.9" ry="4.7" fill="#2f6fe0"/>
-                            <ellipse cx="39" cy="38" rx="3.9" ry="4.7" fill="#2f6fe0"/>
-                            <ellipse cx="25.4" cy="38.4" rx="2.3" ry="3" fill="#0f2b57"/>
-                            <ellipse cx="39" cy="38.4" rx="2.3" ry="3" fill="#0f2b57"/>
-                            <circle cx="23.8" cy="35.8" r="1.7" fill="#ffffff"/>
-                            <circle cx="37.4" cy="35.8" r="1.7" fill="#ffffff"/>
-                            <circle cx="27.4" cy="40.6" r="1" fill="#ffffff" opacity=".8"/>
-                            <circle cx="41" cy="40.6" r="1" fill="#ffffff" opacity=".8"/>
+                        <g id="mbEyes">
+                            <ellipse cx="37.5" cy="53" rx="6.6" ry="7.6" fill="url(#mbIris)"/>
+                            <ellipse cx="58.5" cy="53" rx="6.6" ry="7.6" fill="url(#mbIris)"/>
+                            <circle cx="35" cy="50" r="2.6" fill="#ffffff"/>
+                            <circle cx="56" cy="50" r="2.6" fill="#ffffff"/>
+                            <circle cx="40" cy="56.5" r="1.3" fill="#ffffff" opacity="0.8"/>
+                            <circle cx="61" cy="56.5" r="1.3" fill="#ffffff" opacity="0.8"/>
                         </g>
-
-                        <!-- 嘴：小微笑 -->
-                        <path d="M30 45 Q32 47.2 34 45" stroke="#c9736a" stroke-width="1.3" fill="none" stroke-linecap="round"/>
-                        <ellipse cx="22" cy="43.4" rx="3" ry="1.7" fill="#ffb3b3" opacity=".5"/>
-                        <ellipse cx="42" cy="43.4" rx="3" ry="1.7" fill="#ffb3b3" opacity=".5"/>
-
-                        <!-- 刘海（留出眼睛） -->
-                        <path d="M32 14 C21 14, 15 22, 15 31 C18 27, 21 25, 24 24 C25 29, 27 31, 28 25 C30 30, 32 31, 32 25 C33 30, 35 31, 36 25 C38 30, 40 29, 41 24 C45 26, 48 28, 49 31 C49 22, 43 14, 32 14 Z" fill="url(#hairGrad)"/>
-                        <!-- 两侧长刘海 -->
-                        <path d="M14 32 C11 42, 11 54, 14 63 C16.5 54, 16.5 43, 17.5 34 Z" fill="url(#hairGrad)"/>
-                        <path d="M50 32 C53 42, 53 54, 50 63 C47.5 54, 47.5 43, 46.5 34 Z" fill="url(#hairGrad)"/>
-                        <!-- 鱼鳍耳 -->
-                        <path d="M13 29 C7 26, 5 33, 10 36 Z" fill="url(#tailGrad)" opacity=".9"/>
-                        <path d="M51 29 C57 26, 59 33, 54 36 Z" fill="url(#tailGrad)" opacity=".9"/>
-
-                        <!-- 女仆头饰 -->
-                        <path d="M19 24 Q32 17 45 24" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" opacity=".95"/>
-                        <circle cx="21" cy="23" r="1.6" fill="#fff"/><circle cx="26.5" cy="20.4" r="1.7" fill="#fff"/>
-                        <circle cx="32" cy="19.4" r="1.8" fill="#fff"/><circle cx="37.5" cy="20.4" r="1.7" fill="#fff"/>
-                        <circle cx="43" cy="23" r="1.6" fill="#fff"/>
-                        <g id="fishBow">
-                            <path d="M15 26 L10 23 L10 29 Z" fill="#ffd166"/>
-                            <path d="M15 26 L20 23 L20 29 Z" fill="#ffd166"/>
-                            <circle cx="15" cy="26" r="1.9" fill="#f0a800"/>
+                        <g id="mbEyesClosed" style="display:none">
+                            <path d="M31.5 53 Q37.5 58.5 43.5 53" stroke="#12204a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+                            <path d="M52.5 53 Q58.5 58.5 64.5 53" stroke="#12204a" stroke-width="2.8" fill="none" stroke-linecap="round"/>
                         </g>
-
-                        <!-- 身体：A 字裙 -->
-                        <path d="M32 49 C27 49, 23 52, 21.5 57 L17 75 C24 79, 40 79, 47 75 L42.5 57 C41 52, 37 49, 32 49 Z" fill="url(#dressGrad)"/>
-                        <!-- 白色围裙 -->
-                        <path d="M32 52 C28.5 52, 26 55, 25.5 59 L24 74 C29 76.6, 35 76.6, 40 74 L38.5 59 C38 55, 35.5 52, 32 52 Z" fill="#f8f9fc"/>
-                        <!-- 彩石 -->
-                        <circle id="fishGem" cx="32" cy="64" r="4.4" fill="url(#gemGrad)" stroke="#e4e9ff" stroke-width=".9"/>
-                        <!-- 领口小蝴蝶结（缩小） -->
-                        <path d="M32 50 L29.6 48 L29.6 51.6 Z" fill="#e03b4a"/>
-                        <path d="M32 50 L34.4 48 L34.4 51.6 Z" fill="#e03b4a"/>
-                        <circle cx="32" cy="50" r="1" fill="#b3202e"/>
-                        <!-- 手 -->
-                        <ellipse cx="19.6" cy="62" rx="2.9" ry="4" fill="#ffe8dc"/>
-                        <ellipse cx="44.4" cy="62" rx="2.9" ry="4" fill="#ffe8dc"/>
-                        <!-- 腿与鞋 -->
-                        <rect x="27" y="75" width="3.8" height="5" rx="1.9" fill="#ffe8dc"/>
-                        <rect x="33.2" y="75" width="3.8" height="5" rx="1.9" fill="#ffe8dc"/>
-                        <ellipse cx="28.9" cy="81" rx="4" ry="2.2" fill="#c7e7ff"/>
-                        <ellipse cx="35.1" cy="81" rx="4" ry="2.2" fill="#c7e7ff"/>
+                        <path id="mbMouth" d="M44.5 63.5 Q48 67 51.5 63.5" stroke="#12204a" stroke-width="2.3" fill="none" stroke-linecap="round"/>
+                        <ellipse cx="27.5" cy="60.5" rx="4.2" ry="2.5" fill="#ff9bb6" opacity="0.55"/>
+                        <ellipse cx="68.5" cy="60.5" rx="4.2" ry="2.5" fill="#ff9bb6" opacity="0.55"/>
+                        <g id="mbWaves" opacity="0.85">
+                            <path d="M82 36 Q86 40 82 44" stroke="#9ff0ff" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.7"/>
+                            <path d="M86 32 Q92 40 86 48" stroke="#9ff0ff" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.45"/>
+                        </g>
+                        <ellipse cx="21.5" cy="70" rx="5.2" ry="4.2" fill="#8ce6ff"/>
+                        <ellipse cx="74.5" cy="70" rx="5.2" ry="4.2" fill="#8ce6ff"/>
+                        <ellipse cx="40" cy="81" rx="7.2" ry="3.4" fill="#3a4a86"/>
+                        <ellipse cx="56" cy="81" rx="7.2" ry="3.4" fill="#3a4a86"/>
                     </svg>
                 </button>
             </div>
@@ -2384,7 +2349,8 @@
                 '<div class="flex items-center gap-2 px-3 py-2 border-b" style="border-color:var(--border-color)">',
                 '  <span style="font-size:13px;font-weight:600">大肥鱼</span>',
                 '  <span class="opacity-40" style="font-size:10px">AI 助理</span>',
-                '  <button id="fishChatClear" class="ml-auto opacity-50 hover:opacity-100" style="font-size:11px">清空</button>',
+                '  <button id="fishVoiceBtn" class="ml-auto opacity-60 hover:opacity-100" style="font-size:11px">语音关</button>',
+                '  <button id="fishChatClear" class="opacity-50 hover:opacity-100" style="font-size:11px">清空</button>',
                 '  <button id="fishChatClose" class="opacity-50 hover:opacity-100" style="font-size:11px">关闭</button>',
                 '</div>',
                 '  <div id="fishChatBody" class="flex-1 overflow-y-auto px-3 py-2 space-y-2" style="font-size:12px;min-height:0"></div>',
@@ -2458,6 +2424,7 @@
                     });
                     fishChat.messages.push({ role: 'assistant', text: res?.reply || '（没有回复）' });
                     fishChatSave(fishChat.messages);
+                    fishSpeak(res?.reply || '');
                 } catch (error) {
                     fishChat.messages.push({ role: 'assistant', text: '出错了：' + (error?.message || error) });
                 } finally {
@@ -2466,6 +2433,13 @@
                 }
             };
 
+            const voiceBtn = panel.querySelector('#fishVoiceBtn');
+            const paintVoice = () => { if (voiceBtn) voiceBtn.textContent = fishVoiceEnabled() ? '语音开' : '语音关'; };
+            paintVoice();
+            voiceBtn?.addEventListener('click', () => {
+                localStorage.setItem('echomind.fishVoice', fishVoiceEnabled() ? '0' : '1');
+                paintVoice();
+            });
             panel.querySelector('#fishChatClose').addEventListener('click', () => panel.remove());
             panel.querySelector('#fishChatClear').addEventListener('click', () => {
                 fishChat.messages = [];
@@ -2492,18 +2466,6 @@
                 '  <span id="fishStatusText" class="opacity-50" style="font-size:10px">待机中</span>',
                 '</div>',
                 '<div id="fishStats" class="space-y-1" style="font-size:11px"></div>',
-                '<div class="flex items-center gap-2 mt-2" style="font-size:11px">',
-                '  <span class="opacity-60">配色</span>',
-                '  <select id="fishSchemeSelect" class="flex-1 px-1 py-0.5 rounded" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)">',
-                MASCOT_SCHEMES.map((s) => '<option value="' + s.id + '"' + (s.id === mascotScheme() ? ' selected' : '') + '>' + s.label + '</option>').join(''),
-                '  </select>',
-                '</div>',
-                '<div class="flex items-center gap-2 mt-1" style="font-size:11px">',
-                '  <span class="opacity-60">表情</span>',
-                '  <select id="fishExprSelect" class="flex-1 px-1 py-0.5 rounded" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)">',
-                MASCOT_EXPRESSIONS.map((s) => '<option value="' + s.id + '"' + (s.id === mascotExpression() ? ' selected' : '') + '>' + s.label + '</option>').join(''),
-                '  </select>',
-                '</div>',
                 '<div class="flex items-center gap-2 mt-2 pt-2" style="border-top:1px solid var(--border-color)">',
                 '  <button id="fishPickBtn" class="px-2 py-1 rounded border" style="border-color:var(--border-color)">换成我的图</button>',
                 '  <button id="fishHideBtn" class="px-2 py-1 rounded border" style="border-color:var(--border-color)">藏起来</button>',
@@ -2545,14 +2507,6 @@
                     showNotification('换图失败: ' + (error?.message || error), 'error');
                 }
             });
-            pop.querySelector('#fishSchemeSelect')?.addEventListener('change', (e) => {
-                localStorage.setItem('echomind.mascotScheme', e.target.value);
-                fishSetImage('assets/mascot/baked/' + mascotScheme() + '-' + mascotExpression() + '-head.png');
-            });
-            pop.querySelector('#fishExprSelect')?.addEventListener('change', (e) => {
-                localStorage.setItem('echomind.mascotExpression', e.target.value);
-                fishSetImage('assets/mascot/baked/' + mascotScheme() + '-' + mascotExpression() + '-head.png');
-            });
             pop.querySelector('#fishCloseBtn').addEventListener('click', () => pop.remove());
             pop.querySelector('#fishHideBtn').addEventListener('click', () => {
                 localStorage.setItem('echomind.fishHidden', '1');
@@ -2569,24 +2523,6 @@
             setTimeout(() => document.addEventListener('mousedown', close), 0);
         }
 
-        const MASCOT_SCHEMES = [
-            { id: 'deepseek', label: 'DeepSeek（原版）' },
-            { id: 'harness', label: 'DeepSeek Harness' },
-            { id: 'chatgpt', label: 'ChatGPT' },
-            { id: 'claude', label: 'Claude' },
-            { id: 'gemini', label: 'Gemini' },
-            { id: 'kimi', label: 'Kimi' },
-            { id: 'minimax', label: 'MiniMax' },
-            { id: 'qwen', label: 'Qwen' },
-        ];
-        const MASCOT_EXPRESSIONS = [
-            { id: 'neutral', label: '平常' },
-            { id: 'happy', label: '开心' },
-            { id: 'sleep', label: '睡着' },
-            { id: 'surprised', label: '惊讶' },
-        ];
-        function mascotScheme() { return localStorage.getItem('echomind.mascotScheme') || 'deepseek'; }
-        function mascotExpression() { return localStorage.getItem('echomind.mascotExpression') || 'neutral'; }
 
         function fishSetImage(src) {
             const wrap = document.getElementById('navFishWrap');
@@ -2630,12 +2566,14 @@
             } catch (error) {
                 console.warn('[Fish] 读取自定义图片失败:', error);
             }
-            // 没有自定义图：用烘焙好的 Coopanion 皮肤
-            fishSetImage('assets/mascot/baked/' + mascotScheme() + '-' + mascotExpression() + '-head.png');
+
         }
 
         function bindNavFish() {
             fishApplyVisibility();
+            mbStartBlink();
+            fishPollEvents();
+            setInterval(fishPollEvents, 60000);
             fishApplyCustomImage();
             const btn = document.getElementById('navFishBtn');
             if (!btn) return;

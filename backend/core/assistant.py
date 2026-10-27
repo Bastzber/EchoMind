@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.llm_client import get_llm_client
@@ -33,6 +34,14 @@ TOOLS_DOC = """可用工具（每次只返回一个动作）：
     返回待归类文件样例与总数。
 {"action":"status","args":{}}
     返回索引任务状态。
+{"action":"tag","args":{"file":"文件名或路径片段","tags":["标签1","标签2"]}}
+    给匹配到的文件追加标签（只加不改）。
+{"action":"move","args":{"file":"文件名或路径片段","target_dir":"目标文件夹绝对路径"}}
+    把文件移动到目标目录（保留标签与索引）。
+{"action":"transcode","args":{"file":"文件名或路径片段","target_format":"wav"}}
+    给文件排一个转码任务（后台执行）。
+{"action":"remember","args":{"fact":"用户偏好或事实"}}
+    记住一条长期偏好（例如「他常找雨声环境音」）。
 {"action":"reply","text":"给用户的回复"}
     直接回答，不再调用工具。
 """
@@ -124,6 +133,124 @@ def _status() -> Dict[str, Any]:
     return {"active": index_progress.stats()}
 
 
+
+def _ensure_memory(db) -> None:
+    with db.get_cursor() as cursor:
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS assistant_memory ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  fact TEXT NOT NULL UNIQUE,"
+            "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+
+
+def load_memory(db, limit: int = 12) -> List[str]:
+    _ensure_memory(db)
+    with db.get_cursor() as cursor:
+        rows = cursor.execute(
+            "SELECT fact FROM assistant_memory ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [r[0] for r in rows]
+
+
+def save_memory(db, fact: str) -> bool:
+    _ensure_memory(db)
+    fact = (fact or '').strip()[:200]
+    if not fact:
+        return False
+    with db.get_cursor() as cursor:
+        cursor.execute("INSERT OR IGNORE INTO assistant_memory (fact) VALUES (?)", (fact,))
+    return True
+
+
+def _find_file(db, needle: str) -> Optional[Dict[str, Any]]:
+    needle = (needle or '').strip()
+    if not needle:
+        return None
+    with db.get_cursor() as cursor:
+        row = cursor.execute(
+            "SELECT file_uuid, filename, path, COALESCE(tags,'[]') FROM files "
+            "WHERE project_id='default' AND (path = ? OR filename = ?) ORDER BY path LIMIT 1",
+            (needle, needle),
+        ).fetchone()
+        if row is None:
+            like = f"%{needle}%"
+            row = cursor.execute(
+                "SELECT file_uuid, filename, path, COALESCE(tags,'[]') FROM files "
+                "WHERE project_id='default' AND (filename LIKE ? OR path LIKE ?) "
+                "ORDER BY LENGTH(filename), path LIMIT 1",
+                (like, like),
+            ).fetchone()
+    if row is None:
+        return None
+    return {"file_uuid": row[0], "filename": row[1], "path": row[2], "tags": row[3]}
+
+
+def _tool_tag(db, args: Dict[str, Any]) -> Dict[str, Any]:
+    target = _find_file(db, str(args.get("file") or ""))
+    if not target:
+        return {"error": "没找到这个文件"}
+    new_tags = [str(x).strip() for x in (args.get("tags") or []) if str(x).strip()]
+    if not new_tags:
+        return {"error": "tags 不能为空"}
+    try:
+        current = json.loads(target["tags"]) if target["tags"] else []
+    except Exception:
+        current = []
+    merged = current + [x for x in new_tags if x not in current]
+    with db.get_cursor() as cursor:
+        cursor.execute(
+            "UPDATE files SET tags=? WHERE project_id='default' AND file_uuid=?",
+            (json.dumps(merged, ensure_ascii=False), target["file_uuid"]),
+        )
+    return {"ok": True, "file": target["filename"], "tags": merged}
+
+
+def _tool_move(db, args: Dict[str, Any]) -> Dict[str, Any]:
+    import shutil
+
+    from core.database import canonicalize_path
+
+    target = _find_file(db, str(args.get("file") or ""))
+    if not target:
+        return {"error": "没找到这个文件"}
+    src = Path(target["path"])
+    dest_dir = Path(str(args.get("target_dir") or ""))
+    if not src.is_file():
+        return {"error": "源文件不存在"}
+    if not dest_dir.is_dir():
+        return {"error": "目标目录不存在"}
+    dest = dest_dir / src.name
+    if dest.exists() and dest.resolve() != src.resolve():
+        return {"error": "目标目录已有同名文件"}
+    try:
+        if dest.resolve() != src.resolve():
+            shutil.move(str(src), str(dest))
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET path=?, canonical_path=? WHERE project_id='default' AND file_uuid=?",
+                (str(dest), canonicalize_path(str(dest)), target["file_uuid"]),
+            )
+    except Exception as exc:
+        return {"error": f"移动失败: {exc}"}
+    return {"ok": True, "file": dest.name, "path": str(dest)}
+
+
+def _tool_transcode(db, args: Dict[str, Any]) -> Dict[str, Any]:
+    target = _find_file(db, str(args.get("file") or ""))
+    if not target:
+        return {"error": "没找到这个文件"}
+    fmt = str(args.get("target_format") or "wav").lower().lstrip(".")
+    try:
+        from core.transcode import target_extension, transcode_file
+
+        ext = target_extension(fmt)
+        src = Path(target["path"])
+        dest = src.with_suffix(ext)
+        result = transcode_file(str(src), str(dest), fmt)
+    except Exception as exc:
+        return {"error": f"转码失败: {exc}"}
+    return {"ok": bool(result), "file": target["filename"], "target_format": fmt}
+
 async def _run_tool(db, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if action == "search":
         return await _search(str(args.get("query") or ""), args.get("limit") or 8)
@@ -133,6 +260,15 @@ async def _run_tool(db, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
         return _unclassified(db, args.get("limit") or 10)
     if action == "status":
         return _status()
+    if action == "tag":
+        return _tool_tag(db, args)
+    if action == "move":
+        return _tool_move(db, args)
+    if action == "transcode":
+        return _tool_transcode(db, args)
+    if action == "remember":
+        ok = save_memory(db, str(args.get("fact") or ""))
+        return {"ok": ok}
     return {"error": "未知工具: " + str(action)}
 
 
@@ -161,10 +297,14 @@ async def run_assistant(messages: List[Dict[str, str]], project_id: str = "defau
     client = get_llm_client()
     history: List[Dict[str, str]] = list(messages or [])
     traces: List[Dict[str, Any]] = []
+    memories = load_memory(db)
+    system_prompt = SYSTEM_PROMPT
+    if memories:
+        system_prompt += "\n关于用户的已知偏好：\n" + "\n".join("- " + m for m in memories)
 
     for _step in range(4):
         content = ""
-        async for chunk in client.chat(history, system_prompt=SYSTEM_PROMPT, temperature=0.5, max_tokens=800, stream=False):
+        async for chunk in client.chat(history, system_prompt=system_prompt, temperature=0.5, max_tokens=800, stream=False):
             if chunk.get("type") == "content":
                 content += chunk.get("content") or ""
             if chunk.get("type") == "error":

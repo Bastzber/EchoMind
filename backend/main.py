@@ -3862,6 +3862,72 @@ async def assistant_chat(payload: AssistantChatRequest):
     result = await run_assistant(payload.messages[-12:], payload.project_id or "default")
     return {"success": True, **result}
 
+
+class AssistantSpeakRequest(BaseModel):
+    text: str
+    profile_id: str = ""
+
+
+@app.post("/api/v1/assistant/speak")
+async def assistant_speak(payload: AssistantSpeakRequest):
+    """用克隆音色朗读一段文本，返回 wav 路径供前端播放。"""
+    from core.voice_clone import load_profiles, speak
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text 不能为空")
+    profiles = load_profiles()
+    if not profiles:
+        raise SoundBotAPIError("no_voice_profile", "还没有复刻音色，先在「声音克隆」里建一个", status_code=400)
+    profile = profiles[0]
+    if payload.profile_id:
+        profile = next((p for p in profiles if str(p.get("id")) == payload.profile_id), profile)
+    result = speak(text, str(profile.get("speaker_id") or ""))
+    if not result.get("ok"):
+        raise SoundBotAPIError("tts_failed", str(result.get("error") or "朗读失败"), status_code=500)
+    return {"success": True, "path": result.get("path") or result.get("audio_path") or "", "voice": profile.get("name")}
+
+
+@app.get("/api/v1/assistant/memory")
+async def assistant_memory_list():
+    from core.assistant import load_memory
+
+    return {"success": True, "items": load_memory(get_db_manager(), limit=50)}
+
+
+@app.delete("/api/v1/assistant/memory")
+async def assistant_memory_clear():
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        cursor.execute("DELETE FROM assistant_memory")
+    return {"success": True}
+
+
+@app.get("/api/v1/assistant/events")
+async def assistant_events():
+    """给前端做主动提醒用：最近导入/索引状态的变化源。"""
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        failed = cursor.execute(
+            "SELECT COUNT(*) FROM file_artifacts WHERE project_id='default' AND state='failed'"
+        ).fetchone()[0]
+        pending = cursor.execute(
+            "SELECT COUNT(*) FROM file_artifacts WHERE project_id='default' AND state IN ('pending','processing')"
+        ).fetchone()[0]
+        total = cursor.execute(
+            "SELECT COUNT(*) FROM files WHERE project_id='default'"
+        ).fetchone()[0]
+        last_job = cursor.execute(
+            "SELECT kind, state, total, created_at FROM jobs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return {
+        "success": True,
+        "failed": failed,
+        "pending": pending,
+        "total_files": total,
+        "last_job": ({"kind": last_job[0], "state": last_job[1], "total": last_job[2], "created_at": last_job[3]} if last_job else None),
+    }
+
 @app.post("/api/v1/db/files/delete")
 async def batch_delete_db_files(payload: BatchDeleteRequest):
     """批量删除文件记录。

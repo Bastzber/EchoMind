@@ -2252,7 +2252,8 @@
                 voiceState.profiles.forEach((profile) => {
                     const row = document.createElement('div');
                     row.className = 'flex items-center gap-2 text-[11px] px-2 py-1 rounded';
-                    row.style.cssText = 'border:1px solid ' + (profile.speaker_id === voiceState.speakerId ? 'var(--accent-color,#6b8afd)' : 'var(--border-color)');
+                    const isActive = String(profile.id) === String(voiceState.profileId);
+                    row.style.cssText = 'border:1px solid ' + (isActive ? 'var(--accent-color,#6b8afd)' : 'var(--border-color)');
                     const label = document.createElement('span');
                     label.textContent = profile.name || '未命名';
                     label.style.color = 'var(--text-primary)';
@@ -2261,12 +2262,13 @@
                     meta.textContent = (profile.provider === 'breeze' ? '本地' : '云端')
                     const pick = document.createElement('button');
                     pick.className = 'ml-auto opacity-60 hover:opacity-100';
-                    pick.textContent = profile.speaker_id === voiceState.speakerId ? '使用中' : '使用';
+                    pick.textContent = isActive ? '使用中' : '使用';
                     pick.addEventListener('click', () => {
                         voiceState.speakerId = profile.speaker_id || '';
                         voiceState.profileId = profile.id || '';
                         voiceState.provider = profile.provider || 'volc';
                         renderProfiles();
+                        speakStatus.textContent = '已选：' + (profile.name || '未命名');
                     });
                     const del = document.createElement('button');
                     del.className = 'opacity-40 hover:opacity-100';

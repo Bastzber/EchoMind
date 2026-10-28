@@ -2112,7 +2112,12 @@ ipcMain.handle('dialog-save', async (event, options) => {
     const installRoot = path.dirname(app.getPath('exe'));
     let backupRoot = UPDATER_BACKUP_ROOT();
     try {
-      return await updaterApply.apply(zipPath, installRoot, backupRoot);
+      const result = await updaterApply.apply(zipPath, installRoot, backupRoot);
+      if (result && result.needsRestart) {
+        // app.asar 之类正在被占用的文件：退出后再换
+        updaterApply.schedulePendingSwap(installRoot, process.execPath);
+      }
+      return result;
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };
     }

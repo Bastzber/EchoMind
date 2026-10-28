@@ -1076,11 +1076,15 @@
             const STORAGE_KEY = 'echomind.quickActions';
             const pickTargets = () => {
                 try {
-                    if (typeof selectedSounds !== 'undefined' && selectedSounds && selectedSounds.size) {
-                        return soundData.filter((item) => selectedSounds.has(item.id));
-                    }
-                } catch (error) { }
-                return [];
+                    if (typeof selectedSounds === 'undefined' || !selectedSounds || !selectedSounds.size) return [];
+                    // 选中项可能不在当前 soundData 里（分页/搜索/文件夹视图），
+                    // 统一用 resolveSoundsForIds 从所有已渲染来源解析。
+                    const resolved = typeof resolveSoundsForIds === 'function'
+                        ? resolveSoundsForIds([...selectedSounds])
+                        : soundData.filter((item) => selectedSounds.has(item.id));
+                    if (resolved.length) return resolved;
+                    return soundData.filter((item) => selectedSounds.has(item.id));
+                } catch (error) { return []; }
             };
             const requireTargets = (label) => {
                 const targets = pickTargets();
@@ -2567,6 +2571,74 @@
                 console.warn('[Fish] 读取自定义图片失败:', error);
             }
 
+        }
+
+        // ===== 眨眼 / 语音 / 主动提醒 =====
+        let mbBlinkTimer = null;
+        function mbStartBlink() {
+            if (mbBlinkTimer) return;
+            mbBlinkTimer = setInterval(() => {
+                if (document.hidden) return;
+                if (Math.random() > 0.7) return;
+                const open = document.getElementById('mbEyes');
+                const closed = document.getElementById('mbEyesClosed');
+                if (!open || !closed) return;
+                open.style.display = 'none';
+                closed.style.display = '';
+                setTimeout(() => {
+                    open.style.display = '';
+                    closed.style.display = 'none';
+                }, 130);
+            }, 3400);
+        }
+
+        function fishVoiceEnabled() { return localStorage.getItem('echomind.fishVoice') === '1'; }
+
+        async function fishSpeak(text) {
+            if (!fishVoiceEnabled() || !text) return;
+            try {
+                const res = await rendererApi.post('/api/v1/assistant/speak', { text: String(text).slice(0, 400) }, { timeoutMs: 90000 });
+                if (!res?.path) return;
+                const audio = new Audio('soundmind-audio://local/' + encodeURIComponent(res.path));
+                audio.volume = 0.9;
+                await audio.play().catch(() => { });
+            } catch (error) {
+                console.warn('[Fish] 语音失败:', error);
+            }
+        }
+
+        function fishBubble(text, ms = 7000) {
+            document.getElementById('fishBubbleTip')?.remove();
+            const wrap = document.getElementById('navFishWrap');
+            if (!wrap) return;
+            const rect = wrap.getBoundingClientRect();
+            const tip = document.createElement('div');
+            tip.id = 'fishBubbleTip';
+            tip.style.cssText = 'position:fixed;z-index:342;max-width:230px;padding:6px 9px;border-radius:9px;'
+                + 'background:var(--bg-secondary);border:1px solid var(--border-color);font-size:11px;line-height:1.6;'
+                + 'box-shadow:0 6px 18px rgba(0,0,0,.28);animation:emSlideDown .16s ease-out both';
+            tip.textContent = text;
+            tip.style.left = Math.max(8, Math.min(rect.left - 60, window.innerWidth - 244)) + 'px';
+            tip.style.top = (rect.bottom + 7) + 'px';
+            document.body.appendChild(tip);
+            setTimeout(() => tip.remove(), ms);
+        }
+
+        let fishEventState = null;
+        async function fishPollEvents() {
+            try {
+                const data = await rendererApi.get('/api/v1/assistant/events');
+                if (!fishEventState) { fishEventState = data; return; }
+                const before = fishEventState;
+                fishEventState = data;
+                if ((data.failed || 0) > (before.failed || 0)) {
+                    fishBubble('有 ' + (data.failed - before.failed) + ' 个文件索引失败，要我看看吗？');
+                } else if (before.last_job && data.last_job
+                    && before.last_job.created_at === data.last_job.created_at
+                    && before.last_job.state !== 'completed' && data.last_job.state === 'completed') {
+                    fishBubble('索引跑完啦：' + (data.last_job.kind || '任务'));
+                }
+            } catch (error) { }
         }
 
         function bindNavFish() {
@@ -9908,9 +9980,10 @@
                 return;
             }
             const summary = '更新完成：替换 ' + (result.replaced || 0) + ' 个文件'
-                + (result.removed ? '，清理 ' + result.removed + ' 个旧文件' : '');
+                + (result.removed ? '，清理 ' + result.removed + ' 个旧文件' : '')
+                + (result.needsRestart ? '，' + (result.pendingCount || 0) + ' 个文件需要退出后替换' : '');
             showNotification(summary, 'success');
-            if (confirm(summary + '\n\n需要重启才能生效，现在重启吗？')) {
+            if (confirm(summary + '\n\n需要重启才能生效，现在重启吗？\n（重启时会自动完成剩余文件的替换）')) {
                 await api.restart();
             }
         }

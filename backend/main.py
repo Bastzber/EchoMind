@@ -3866,26 +3866,29 @@ async def assistant_chat(payload: AssistantChatRequest):
 class AssistantSpeakRequest(BaseModel):
     text: str
     profile_id: str = ""
+    provider: str = "auto"
 
 
 @app.post("/api/v1/assistant/speak")
 async def assistant_speak(payload: AssistantSpeakRequest):
-    """用克隆音色朗读一段文本，返回 wav 路径供前端播放。"""
-    from core.voice_clone import load_profiles, speak
+    """朗读一段文本：本地 Breeze 优先，豆包兜底。"""
+    from core import tts
 
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=422, detail="text 不能为空")
-    profiles = load_profiles()
-    if not profiles:
-        raise SoundBotAPIError("no_voice_profile", "还没有复刻音色，先在「声音克隆」里建一个", status_code=400)
-    profile = profiles[0]
-    if payload.profile_id:
-        profile = next((p for p in profiles if str(p.get("id")) == payload.profile_id), profile)
-    result = speak(text, str(profile.get("speaker_id") or ""))
+    provider = (getattr(payload, "provider", "") or "auto").strip() or "auto"
+    result = await asyncio.to_thread(tts.speak, text, provider, getattr(payload, "profile_id", "") or "")
     if not result.get("ok"):
-        raise SoundBotAPIError("tts_failed", str(result.get("error") or "朗读失败"), status_code=500)
-    return {"success": True, "path": result.get("path") or result.get("audio_path") or "", "voice": profile.get("name")}
+        raise SoundBotAPIError("tts_failed", str(result.get("error") or "朗读失败"), status_code=503)
+    return {"success": True, "path": result.get("path"), "provider": result.get("provider"), "seconds": result.get("seconds")}
+
+
+@app.get("/api/v1/tts/status")
+async def tts_status():
+    from core import tts
+
+    return {"success": True, **(await asyncio.to_thread(tts.status))}
 
 
 @app.get("/api/v1/assistant/memory")

@@ -4167,11 +4167,14 @@ class VoiceCloneRequest(BaseModel):
     path: str
     name: str = ""
     duration: Optional[float] = 0.0
+    provider: str = "volc"
+    ref_text: str = ""
 
 
 class VoiceSpeakRequest(BaseModel):
     text: str
-    speaker_id: str
+    speaker_id: str = ""
+    profile_id: str = ""
     save_dir: Optional[str] = None
 
 
@@ -4191,7 +4194,16 @@ async def voice_clone_endpoint(payload: VoiceCloneRequest):
     if not payload.path:
         raise HTTPException(status_code=422, detail="path 不能为空")
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, clone_voice, payload.path, payload.name, payload.duration or 0.0)
+    result = await loop.run_in_executor(
+        None,
+        lambda: clone_voice(
+            payload.path,
+            payload.name,
+            payload.duration or 0.0,
+            getattr(payload, "provider", "volc") or "volc",
+            getattr(payload, "ref_text", "") or "",
+        ),
+    )
     if not result.get("ok"):
         raise SoundBotAPIError("voice_clone_failed", str(result.get("error") or "复刻失败"), status_code=400)
     return {"success": True, **result}
@@ -4199,8 +4211,27 @@ async def voice_clone_endpoint(payload: VoiceCloneRequest):
 
 @app.post("/api/v1/voice/speak")
 async def voice_speak_endpoint(payload: VoiceSpeakRequest):
-    """用克隆音色合成语音。"""
-    from core.voice_clone import speak
+    """用克隆音色合成语音；breeze 档案走本地模型，其余走豆包。"""
+    from core import tts
+    from core.voice_clone import load_profiles, speak
+
+    profile = None
+    if payload.profile_id:
+        profile = next((item for item in load_profiles() if str(item.get("id")) == payload.profile_id), None)
+    elif payload.speaker_id:
+        profile = next((item for item in load_profiles() if str(item.get("speaker_id")) == payload.speaker_id), None)
+
+    if profile and (profile.get("provider") or "volc") == "breeze":
+        sample = str(profile.get("sample") or "")
+        ref_text = str(profile.get("ref_text") or "")
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: tts.breeze_speak(payload.text, ref_audio=sample, ref_text=ref_text),
+        )
+        if not result.get("ok"):
+            raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)
+        return {"success": True, "path": result.get("path"), "provider": "breeze"}
 
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, speak, payload.text, payload.speaker_id, payload.save_dir)

@@ -2122,7 +2122,7 @@
         }
 
         // ===== 声音克隆 =====
-        const voiceState = { profiles: [], speakerId: '', lastOutput: '', samplePath: '', sampleDuration: 0 };
+        const voiceState = { profileId: '', provider: 'volc', profiles: [], speakerId: '', lastOutput: '', samplePath: '', sampleDuration: 0 };
 
         async function loadVoiceProfiles() {
             try {
@@ -2160,6 +2160,17 @@
                 "                    </div>",
                 "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
                 "                        <div class=\"text-xs font-medium mb-2\">① 选择样音</div>",
+                "                        <div class=\"flex items-center gap-2 mb-2\">",
+                "                            <span class=\"text-[11px] opacity-50\">合成引擎</span>",
+                "                            <select id=\"voiceEngineSelect\" class=\"px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\">",
+                "                                <option value=\"breeze\">本地 Breeze TTS 2（离线，推荐）</option>",
+                "                                <option value=\"volc\">豆包云端（需 API Key）</option>",
+                "                            </select>",
+                "                        </div>",
+                "                        <div id=\"voiceRefTextBox\" class=\"flex items-center gap-2 mb-2\">",
+                "                            <span class=\"text-[11px] opacity-50\">样音文稿</span>",
+                "                            <input id=\"voiceRefTextInput\" class=\"flex-1 px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"这段样音里说的原话（本地克隆必需）\">",
+                "                        </div>",
                 "                        <div class=\"flex items-center gap-2\">",
                 "                            <button id=\"voicePickFileBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">选择音频文件…</button>",
                 "                            <button id=\"voiceUseCurrentBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">用列表里选中的音效</button>",
@@ -2207,11 +2218,15 @@
 
             overlay.querySelector('#voicePickFileBtn').addEventListener('click', async () => {
                 try {
-                    const picked = await window.electronAPI?.dialog?.openFile?.({
+                    // preload 暴露的是 dialogs.showOpenDialog（不是 dialog.openFile）
+                    const picked = await window.electronAPI?.dialogs?.showOpenDialog?.({
+                        title: '选择一段约 15 秒的人声',
+                        properties: ['openFile'],
                         filters: [{ name: '音频', extensions: ['wav', 'mp3', 'flac', 'm4a', 'ogg', 'caf', 'aiff'] }],
                     });
-                    const path = picked?.filePath || picked?.filePaths?.[0] || picked;
-                    if (path) useSample(String(path), 0);
+                    const filePath = picked?.filePaths?.[0] || picked?.filePath || '';
+                    if (!filePath) return;
+                    useSample(String(filePath), 0);
                 } catch (error) {
                     showNotification('选择文件失败: ' + (error?.message || error), 'error');
                 }
@@ -2239,11 +2254,16 @@
                     label.style.color = 'var(--text-primary)';
                     const meta = document.createElement('span');
                     meta.className = 'opacity-45';
-                    meta.textContent = profile.speaker_id ? String(profile.speaker_id).slice(0, 10) : '';
+                    meta.textContent = (profile.provider === 'breeze' ? '本地' : '云端')
                     const pick = document.createElement('button');
                     pick.className = 'ml-auto opacity-60 hover:opacity-100';
                     pick.textContent = profile.speaker_id === voiceState.speakerId ? '使用中' : '使用';
-                    pick.addEventListener('click', () => { voiceState.speakerId = profile.speaker_id; renderProfiles(); });
+                    pick.addEventListener('click', () => {
+                        voiceState.speakerId = profile.speaker_id || '';
+                        voiceState.profileId = profile.id || '';
+                        voiceState.provider = profile.provider || 'volc';
+                        renderProfiles();
+                    });
                     const del = document.createElement('button');
                     del.className = 'opacity-40 hover:opacity-100';
                     del.textContent = '删除';
@@ -2265,13 +2285,24 @@
                 if (!voiceState.samplePath) { showNotification('先选一段样音', 'info'); return; }
                 statusEl.textContent = '正在上传样音并复刻…';
                 try {
+                    const engine = overlay.querySelector('#voiceEngineSelect')?.value || 'breeze';
+                    const refText = overlay.querySelector('#voiceRefTextInput')?.value.trim() || '';
+                    if (engine === 'breeze' && !refText) {
+                        statusEl.textContent = '';
+                        showNotification('本地克隆需要填写样音里说的原话', 'info');
+                        return;
+                    }
                     const result = await rendererApi.post('/api/v1/voice/clone', {
                         path: voiceState.samplePath,
                         name: nameInput.value.trim() || '我的音色',
                         duration: voiceState.sampleDuration || 0,
+                        provider: engine,
+                        ref_text: refText,
                     }, { timeoutMs: 240000 });
                     voiceState.speakerId = result?.speaker_id || '';
-                    statusEl.textContent = '克隆完成：' + (result?.profile?.name || '');
+                    voiceState.profileId = result?.profile?.id || '';
+                    voiceState.provider = result?.profile?.provider || 'volc';
+                    statusEl.textContent = '已登记：' + (result?.profile?.name || '') + (voiceState.provider === 'breeze' ? '（本地可用）' : '（云端）');
                     await loadVoiceProfiles();
                     renderProfiles();
                 } catch (error) {
@@ -2288,7 +2319,8 @@
                 try {
                     const result = await rendererApi.post('/api/v1/voice/speak', {
                         text,
-                        speaker_id: voiceState.speakerId,
+                        speaker_id: voiceState.speakerId || '',
+                        profile_id: voiceState.profileId || '',
                     }, { timeoutMs: 240000 });
                     voiceState.lastOutput = result?.path || '';
                     speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();
@@ -2305,6 +2337,15 @@
                     showNotification(error?.message || String(error), 'error');
                 }
             });
+
+            const engineSelect = overlay.querySelector('#voiceEngineSelect');
+            const refBox = overlay.querySelector('#voiceRefTextBox');
+            const syncEngine = () => {
+                const local = (engineSelect?.value || 'breeze') === 'breeze';
+                if (refBox) refBox.style.display = local ? '' : 'none';
+            };
+            engineSelect?.addEventListener('change', syncEngine);
+            syncEngine();
 
             loadVoiceProfiles().then(renderProfiles);
         }

@@ -56,7 +56,14 @@ def save_profiles(items: List[Dict[str, object]]) -> None:
     _profiles_file().write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def add_profile(name: str, speaker_id: str, sample_path: str, duration: float = 0.0) -> Dict[str, object]:
+def add_profile(
+    name: str,
+    speaker_id: str,
+    sample_path: str,
+    duration: float = 0.0,
+    provider: str = "volc",
+    ref_text: str = "",
+) -> Dict[str, object]:
     items = load_profiles()
     entry = {
         "id": uuid.uuid4().hex[:12],
@@ -64,6 +71,8 @@ def add_profile(name: str, speaker_id: str, sample_path: str, duration: float = 
         "speaker_id": speaker_id,
         "sample": sample_path,
         "duration": round(float(duration or 0), 2),
+        "provider": (provider or "volc"),
+        "ref_text": (ref_text or "").strip()[:500],
         "created_at": int(time.time()),
     }
     items.insert(0, entry)
@@ -95,11 +104,24 @@ def engine_name() -> str:
     return (os.environ.get("ECHOMIND_TTS_ENGINE") or "volc").strip().lower()
 
 
-def clone_voice(audio_path: str, name: str, duration: float = 0.0) -> Dict[str, object]:
-    """上传样音并把音色登记为档案。返回 {ok, speaker_id, profile, error}。"""
+def clone_voice(
+    audio_path: str,
+    name: str,
+    duration: float = 0.0,
+    provider: str = "volc",
+    ref_text: str = "",
+) -> Dict[str, object]:
+    """登记音色。provider=breeze 时只存参考音频+文稿（零样本克隆，不联网）。"""
     source = Path(audio_path)
     if not source.is_file():
         return {"ok": False, "error": "样音文件不存在"}
+
+    if (provider or "").lower() == "breeze":
+        text = (ref_text or "").strip()
+        if not text:
+            return {"ok": False, "error": "本地 Breeze 需要填写这段样音的文字稿"}
+        entry = add_profile(name, "", str(source), duration, provider="breeze", ref_text=text)
+        return {"ok": True, "speaker_id": "", "profile": entry}
     if duration and (duration < MIN_SECONDS or duration > MAX_SECONDS):
         return {"ok": False, "error": "样音时长需要在 %d-%d 秒之间（当前 %.1f 秒）" % (MIN_SECONDS, MAX_SECONDS, duration)}
 

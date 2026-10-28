@@ -2320,7 +2320,8 @@
             overlay.querySelector('#voiceSpeakBtn').addEventListener('click', async () => {
                 const text = overlay.querySelector('#voiceTextInput').value.trim();
                 if (!text) { showNotification('先输入要念的台词', 'info'); return; }
-                if (!voiceState.speakerId) { showNotification('先克隆一个音色', 'info'); return; }
+                // 本地 Breeze 音色没有 speaker_id，必须用 profileId 判断
+                if (!voiceState.profileId && !voiceState.speakerId) { showNotification('先选一个音色（或先克隆一个）', 'info'); return; }
                 speakStatus.textContent = '正在合成…';
                 try {
                     const result = await rendererApi.post('/api/v1/voice/speak', {

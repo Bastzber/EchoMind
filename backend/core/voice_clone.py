@@ -80,6 +80,24 @@ def add_profile(
     return entry
 
 
+def update_profile(profile_id: str, name=None, ref_text=None):
+    """改名或修正样音文稿。"""
+    items = load_profiles()
+    updated = None
+    for item in items:
+        if str(item.get("id")) != str(profile_id):
+            continue
+        if name is not None and str(name).strip():
+            item["name"] = str(name).strip()[:40]
+        if ref_text is not None:
+            item["ref_text"] = str(ref_text).strip()[:500]
+        updated = item
+        break
+    if updated is None:
+        return None
+    save_profiles(items)
+    return updated
+
 def delete_profile(profile_id: str) -> bool:
     items = load_profiles()
     kept = [item for item in items if item.get("id") != profile_id]

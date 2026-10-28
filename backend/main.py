@@ -4240,6 +4240,21 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
     return {"success": True, **result}
 
 
+class VoiceProfilePatch(BaseModel):
+    name: Optional[str] = None
+    ref_text: Optional[str] = None
+
+
+@app.patch("/api/v1/voice/profiles/{profile_id}")
+async def voice_update_profile(profile_id: str, payload: VoiceProfilePatch):
+    from core.voice_clone import update_profile
+
+    updated = update_profile(profile_id, payload.name, payload.ref_text)
+    if not updated:
+        raise HTTPException(status_code=404, detail="音色不存在")
+    return {"success": True, "profile": updated}
+
+
 @app.delete("/api/v1/voice/profiles/{profile_id}")
 async def voice_delete_profile(profile_id: str):
     from core.voice_clone import delete_profile

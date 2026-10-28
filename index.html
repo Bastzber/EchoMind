@@ -2395,8 +2395,13 @@
             syncEngine();
 
             overlay.querySelector('#voiceLibOpenBtn')?.addEventListener('click', () => {
-                overlay.remove();
-                showVoiceLibraryModal();
+                // 不关掉克隆面板：音色库叠在它上面（z-index 更高），
+                // 关掉音色库就自然回到克隆界面，录入的内容也还在。
+                showVoiceLibraryModal({ fromVoiceClone: true });
+            });
+
+            overlay.addEventListener('voice-profiles-changed', () => {
+                loadVoiceProfiles().then(renderProfiles);
             });
 
             loadVoiceProfiles().then(renderProfiles);
@@ -2404,7 +2409,7 @@
 
 
         // ===== 音色库管理 =====
-        async function showVoiceLibraryModal() {
+        async function showVoiceLibraryModal(options = {}) {
             document.getElementById('voiceLibOverlay')?.remove();
             const overlay = document.createElement('div');
             overlay.id = 'voiceLibOverlay';

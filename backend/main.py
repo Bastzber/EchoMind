@@ -4263,6 +4263,33 @@ async def voice_delete_profile(profile_id: str):
         raise HTTPException(status_code=404, detail="音色不存在")
     return {"success": True}
 
+class FileCopyRequest(BaseModel):
+    source: str
+    destination: str
+    overwrite: bool = False
+
+
+@app.post("/api/v1/files/copy")
+async def files_copy_endpoint(payload: FileCopyRequest):
+    """把生成的语音等文件另存到用户指定位置。"""
+    import shutil
+
+    src = Path(payload.source)
+    dest = Path(payload.destination)
+    if not src.is_file():
+        raise HTTPException(status_code=404, detail="源文件不存在")
+    if not dest.parent.is_dir():
+        raise HTTPException(status_code=400, detail="目标文件夹不存在")
+    if dest.exists() and not payload.overwrite:
+        raise HTTPException(status_code=409, detail="目标文件已存在")
+    try:
+        if dest.resolve() != src.resolve():
+            shutil.copy2(str(src), str(dest))
+    except Exception as exc:
+        raise SoundBotAPIError("copy_failed", f"保存失败：{exc}", status_code=500)
+    return {"success": True, "path": str(dest), "size": dest.stat().st_size}
+
+
 
 # ==================== 效果器（混响） ====================
 

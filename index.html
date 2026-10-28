@@ -2197,6 +2197,8 @@
                 "                        <div class=\"text-xs font-medium mb-2\">③ 用这个音色说话</div>",
                 "                        <textarea id=\"voiceTextInput\" rows=\"3\" class=\"w-full px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
                 "                        <div class=\"flex items-center gap-2 mt-2\">",
+                "                            <button id=\"voicePlayBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>试听</button>",
+                "                            <button id=\"voiceSaveBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>保存为 WAV…</button>",
                 "                            <button id=\"voiceSpeakBtn\" class=\"px-3 py-1.5 rounded text-xs font-medium\" style=\"background:#3b82f6;color:#fff\">生成语音</button>",
                 "                            <span id=\"voiceSpeakStatus\" class=\"text-[11px] opacity-55\"></span>",
                 "                        </div>",
@@ -2331,17 +2333,55 @@
                     }, { timeoutMs: 240000 });
                     voiceState.lastOutput = result?.path || '';
                     speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();
-                    if (result?.path) {
-                        const src = 'soundmind-audio://local/' + encodeURIComponent(result.path);
+                    const playBtnEl = overlay.querySelector('#voicePlayBtn');
+                    const saveBtnEl = overlay.querySelector('#voiceSaveBtn');
+                    if (voiceState.lastOutput) {
+                        if (playBtnEl) playBtnEl.disabled = false;
+                        if (saveBtnEl) saveBtnEl.disabled = false;
                         if (!audioPlayer) initAudioPlayer();
-                        audioPlayer.src = src;
+                        audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
                         audioPlayer.load();
-                        await audioPlayer.play();
+                        await audioPlayer.play().catch(() => { });
                         isPlaying = true;
                     }
                 } catch (error) {
                     speakStatus.textContent = '';
                     showNotification(error?.message || String(error), 'error');
+                }
+            });
+
+            overlay.querySelector('#voicePlayBtn').addEventListener('click', async () => {
+                if (!voiceState.lastOutput) return;
+                try {
+                    if (!audioPlayer) initAudioPlayer();
+                    audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
+                    audioPlayer.load();
+                    await audioPlayer.play();
+                    isPlaying = true;
+                } catch (error) {
+                    showNotification('播放失败: ' + (error?.message || error), 'error');
+                }
+            });
+
+            overlay.querySelector('#voiceSaveBtn').addEventListener('click', async () => {
+                if (!voiceState.lastOutput) return;
+                try {
+                    const picked = await window.electronAPI?.dialogs?.showSaveDialog?.({
+                        title: '保存语音',
+                        defaultPath: (nameInput.value.trim() || '语音') + '.wav',
+                        filters: [{ name: 'WAV', extensions: ['wav'] }],
+                    });
+                    const target = picked?.filePath || '';
+                    if (!target) return;
+                    const res = await rendererApi.post('/api/v1/files/copy', {
+                        source: voiceState.lastOutput,
+                        destination: target,
+                        overwrite: true,
+                    }, { timeoutMs: 60000 });
+                    speakStatus.textContent = '已保存：' + String(res?.path || target).split(/[\\/]/).pop();
+                    showNotification('已保存到 ' + (res?.path || target), 'success');
+                } catch (error) {
+                    showNotification('保存失败: ' + (error?.message || error), 'error');
                 }
             });
 

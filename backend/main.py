@@ -3867,6 +3867,8 @@ class AssistantSpeakRequest(BaseModel):
     text: str
     profile_id: str = ""
     provider: str = "auto"
+    channels: int = 1
+    sample_rate: int = 24000
 
 
 @app.post("/api/v1/assistant/speak")
@@ -4176,6 +4178,8 @@ class VoiceSpeakRequest(BaseModel):
     speaker_id: str = ""
     profile_id: str = ""
     save_dir: Optional[str] = None
+    channels: int = 1
+    sample_rate: int = 24000
 
 
 @app.get("/api/v1/voice/profiles")
@@ -4227,7 +4231,13 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: tts.breeze_speak(payload.text, ref_audio=sample, ref_text=ref_text),
+            lambda: tts.breeze_speak(
+                payload.text,
+                ref_audio=sample,
+                ref_text=ref_text,
+                channels=2 if int(getattr(payload, "channels", 1) or 1) >= 2 else 1,
+                sample_rate=int(getattr(payload, "sample_rate", 24000) or 24000),
+            ),
         )
         if not result.get("ok"):
             raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)

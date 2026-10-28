@@ -2194,7 +2194,16 @@
                 "                        <div id=\"voiceProfileList\" class=\"mt-2 flex flex-col gap-1\"></div>",
                 "                    </div>",
                 "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
-                "                        <div class=\"text-xs font-medium mb-2\">③ 用这个音色说话</div>",
+                "                        <div class=\"flex items-center gap-2 mb-2\">",
+                "                            <span class=\"text-xs font-medium\">③ 用这个音色说话</span>",
+                "                            <span class=\"text-[11px] opacity-45 ml-auto\">输出</span>",
+                "                            <select id=\"voiceFormatSelect\" class=\"px-2 py-0.5 rounded text-[11px]\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\">",
+                "                                <option value=\"1-24000\">单声道 24 kHz</option>",
+                "                                <option value=\"2-24000\">双声道 24 kHz</option>",
+                "                                <option value=\"2-48000\">双声道 48 kHz</option>",
+                "                                <option value=\"1-48000\">单声道 48 kHz</option>",
+                "                            </select>",
+                "                        </div>",
                 "                        <textarea id=\"voiceTextInput\" rows=\"3\" class=\"w-full px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
                 "                        <div class=\"flex items-center gap-2 mt-2\">",
                 "                            <button id=\"voicePlayBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>试听</button>",
@@ -2326,10 +2335,13 @@
                 if (!voiceState.profileId && !voiceState.speakerId) { showNotification('先选一个音色（或先克隆一个）', 'info'); return; }
                 speakStatus.textContent = '正在合成…';
                 try {
+                    const fmt = (overlay.querySelector('#voiceFormatSelect')?.value || '1-24000').split('-');
                     const result = await rendererApi.post('/api/v1/voice/speak', {
                         text,
                         speaker_id: voiceState.speakerId || '',
                         profile_id: voiceState.profileId || '',
+                        channels: Number(fmt[0]) || 1,
+                        sample_rate: Number(fmt[1]) || 24000,
                     }, { timeoutMs: 240000 });
                     voiceState.lastOutput = result?.path || '';
                     speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();

@@ -77,14 +77,46 @@ def _multipart(fields: Dict[str, str], files: Optional[Dict[str, tuple]] = None)
     return body, headers
 
 
-def _pcm_to_wav(pcm: bytes) -> bytes:
-    buffer = io.BytesIO()
-    with wave.open(buffer, 'wb') as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(SAMPLE_RATE)
-        wav.writeframes(pcm)
-    return buffer.getvalue()
+def _pcm_to_wav(pcm: bytes, channels: int = 1, sample_rate: int = SAMPLE_RATE) -> bytes:
+    """把 24 kHz 单声道 s16le 裸 PCM 包成 WAV；可升成双声道/更高采样率。"""
+    if channels == 1 and sample_rate == SAMPLE_RATE:
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(SAMPLE_RATE)
+            wav.writeframes(pcm)
+        return buffer.getvalue()
+
+    # 需要重采样或复制声道时用 PyAV（避免手写插值带来的失真）
+    try:
+        import av
+        from av.audio.frame import AudioFrame
+        from av.audio.resampler import AudioResampler
+
+        layout = 'mono' if channels == 1 else 'stereo'
+        frame = AudioFrame(format='s16', layout='mono', samples=len(pcm) // 2)
+        frame.sample_rate = SAMPLE_RATE
+        frame.planes[0].update(pcm)
+        resampler = AudioResampler(format='s16', layout=layout, rate=sample_rate)
+        out_frames = resampler.resample(frame)
+        payload = b''.join(bytes(f.planes[0]) for f in out_frames)
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wav:
+            wav.setnchannels(channels)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+            wav.writeframes(payload)
+        return buffer.getvalue()
+    except Exception as exc:
+        logger.warning('[TTS] 重采样失败，退回单声道: %s', exc)
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(SAMPLE_RATE)
+            wav.writeframes(pcm)
+        return buffer.getvalue()
 
 
 def breeze_speak(
@@ -94,6 +126,8 @@ def breeze_speak(
     instruction: Optional[str] = None,
     cfg_scale: Optional[float] = None,
     timeout: float = 180.0,
+    channels: int = 1,
+    sample_rate: int = SAMPLE_RATE,
 ) -> Dict[str, Any]:
     """调用本地 breeze-server 合成，返回 {ok, path, provider}。"""
     content = (text or '').strip()
@@ -123,7 +157,7 @@ def breeze_speak(
         return {'ok': False, 'error': f'Breeze 合成失败: {exc}', 'provider': 'breeze'}
     if len(pcm) < 4800:
         return {'ok': False, 'error': 'Breeze 返回音频过短', 'provider': 'breeze'}
-    wav = _pcm_to_wav(pcm)
+    wav = _pcm_to_wav(pcm, channels=channels, sample_rate=sample_rate)
     digest = hashlib.sha1((content + str(time.time())).encode('utf-8')).hexdigest()[:16]
     target = cache_dir() / f'breeze-{digest}.wav'
     target.write_bytes(wav)

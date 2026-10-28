@@ -1450,6 +1450,40 @@ function resolveWindowBounds() {
   return { width: Math.max(1280, preferredWidth), height: Math.max(760, preferredHeight) };
 }
 
+
+// ---- 本地语音服务（Breeze TTS 2 / GGUF） ----
+// 需要用户把 breeze-server.exe 与 GGUF 放到指定位置；找不到就静默跳过，
+// EchoMind 的语音层会自动回退到豆包或提示未配置。
+function resolveBreezePaths() {
+  const candidates = [
+    path.join(getUserDataDir(), 'breeze'),
+    path.join(app.getPath('exe'), '..', 'breeze'),
+    'E:\\AI音效管理器\\breeze',
+  ];
+  for (const base of candidates) {
+    const exe = path.join(base, 'breeze-tts-2-v0.1.3-windows-x64-vulkan', 'breeze-server.exe');
+    const model = path.join(require('os').homedir(), 'breeze-weights', 'breeze-tts-2-q8_0.gguf');
+    if (fs.existsSync(exe) && fs.existsSync(model)) return { exe, model, cwd: path.dirname(exe) };
+  }
+  return null;
+}
+
+async function ensureBreezeServer() {
+  try {
+    const probe = await fetch('http://127.0.0.1:8080/health').catch(() => null);
+    if (probe && probe.ok) return;
+    const paths = resolveBreezePaths();
+    if (!paths) return;
+    const { spawn } = require('child_process');
+    const child = spawn(paths.exe, [paths.model, '--port', '8080', '--host', '127.0.0.1'], {
+      cwd: paths.cwd, detached: true, stdio: 'ignore', windowsHide: true,
+    });
+    child.unref();
+    console.log('[TTS] 已拉起本地 Breeze 语音服务');
+  } catch (error) {
+    console.warn('[TTS] 启动本地语音服务失败:', error?.message || error);
+  }
+}
 function createWindow() {
   rendererBridgeReady = false;
   rendererPreloadFailure = null;
@@ -2107,6 +2141,8 @@ ipcMain.handle('dialog-save', async (event, options) => {
       return { ok: false, error: error?.message || String(error) };
     }
   });
+
+  ensureBreezeServer();
 
   ipcMain.handle('updater-apply', async (event, zipPath) => {
     const installRoot = path.dirname(app.getPath('exe'));

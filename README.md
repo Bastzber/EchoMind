@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI 音效管理器
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.11-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.11)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.11-orange.svg)](https://github.com/Bastzber/EchoMind/releases)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -15,7 +15,7 @@
 
 当前源码版本为 **v0.3.0-beta.11（预发布）**。
 
-测试版 V11 · [发布页](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.11)
+测试版 V12 · [发布页](https://github.com/Bastzber/EchoMind/releases)
 
 > **本项目基于 [SoundBot](https://github.com/Huckrick/SoundBot) 修改而来**（原作者 Nagisa_Huckrick / 胡杨，GPL-3.0-or-later）。
 > 本仓库保留原许可证与署名，在其基础上做了中文本地化、检索链路与索引稳定性的调整，
@@ -27,21 +27,40 @@
 
 ## 📥 下载
 
-**网盘里的安装包：v0.3.0-beta.11（测试版 V11 · r8）· Windows x64**
+**网盘里的安装包：v0.3.0-beta.12（测试版 V12）· Windows x64**
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| **完整安装包（V11 / r8）**（3.39 GB） | 解压即用，**仅含软件本体，不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
-| **增量包 r7 → r8**（65.2 MB） | 已装 r7 的用户覆盖到 `win-unpacked` 即可 | 同网盘 / [Releases](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.11-r8) |
+| **完整安装包（V12）**（6.67 GB） | 解压即用，**不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
 | 描述包（64,781 条） | 安装包根目录已带；也可单独下载 | `EchoMind-描述包.json` |
 | 标签包（64,983 条） | 系统标签 + 用户标签 + 3,993 词表 | `EchoMind-标签包.json` |
 
-> 安装包 3.39 GB，超过 GitHub 单附件上限，走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面放版本说明、增量包和校验值。
-> 校验值见 [`release/V11更新说明-r8.md`](release/V11更新说明-r8.md)。
+> **V12 比 V11 大了 3.3 GB，是因为把两套模型打进了安装包**：
+> 本地语音引擎 Breeze（229 MB 服务 + 3.32 GB 音色模型）和 Demucs 分轨模型（80 MB）。
+> 装上就能离线朗读、离线分轨，不用再联网下模型。
+
+> 安装包 6.67 GB，超过 GitHub 单附件上限，走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面放版本说明和校验值。
+> V12 的逐项改动与实测数据见 [`docs/验收说明-20261029.md`](docs/验收说明-20261029.md)。
 >
 > 解压后双击 `win-unpacked\EchoMind.exe` 即可运行。首次启动会加载 CLAP 模型（30~60 秒）并索引音效库。
 
 > 这是测试版本，升级前建议备份用户数据目录 `%APPDATA%\EchoMind`。
+
+
+### V12 新增了什么
+
+![回声 EchoMind V12 主界面](assets/screenshots/main-v12.png)
+
+| 功能 | 说明 |
+| --- | --- |
+| **AI 助理形象 + 少女音** | 顶部导航栏的形象会跟着语音做口型；回复用本地 Breeze 合成，装完即可离线朗读 |
+| **声道电平表** | 波形左侧新增电平条，支持到 5.1（最多 6 条，L/R/C/LFE/SL/SR），可拖宽、可 S/M 单独听，S+M 同时选就是静音 |
+| **AI 分轨** | 一键拆成人声/鼓/贝斯/其他四轨；结果先放临时区，逐条试听、勾选、自己选文件夹另存，**不会写进原文件夹** |
+| **去人声** | 立体声音乐做人声消除生成伴奏；先自动检查声道，单声道会提前挑出来说明原因 |
+| **搜索结果带描述和标签** | AI 搜索命中的每条结果都会补上系统标签和一句话描述，和普通列表一致 |
+| **搜索历史** | 改成横向 chip 自动换行，搜完自动收起，不再挡着结果列表 |
+| **损坏文件清理** | 一键清理从「30 秒一个」变成「173 个 3 秒」，只删库记录、磁盘原文件不动 |
+| **索引更稳** | 增加「向量接管」：collection 里已经算好的向量按内容指纹接管回 ready，不再整库重算；单任务有上限，跑完自动续 |
 
 ### 关于匿名统计
 
@@ -71,7 +90,7 @@
 
 ## ✨ 功能特性
 
-| 能力 | v0.3.0-beta.11 行为 |
+| 能力 | v0.3.0-beta.12 行为 |
 | --- | --- |
 | 文件导入 | 沙箱化 preload 通过最小 IPC bridge 调用原生文件/文件夹选择器并只提交绝对路径；后端先写入 SQLite，再由可取消、可轮询的持久化作业生成波形和两个向量 |
 | 音频解码 | 固定版本 `av==18.0.0`（PyAV）及其 wheel 内 FFmpeg 动态库统一解码，不依赖系统 `ffmpeg` 命令 |

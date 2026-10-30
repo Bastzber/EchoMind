@@ -275,13 +275,34 @@ def _mel_round_trip_locked(paths, sample_rate, max_samples, timeout):
     }
     for attempt in range(2):
         w = _get_mel_worker()
-        try:
-            w.stdin.write(pickle.dumps(req))
-            w.stdin.flush()
-        except Exception as _we:
+        # 写管道必须带超时：worker 卡死时它不再读 stdin，管道缓冲区写满后
+        # w.stdin.write() 会**永久阻塞**，读超时那套逻辑根本没机会执行——
+        # 这就是「父任务停在 36949/36950 十九分钟」的真正原因。
+        payload = pickle.dumps(req)
+        write_box: Dict[str, Any] = {}
+
+        def _wr():
+            try:
+                w.stdin.write(payload)
+                w.stdin.flush()
+            except Exception as e:
+                write_box["e"] = repr(e)
+
+        wt = threading.Thread(target=_wr, daemon=True)
+        wt.start()
+        wt.join(min(15.0, max(5.0, float(timeout) / 4)))
+        if wt.is_alive():
+            logging.getLogger(__name__).warning(
+                "mel_round_trip write blocked >%.0fs, kill worker and retry",
+                min(15.0, max(5.0, float(timeout) / 4)),
+            )
+            _reset_mel_worker()
+            _time.sleep(_MEL_WORKER_READY_WAIT)
+            continue
+        if "e" in write_box:
             # 写失败（管道断/句柄冲突）：先等就绪再重试同一 worker
             logging.getLogger(__name__).warning(
-                "mel_round_trip write fail: %r poll=%s", _we, w.poll()
+                "mel_round_trip write fail: %r poll=%s", write_box["e"], w.poll()
             )
             _time.sleep(_MEL_WORKER_READY_WAIT)
             continue

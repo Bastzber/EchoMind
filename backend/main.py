@@ -2151,20 +2151,23 @@ async def _scan_and_import_task_locked(
         )
         logger.info(f"导入完成: 新增 {added} 个文件，跳过 {skipped} 个")
 
-        # 后台补索引：不在导入流程里做，避免界面卡死
+        # 导入后只补波形（便宜、不占模型），两种向量留给用户手动跑：
+        # 先把描述包导入，再跑文本向量，否则会白算 3 万条描述（B17/B10）。
+        # 以前这里排的是 audio_vector + text_vector，界面却提示「索引已暂停」，
+        # 行为和提示互相矛盾。
         if added:
             try:
-                index_job = db_manager.create_job(project_id, "post_import_index", added)
+                index_job = db_manager.create_job(project_id, "post_import_waveform", added)
                 await _bump_project_index_revision(project_id)
                 asyncio.create_task(
                     _repair_index_task(
                         index_job,
                         project_id,
-                        ["audio_vector", "text_vector"],
+                        ["waveform"],
                         "reconcile",
                     )
                 )
-                logger.info("[IMPORT] 已排入后台索引任务: %s", index_job)
+                logger.info("[IMPORT] 已排入后台波形任务: %s", index_job)
             except Exception as exc:
                 logger.warning("[IMPORT] 排入后台索引失败: %s", exc)
 

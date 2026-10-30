@@ -196,12 +196,15 @@ def import_pack(
     missing = 0
     written = 0
     started = time.time()
+    _last_t = started
+    _last_log = 0
     ids: List[str] = []
     vectors: List[List[float]] = []
     metadatas: List[Dict[str, Any]] = []
+    ids_all: List[str] = []   # 用于最后分批把 artifact 标 ready
 
     def flush() -> int:
-        nonlocal written, ids, vectors, metadatas
+        nonlocal written, ids, vectors, metadatas, _last_log, _last_t
         if not ids:
             return 0
         with indexer._write_lock:
@@ -211,6 +214,14 @@ def import_pack(
         ids, vectors, metadatas = [], [], []
         if progress:
             progress(written, matched)
+        # 每 10 批打一条速率：卡住时能看出是写库慢还是别的地方慢
+        now = time.time()
+        if now - _last_t >= 5.0:
+            _last_t = now
+            logger.info(
+                "[VectorPack] 已写入 %d 条（%.0f 条/秒，命中 %d，跳过 %d）",
+                written, written / max(0.001, now - started), matched, missing,
+            )
         return count
 
     import numpy as np
@@ -225,6 +236,7 @@ def import_pack(
         matched += 1
         vec = np.frombuffer(raw_vec, dtype=np.float16).astype(np.float32)
         ids.append(str(row['file_uuid']))
+        ids_all.append(str(row['file_uuid']))
         vectors.append(vec.tolist())
         metadatas.append(_metadata_for(row, kind, fingerprint, str(row.get('path') or '')))
         if len(ids) >= BATCH_SIZE:
@@ -242,14 +254,21 @@ def import_pack(
         manifest['engine_fingerprint'] = fingerprint
     db_manager.activate_index_manifests(project_id, {kind: manifest})
 
-    # 命中的文件标 ready；没命中的保持原状（pending 的继续等本地补索引）
+    # 命中的文件标 ready；没命中的保持原状（pending 的继续等本地补索引）。
+    # 分批更新：6 万行一条大事务会把 WAL 撑到上百 MB，还长时间持有写锁。
     try:
-        with db_manager.get_cursor() as cursor:
-            cursor.execute(
-                'UPDATE file_artifacts SET state=? WHERE project_id=? AND kind=? '
-                "AND state IN ('pending','failed','stale')",
-                ('ready', project_id, kind),
-            )
+        updated = 0
+        for offset in range(0, len(ids_all), 4000):
+            chunk = ids_all[offset:offset + 4000]
+            marks = ",".join("?" for _ in chunk)
+            with db_manager.get_cursor() as cursor:
+                cursor.execute(
+                    "UPDATE file_artifacts SET state=? WHERE project_id=? AND kind=? "
+                    f"AND file_uuid IN ({marks}) AND state IN ('pending','failed','stale')",
+                    ('ready', project_id, kind, *chunk),
+                )
+                updated += cursor.rowcount
+        logger.info("[VectorPack] artifact 标 ready %d 条", updated)
     except Exception as exc:
         logger.warning('向量包导入后更新 artifact 状态失败: %s', exc)
 

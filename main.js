@@ -1399,7 +1399,7 @@ function applyCSP(win) {
           "font-src 'self'; " +
           "img-src 'self' data: blob:; " +
           `media-src 'self' blob: soundmind-audio: ${backendOrigin}; ` +
-          `connect-src 'self' ${backendOrigin} ${backendWsOrigin} ` +
+          `connect-src 'self' blob: ${backendOrigin} ${backendWsOrigin} ` +
           "https://api.openai.com https://api.moonshot.cn https://api.anthropic.com " +
           "https://api.deepseek.com https://api.siliconflow.cn " +
           "https://generativelanguage.googleapis.com;"
@@ -1454,16 +1454,47 @@ function resolveWindowBounds() {
 // ---- 本地语音服务（Breeze TTS 2 / GGUF） ----
 // 需要用户把 breeze-server.exe 与 GGUF 放到指定位置；找不到就静默跳过，
 // EchoMind 的语音层会自动回退到豆包或提示未配置。
+// 在目录里找一个文件：先试确切名字，再扫一层子目录，最后按扩展名兜底。
+function _findInDir(base, names, depth = 2) {
+  if (!base || !fs.existsSync(base)) return null;
+  for (const name of names) {
+    const direct = path.join(base, name);
+    if (fs.existsSync(direct)) return direct;
+  }
+  try {
+    for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+      const child = path.join(base, entry.name);
+      if (entry.isDirectory() && depth > 0) {
+        const found = _findInDir(child, names, depth - 1);
+        if (found) return found;
+      }
+    }
+  } catch (_) { /* 目录不可读就跳过 */ }
+  return null;
+}
+
 function resolveBreezePaths() {
+  // 打包版把 breeze-server 和 GGUF 一起放在 resources\breeze 下，
+  // 这样装完就有声音，不用用户自己摆文件。其它路径保留给老用户。
+  const os = require('os');
   const candidates = [
-    path.join(getUserDataDir(), 'breeze'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'breeze') : null,
     path.join(app.getPath('exe'), '..', 'breeze'),
+    path.join(getUserDataDir(), 'breeze'),
     'E:\\AI音效管理器\\breeze',
-  ];
+  ].filter(Boolean);
+
+  const modelNames = ['breeze-tts-2-q8_0.gguf', 'breeze-tts-2.gguf'];
   for (const base of candidates) {
-    const exe = path.join(base, 'breeze-tts-2-v0.1.3-windows-x64-vulkan', 'breeze-server.exe');
-    const model = path.join(require('os').homedir(), 'breeze-weights', 'breeze-tts-2-q8_0.gguf');
-    if (fs.existsSync(exe) && fs.existsSync(model)) return { exe, model, cwd: path.dirname(exe) };
+    const exe = _findInDir(base, ['breeze-server.exe'], 2);
+    if (!exe) continue;
+    const model =
+      _findInDir(path.join(base, 'weights'), modelNames, 1) ||
+      _findInDir(path.join(base, 'breeze-weights'), modelNames, 1) ||
+      _findInDir(base, modelNames, 2) ||
+      _findInDir(path.join(os.homedir(), 'breeze-weights'), modelNames, 1);
+    if (!model) continue;
+    return { exe, model, cwd: path.dirname(exe) };
   }
   return null;
 }
@@ -2122,6 +2153,21 @@ ipcMain.handle('dialog-save', async (event, options) => {
       if (!zipPath || !fsSync.existsSync(zipPath)) return { ok: false, error: '更新包不存在' };
       const installRoot = path.dirname(app.getPath('exe'));
       const { manifest, plan } = await updaterApply.inspect(zipPath, installRoot);
+      // 增量包只对"同版本"有效：拿 beta.11 的增量包盖到 beta.12 上会把 app.asar
+      // 退回去，形象和索引修复全没了，而且逻辑上不会报错。这里先拦一次。
+      const normalize = (value) => String(value || '').split('-r')[0].trim();
+      const targetVersion = normalize(manifest.baseVersion);
+      const currentVersion = app.getVersion();
+      if (targetVersion && targetVersion !== currentVersion) {
+        return {
+          ok: false,
+          error: '这个更新包对应 ' + targetVersion + '，当前是 ' + currentVersion
+            + '。请用匹配版本的增量包，或者直接装完整包。',
+          version: manifest.version,
+          baseVersion: manifest.baseVersion,
+          currentVersion,
+        };
+      }
       return {
         ok: true,
         installRoot,

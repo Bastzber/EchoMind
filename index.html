@@ -22,6 +22,9 @@
     <script src="./assets/renderer/projects.js"></script>
     <script src="./assets/renderer/settings.js"></script>
     <script src="./assets/renderer/rename.js"></script>
+    <!-- 助理形象：WebGL 网格形象运行时 + 表情控制（经典脚本，file:// 下可用） -->
+    <script src="./assets/renderer/mesh-avatar.runtime.js"></script>
+    <script src="./assets/renderer/assistant-avatar.js"></script>
 
     <style>
         /* 使用系统字体栈，离线环境下也能正常显示 */
@@ -36,6 +39,12 @@
         html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
         
         .waveform-canvas { image-rendering: auto; }
+        /* 助手语音高亮（B21）：句子浅底 + 当前字深底 */
+        .fish-sent { border-radius: 4px; }
+        .fish-sent-active { background-color: rgba(107, 138, 253, .12); }
+        .fish-ch { border-radius: 3px; transition: background-color .12s linear; }
+        .fish-ch-read { color: var(--text-primary); }
+        .fish-ch-active { background-color: rgba(107, 138, 253, .55); color: #fff; }
         
         input[type="range"] {
             -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
@@ -438,11 +447,15 @@
 
             <!-- 大肥鱼：顶栏宠物 -->
             <div id="navFishWrap" class="relative flex items-end justify-center" style="width:52px;height:46px;">
-                <button id="navFishBtn" title="大肥鱼：点击看状态 / 右键隐藏" style="
+                <button id="navFishBtn" title="回声：点击打开助理 / 右键隐藏" style="
                     background:none;border:none;padding:0;cursor:pointer;line-height:0;
                     filter: drop-shadow(0 2px 6px rgba(56,132,255,.35));
                 ">
-                    <svg id="navFish" width="48" height="48" viewBox="0 0 96 96" aria-label="回声小精灵">
+                    <span id="navAvatarBox" style="display:block;width:44px;height:44px;overflow:hidden;position:relative;">
+                        <mesh-avatar id="navAvatar" src="./assets/avatar/echo-girl.mavatar"
+                                     style="width:58px;height:78px;display:block;position:absolute;left:-7px;top:-9px;"></mesh-avatar>
+                    </span>
+                    <svg id="navFish" width="48" height="48" viewBox="0 0 96 96" aria-label="回声小精灵" style="display:none">
                         <defs>
                             <linearGradient id="mbBody" x1="0.15" y1="0.05" x2="0.85" y2="1">
                                 <stop offset="0%" stop-color="#a5f3ff"/>
@@ -600,7 +613,7 @@
                     </button>
                     <div class="border-t my-2" style="border-color: var(--border-color);"></div>
                 <button id="fishToggleBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                    <i data-lucide="fish" class="w-4 h-4"></i><span id="fishToggleLabel">藏起大肥鱼</span>
+                    <i data-lucide="fish" class="w-4 h-4"></i><span id="fishToggleLabel">藏起回声</span>
                 </button>
                     <button id="aboutAppBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="info" class="w-4 h-4"></i>
@@ -858,11 +871,11 @@
     </div>
     
     <!-- 底部分隔条（拖拽调整波形区高度） -->
-    <div id="waveformResizer" class="panel-resizer-h" data-resizer="bottom" data-target="#waveformPanel" data-min="80" data-max="480" title="拖拽调整高度"></div>
+    <div id="waveformResizer" class="panel-resizer-h" data-resizer="bottom" data-target="#waveformPanel" data-min="140" data-max="480" title="拖拽调整高度"></div>
     
     <!-- ==================== WAVEFORM VISUALIZATION ==================== -->
-    <div id="waveformPanel" data-panel="waveform" data-panel-title="波形" data-panel-extra="#playerFooter" data-panel-hide="#waveformResizer,#playerFooter" class="h-40 border-t shrink-0 flex flex-col transition-colors duration-300"
-         style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+    <div id="waveformPanel" data-panel="waveform" data-panel-title="波形" data-panel-extra="#playerFooter" data-panel-hide="#waveformResizer,#playerFooter" class="h-56 border-t shrink-0 flex flex-col transition-colors duration-300"
+         style="min-height: 190px; border-color: var(--border-color); background-color: var(--bg-secondary);">
         
         <!-- 波形工具栏 -->
         <div class="h-10 flex items-center justify-between px-4 border-b shrink-0" style="border-color: var(--border-color);">
@@ -907,6 +920,12 @@
                 <span id="selectionInfo" class="hidden">
                     <span data-i18n="player.selection">选区</span>: <span id="selectionStart">0.00</span>s - <span id="selectionEnd">0.00</span>s
                 </span>
+                <!-- 声道栏的开关信息（原来塞在电平栏底部，太矮看不见） -->
+                <div id="channelRailTools" class="hidden items-center gap-1.5">
+                    <button id="channelResetBtn" class="px-1.5 py-0.5 rounded text-[10px] border"
+                            style="border-color: var(--border-color); color: var(--text-secondary);">全部可听</button>
+                    <span id="channelInfo" class="text-[10px] opacity-50"></span>
+                </div>
                 <button class="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors opacity-70" data-float="waveform" title="浮动为独立面板">
                     <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
                 </button>
@@ -915,6 +934,14 @@
         
         <!-- 波形容器 -->
         <div class="flex-1 relative min-h-0 flex flex-col" data-panel-body>
+        <div class="flex-1 relative min-h-0 flex" id="waveformRow">
+        <!-- 声道电平（默认隐藏，点播放条上的「声道」按钮才出现；最多 6 声道） -->
+        <div id="channelRail" class="hidden shrink-0 flex-col items-center gap-1 px-1 py-1 overflow-hidden"
+             style="border-right: 1px solid var(--border-color); background: var(--bg-secondary);">
+            <div id="channelMeters" class="flex-1 flex items-stretch justify-center gap-1 min-h-0 w-full"></div>
+        </div>
+        <div id="channelSplitter" class="hidden w-1 shrink-0 cursor-col-resize hover:bg-[var(--accent-color,#6b8afd)]"
+             style="background: var(--border-color); opacity:.35" title="拖动调整声道栏宽度（双击复位）"></div>
         <div class="flex-1 relative min-h-0" id="waveformContainer">
             <!-- 空状态提示 -->
             <div id="waveformEmptyState" class="absolute inset-0 flex items-center justify-center z-10">
@@ -948,19 +975,6 @@
     </div>
     
     <!-- ==================== BOTTOM CONTROLS ==================== -->
-    <!-- 多声道条（>2 声道时自动展开） -->
-    <div id="channelBar" class="hidden h-[104px] px-3 py-1.5 border-t flex items-stretch gap-1.5 overflow-x-auto shrink-0"
-         style="border-color: var(--border-color); background-color: var(--bg-secondary);">
-        <div class="flex items-center pr-1 shrink-0">
-            <span class="text-[10px] opacity-40 leading-tight" style="writing-mode:vertical-rl">声道</span>
-        </div>
-        <div id="channelStrips" class="flex items-stretch gap-1.5"></div>
-        <div class="flex flex-col items-center justify-center gap-1 pl-1 shrink-0">
-            <button id="channelResetBtn" class="px-2 py-0.5 rounded text-[10px] border" style="border-color: var(--border-color)">全部可听</button>
-            <span id="channelInfo" class="text-[10px] opacity-40"></span>
-        </div>
-    </div>
-
     <footer id="playerFooter" class="h-16 border-t flex items-center justify-between px-4 shrink-0 transition-colors duration-300"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
@@ -1014,10 +1028,6 @@
         
         <!-- Volume Control -->
         <div class="flex items-center gap-3">
-            <button id="loopBtn" class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5 opacity-50"
-                    title="循环播放（当前音效重复播放）">
-                <i data-lucide="repeat" class="w-4 h-4"></i>
-            </button>
             <button id="muteBtn" class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5">
                 <i data-lucide="volume-2" class="w-4 h-4" id="volumeIcon"></i>
             </button>
@@ -1099,59 +1109,99 @@
                 { id: 'voiceLib', label: '音色库', icon: 'library', help: '管理已登记的音色：试听、改名、修正样音文稿、删除。', run: () => { showVoiceLibraryModal(); } },
                 { id: 'review', label: '待归类审阅', icon: 'list-checks', help: '把 _待归类 里的文件逐个试听并移动到正确目录（保留标签与索引）。', run: () => { showReviewPanel(); } },
                 { id: 'fx', label: '效果器', icon: 'sliders', help: '给当前音效加混响（房间/大厅/教堂…），可试听并导出为新文件。', run: () => { openEffectPanel(); } },
-                { id: 'devocal', label: '去人声', icon: 'mic-off', help: '把选中音乐里的人声消掉，生成伴奏 WAV（输出到原文件夹的 _去人声 子目录）。原理是中置声道消除，人声居中的歌曲效果最好。', run: async () => {
+                                                { id: 'devocal', label: '去人声', icon: 'mic-off', help: '把带人声的歌做成人声消除，生成一版伴奏 WAV。会先检查声道：单声道文件做不了中置消除，会被挑出来跳过。结果先放临时区，试听后自己决定存不存、存到哪，不会写回原文件夹。', run: async () => {
                     const targets = requireTargets('去人声');
                     if (!targets) return;
                     const music = targets.filter((item) => (item.filePath || item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
-                    if (!music.length) { showNotification('选中的文件里没有可处理的音乐', 'warning'); return; }
-                    if (!confirm('对 ' + music.length + ' 首音乐做去人声？\n\n会生成伴奏 WAV 到原文件夹的「_去人声」子目录，原文件不动。')) return;
-                    showNotification('正在去人声，请稍等…', 'info');
+                    if (!music.length) { showNotification('选中的文件里没有可处理的音轨', 'warning'); return; }
+                    // 先探声道：单声道做不了中置消除，提前挑出来，别等跑完才报失败
+                    const probeChannels = async (file) => {
+                        try {
+                            const info = await rendererApi.get('/api/v1/audio/channels?path='
+                                + encodeURIComponent(file.filePath || file.path) + '&points=50');
+                            return Number(info?.channels || 0);
+                        } catch (_) {
+                            return 0;
+                        }
+                    };
+                    const probed = [];
+                    for (const item of music) {
+                        probed.push({ item, channels: await probeChannels(item) });
+                    }
+                    const stereoItems = probed.filter((entry) => entry.channels >= 2).map((entry) => entry.item);
+                    const monoItems = probed.filter((entry) => entry.channels < 2);
+                    if (monoItems.length) {
+                        const names = monoItems.slice(0, 5)
+                            .map((entry) => String(entry.item.filePath || entry.item.path || '').split(/[\\/]/).pop())
+                            .join('、');
+                        showNotification('有 ' + monoItems.length + ' 个是单声道，做不了中置消除：' + names, 'warning');
+                    }
+                    if (!stereoItems.length) {
+                        showNotification('选中的都是单声道，去人声需要立体声音源', 'error');
+                        return;
+                    }
+                    if (!confirm('对 ' + stereoItems.length + ' 首立体声音乐做去人声？'
+                        + (monoItems.length ? '（另外 ' + monoItems.length + ' 个单声道会跳过）' : '')
+                        + '\n\n会生成一版伴奏 WAV，先放临时区，不会动原文件；试听后自己选保存位置。')) return;
+                    showNotification('正在去人声，请稍候…', 'info');
                     try {
                         const result = await rendererApi.post('/api/v1/audio/remove-vocals', {
-                            paths: music.map((item) => item.filePath || item.path),
-                        }, { timeoutMs: 600000 });
-                        showNotification('去人声完成：成功 ' + result.ok + ' 个' + (result.failed ? '，失败 ' + result.failed : ''), result.failed ? 'warning' : 'success');
-                        if (result.failed && result.results) {
-                            const firstError = result.results.find((item) => !item.ok);
-                            if (firstError) console.warn('[Devocal]', firstError.source, firstError.error);
+                            paths: stereoItems.map((item) => item.filePath || item.path),
+                        }, { timeoutMs: 900000 });
+                        const rows = (result?.results || [])
+                            .filter((item) => item.ok && item.destination)
+                            .map((item) => ({
+                                label: String(item.source || '').split(/[\\/]/).pop() || '伴奏',
+                                stemPath: item.destination,
+                            }));
+                        const failures = (result?.results || []).filter((item) => !item.ok);
+                        if (failures.length) {
+                            showNotification('有 ' + failures.length + ' 个没法处理：' + (failures[0].error || '未知原因'), 'warning');
                         }
+                        if (!rows.length) {
+                            if (!failures.length) showNotification('没有生成任何伴奏文件', 'warning');
+                            return;
+                        }
+                        openAudioSaveDialog({
+                            title: '去人声完成 · 试听并保存伴奏',
+                            hint: '先试听，满意再保存；保存位置自己选，不会写回原文件夹。',
+                            rows,
+                        });
                     } catch (error) {
                         showNotification('去人声失败: ' + (error?.message || error), 'error');
                     }
                 } },
-                { id: 'separate', label: 'AI 分轨', icon: 'layers', help: '用 Demucs 神经网络把音乐拆成人声/鼓/贝斯/其他四轨，并另存一版伴奏（去人声）。首次使用会下载模型（约 300 MB），之后每首十几到几十秒。输出到原文件夹的 _分轨 子目录。', run: async () => {
+                { id: 'separate', label: 'AI 分轨', icon: 'layers', help: '用 Demucs 把音乐拆成人声/鼓/贝斯/其他四条轨。结果先放临时区，试听后自己选保存哪几条、存到哪个文件夹，不会写回原文件夹。模型已内置，无需联网下载；每首十几到几十秒。', run: async () => {
                     const targets = requireTargets('分轨');
                     if (!targets) return;
                     const music = targets.filter((item) => (item.filePath || item.path || '').toLowerCase().match(/\.(mp3|wav|flac|m4a|aac|ogg)$/));
-                    if (!music.length) { showNotification('选中的文件里没有可处理的音乐', 'warning'); return; }
-                    if (!confirm('对 ' + music.length + ' 首做 AI 分轨？\n\n会拆出 人声/鼓/贝斯/其他 四轨，并另存一版伴奏，输出到原文件夹的「_分轨」子目录。\n首次使用需要下载模型（约 300 MB），之后每首十几到几十秒。')) return;
-                    showNotification('正在分轨（首次会下载模型，请耐心等）…', 'info');
+                    if (!music.length) { showNotification('选中的文件里没有可处理的音轨', 'warning'); return; }
+                    if (!confirm('对 ' + music.length + ' 个文件做 AI 分轨？\n\n会分出 人声/鼓/贝斯/其他 四条轨。分轨结果先放临时区，不会动你的原始文件夹——试听后自己选要保存哪几条、存到哪。\n模型已内置，不需要联网下载；每首十几到几十秒。')) return;
+                    showNotification('正在分轨，请稍候（首次加载模型会慢一点）…', 'info');
                     try {
                         const result = await rendererApi.post('/api/v1/audio/separate', {
                             paths: music.map((item) => item.filePath || item.path),
                         }, { timeoutMs: 3600000 });
-                        showNotification('分轨完成：成功 ' + result.ok + ' 首' + (result.failed ? '，失败 ' + result.failed : ''), result.failed ? 'warning' : 'success');
-                        if (result.failed && result.results) {
-                            const firstError = result.results.find((item) => !item.ok);
-                            if (firstError) console.warn('[Separate]', firstError.source, firstError.error);
-                        }
+                        openStemsDialog(result);
                     } catch (error) {
                         showNotification('分轨失败: ' + (error?.message || error), 'error');
                     }
                 } },
                 { id: 'repair', label: '修复路径', icon: 'wrench', help: '磁盘上改了文件夹名或移动了位置后，按同名同大小把库里的路径对上。', run: () => repairLibraryPaths(null) },
-                { id: 'reindex', label: '修复索引', icon: 'refresh-cw', help: '只补缺少和过期的索引，不重算已有数据。', run: () => runProjectIndexAction('reconcile') },
+                { id: 'reindex', label: '修复索引', icon: 'refresh-cw', help: '只补缺少和过期的索引（波形 + 两种向量一起跑）。', run: () => runProjectIndexAction('reconcile') },
+                { id: 'reindex_audio', label: '修复音频向量', icon: 'music', help: '只补「听感指纹」这一路（CLAP）。和文本向量分开跑，互不干扰。', run: () => runProjectIndexAction('reconcile', ['audio_vector']) },
+                { id: 'reindex_text', label: '修复文本向量', icon: 'file-text', help: '只补「按描述搜」这一路。导入描述包之后先点这个。', run: () => runProjectIndexAction('reconcile', ['text_vector']) },
                 { id: 'rebuild', label: '重建索引', icon: 'database', help: '把当前工程所有音效的索引全部重算，7 万条约 1~2 小时。', run: () => runProjectIndexAction('rebuild') },
-                { id: 'importdesc', label: '导入描述包', icon: 'file-down', help: '导入别人导出的描述包（.json），一次套用几万条描述和标签。', run: () => document.getElementById('descPackImportBtn')?.click() },
+                { id: 'importdesc', label: '导入描述包', icon: 'file-down', help: '导入别人导出的描述包或标签包（.json），一次套用几万条描述和标签；纯标签包也支持。', run: () => document.getElementById('descPackImportBtn')?.click() },
                 { id: 'exportdesc', label: '导出描述包', icon: 'file-up', help: '把当前库的描述和标签导出成 json，方便换机或分享。', run: () => document.getElementById('descPackExportBtn')?.click() },
                 { id: 'sfx', label: '创造音效', icon: 'sparkles', help: '用一句话生成新的音效。', run: () => document.getElementById('sfxMenuBtn')?.click() },
                 { id: 'recipe', label: '拟音工坊', icon: 'sliders-horizontal', help: '按配方叠加、裁切、变速生成新音效。', run: () => document.getElementById('recipeMenuBtn')?.click() },
                 { id: 'update', label: '检查更新', icon: 'download', help: '检查是否有新版本。', run: () => document.getElementById('checkUpdateMenuBtn')?.click() },
                 { id: 'cleartemp', label: '清理临时文件', icon: 'trash-2', help: '清理裁切/转码产生的临时文件。', run: () => document.getElementById('clearTempClipsBtn')?.click() }
             ];
-            const DEFAULTS = ['dup', 'tags', 'fx', 'transcode', 'devocal', 'rename', 'repair', 'reindex'];
+            const DEFAULTS = ['dup', 'tags', 'fx', 'transcode', 'devocal', 'rename', 'repair', 'reindex_audio', 'reindex_text'];
             // 重要新功能：老用户的已保存配置里没有的，也自动补上
-            const MUST_HAVE = ['fx'];
+            const MUST_HAVE = ['fx', 'reindex_audio', 'reindex_text'];
             const load = () => {
                 try {
                     const raw = localStorage.getItem(STORAGE_KEY);
@@ -1613,6 +1663,57 @@
             }, 2000);
         }
 
+        // 待索引积压卡片：只在「有积压 + 没在跑 + 用户没关掉」时出现
+        function maybeShowIndexBacklogCard(status, busy, job) {
+            const CARD_ID = 'indexBacklogCard';
+            const existing = document.getElementById(CARD_ID);
+            const audio = status?.artifacts?.audio_vector || {};
+            const text = status?.artifacts?.text_vector || {};
+            const num = (v) => Number(v || 0);
+            const audioBacklog = num(audio.pending) + num(audio.stale);
+            const textBacklog = num(text.pending) + num(text.stale);
+            const backlog = audioBacklog + textBacklog;
+            const dismissed = sessionStorage.getItem('echomind.indexBacklogDismissed') === '1';
+            if (busy || backlog < 1000 || dismissed) {
+                if (existing) existing.remove();
+                return;
+            }
+            if (existing) return;   // 已经显示着，别重复建
+
+            const textMinutes = Math.max(1, Math.round(textBacklog * 0.03));
+            const card = document.createElement('div');
+            card.id = CARD_ID;
+            card.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:900;width:360px;'
+                + 'background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;'
+                + 'box-shadow:0 8px 24px rgba(0,0,0,.18);padding:14px;font-size:12px;line-height:1.6';
+            card.innerHTML = ''
+                + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                + '  <strong style="font-size:13px">索引还没建完</strong>'
+                + '  <button id="indexBacklogClose" style="border:0;background:transparent;cursor:pointer;opacity:.55;font-size:14px">×</button>'
+                + '</div>'
+                + '<div style="opacity:.8">当前有 <b>' + backlog + '</b> 个文件待处理：'
+                + '文本 ' + textBacklog + ' 条' + (textBacklog ? '（约 ' + textMinutes + ' 分钟）' : '')
+                + '、音频 ' + audioBacklog + ' 条（耗时取决于音频总时长）。</div>'
+                + '<div style="opacity:.65;margin-top:4px">两种向量建议分开跑，别同时开。</div>'
+                + '<div style="display:flex;gap:8px;margin-top:10px">'
+                + '  <button id="indexBacklogText" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">修复文本向量</button>'
+                + '  <button id="indexBacklogAudio" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">修复音频向量</button>'
+                + '</div>';
+            document.body.appendChild(card);
+            card.querySelector('#indexBacklogClose')?.addEventListener('click', () => {
+                sessionStorage.setItem('echomind.indexBacklogDismissed', '1');
+                card.remove();
+            });
+            card.querySelector('#indexBacklogText')?.addEventListener('click', () => {
+                card.remove();
+                runProjectIndexAction('reconcile', ['text_vector']);
+            });
+            card.querySelector('#indexBacklogAudio')?.addEventListener('click', () => {
+                card.remove();
+                runProjectIndexAction('reconcile', ['audio_vector']);
+            });
+        }
+
         async function refreshProjectIndexStatus(options = {}) {
             // 只有首次加载/手动重试才显示「读取中…」；
             // 例行轮询（每 2 秒）不显示，否则界面会不停闪。
@@ -1682,6 +1783,7 @@
                 const jobDetail = job && Number(job.total) > 0
                     ? '（已编码 ' + Number(job.processed || 0) + ' / ' + Number(job.total) + '）'
                     : (encoded > 0 ? '（本次已编码 ' + encoded + ' 条）' : '');
+                const zh = status?.zh_text || null;
                 ['audioPendingStatus', 'textPendingStatus'].forEach((id) => {
                     const el = document.getElementById(id);
                     if (!el) return;
@@ -1689,6 +1791,18 @@
                         ? '后台正在处理，无需操作' + jobDetail
                         : '还没建立索引；可点常用条的「修复索引」，或等下次启动自动补';
                 });
+                // 中文语义（BGE）不可用时，明确说出来：否则搜索只剩关键词分，用户以为搜错了
+                if (zh && !zh.available) {
+                    const el = document.getElementById('textPendingStatus');
+                    if (el) {
+                        el.title = (el.title ? el.title + '｜' : '')
+                            + '中文语义检索不可用：' + (zh.hint || '索引未建立')
+                            + '（已建 ' + Number(zh.count || 0) + ' 条）';
+                    }
+                }
+
+                // 有大量待索引时给一张明确的卡片，而不是让它静默躺在数字里（B4）
+                maybeShowIndexBacklogCard(status, busy, job);
 
                 // 读成功但当前没有索引任务 → 清掉「读取中…／读取失败」这类临时文案
                 const label = document.getElementById('indexJobStatus');
@@ -1717,7 +1831,8 @@
             }
         }
 
-        async function runProjectIndexAction(mode) {
+        // kinds 可以只给一部分：音频向量和文本向量分开跑，避免两条管道互相拖死
+        async function runProjectIndexAction(mode, kinds) {
             if (indexJobRunning) return;
             indexJobRunning = true;
             const reconcileButton = document.getElementById('reconcileIndexBtn');
@@ -1726,16 +1841,19 @@
                 if (button) button.disabled = true;
             });
             try {
-                const kinds = ['waveform', 'audio_vector', 'text_vector'];
+                const scope = Array.isArray(kinds) && kinds.length ? kinds : ['waveform', 'audio_vector', 'text_vector'];
                 const job = mode === 'rebuild'
-                    ? await rendererProjects.rebuildIndex(currentProject.id, kinds)
-                    : await rendererProjects.reconcileIndex(currentProject.id, kinds);
+                    ? await rendererProjects.rebuildIndex(currentProject.id, scope)
+                    : await rendererProjects.reconcileIndex(currentProject.id, scope);
                 updateIndexJobStatus(job);
                 const completed = await rendererProjects.waitForJob(job.job_id, {
                     onUpdate: updateIndexJobStatus
                 });
                 if (completed.state === 'completed') {
-                    showNotification(mode === 'rebuild' ? '索引完整重建完成' : '索引缺失项修复完成', 'success');
+                    const label = scope.length === 3 ? '索引'
+                        : scope.includes('audio_vector') ? '音频向量'
+                        : scope.includes('text_vector') ? '文本向量' : '波形';
+                    showNotification((mode === 'rebuild' ? label + '重建完成' : label + '修复完成'), 'success');
                 } else {
                     throw new Error(completed.error_message || `索引任务状态: ${completed.state}`);
                 }
@@ -1752,7 +1870,7 @@
         }
 
         // ==================== NOTIFICATIONS ====================
-        function showNotification(message, type = 'info') {
+        function showNotification(message, type = 'info', durationMs = 3000) {
             // 独立浮窗内不弹通知（后端就绪/语言等全局提示不需要）
             if (document.body.dataset.floatMode) return;
             // 创建通知元素
@@ -1774,7 +1892,7 @@
 
             document.body.appendChild(notification);
 
-            // 3秒后自动移除
+            // 默认 3 秒；需要用户读一段话时传更长的时长
             setTimeout(() => {
                 notification.style.animation = 'slideOut 0.3s ease';
                 setTimeout(() => {
@@ -1782,7 +1900,7 @@
                         notification.parentNode.removeChild(notification);
                     }
                 }, 300);
-            }, 3000);
+            }, Math.max(1000, Number(durationMs) || 3000));
         }
         
         // 添加动画样式
@@ -1840,6 +1958,7 @@
                     
                     updatePlaybackUI();
                     drawMainWaveform();
+                    updateChannelMeters();
                     animationFrameId = requestAnimationFrame(update);
                 }
             }
@@ -1848,6 +1967,7 @@
         
         function stopPlaybackAnimation() {
             try { fishSetPlaying(false); } catch (_) { }
+            try { updateChannelMeters(); } catch (_) { }
             if (animationFrameId) {
                 cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
@@ -1936,9 +2056,16 @@
             header.appendChild(clear);
             menu.appendChild(header);
 
-            items.slice(0, 12).forEach((text) => {
+            const chipBox = document.createElement('div');
+            chipBox.className = 'flex flex-wrap gap-1.5 px-2 pb-2';
+            menu.appendChild(chipBox);
+            items.slice(0, 24).forEach((text) => {
                 const row = document.createElement('button');
-                row.className = 'block w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 truncate';
+                row.className = 'px-2 py-1 text-xs rounded border whitespace-nowrap hover:bg-white/10';
+                row.style.borderColor = 'var(--border-color)';
+                row.style.maxWidth = '220px';
+                row.style.overflow = 'hidden';
+                row.style.textOverflow = 'ellipsis';
                 row.textContent = text;
                 row.addEventListener('mousedown', (event) => {
                     event.preventDefault();
@@ -1947,7 +2074,7 @@
                     menu.classList.add('hidden');
                     if (typeof runKeywordSearch === 'function') runKeywordSearch();
                 });
-                menu.appendChild(row);
+                chipBox.appendChild(row);
             });
             menu.classList.remove('hidden');
         }
@@ -2015,7 +2142,7 @@
             const menu = document.getElementById('searchHistoryMenu');
             if (input && menu) {
                 const show = () => renderSearchHistoryMenu(input.value);
-                input.addEventListener('focus', show);
+                input.addEventListener('focus', () => { if (!input.value.trim()) show(); });
                 input.addEventListener('input', () => {
                     if (!input.value.trim()) renderSearchHistoryMenu('');
                     else menu.classList.add('hidden');
@@ -2600,7 +2727,7 @@
             panel.style.cssText = 'z-index:342;background:var(--bg-secondary);border:1px solid var(--border-color);width:380px;height:460px;overflow:hidden';
             panel.innerHTML = [
                 '<div class="flex items-center gap-2 px-3 py-2 border-b" style="border-color:var(--border-color)">',
-                '  <span style="font-size:13px;font-weight:600">大肥鱼</span>',
+                '  <span style="font-size:13px;font-weight:600">回声</span>',
                 '  <span class="opacity-40" style="font-size:10px">AI 助理</span>',
                 '  <button id="fishVoiceBtn" class="ml-auto opacity-60 hover:opacity-100" style="font-size:11px">语音关</button>',
                 '  <button id="fishChatClear" class="opacity-50 hover:opacity-100" style="font-size:11px">清空</button>',
@@ -2608,7 +2735,7 @@
                 '</div>',
                 '  <div id="fishChatBody" class="flex-1 overflow-y-auto px-3 py-2 space-y-2" style="font-size:12px;min-height:0"></div>',
                 '  <div class="px-3 py-2 border-t flex items-center gap-2" style="border-color:var(--border-color)">',
-                '    <input id="fishChatInput" class="flex-1 px-2 py-1.5 rounded text-xs" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)" placeholder="问大肥鱼：找雨声 / 索引还有多少 / 帮我看看待归类">',
+                '    <input id="fishChatInput" class="flex-1 px-2 py-1.5 rounded text-xs" style="background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)" placeholder="问回声：找雨声 / 索引还有多少 / 帮我看看待归类">',
                 '    <button id="fishChatSend" class="px-3 py-1.5 rounded text-xs text-white" style="background:#8b5cf6">发送</button>',
                 '  </div>'
             ].join('');
@@ -2624,7 +2751,7 @@
                 body.innerHTML = '';
                 if (!fishChat.messages.length) {
                     body.innerHTML = '<div class="opacity-50" style="font-size:11px;line-height:1.7">'
-                        + '我是大肥鱼，住在你顶栏。<br>可以问我：<br>'
+                        + '我是回声，住在你顶栏。<br>可以问我：<br>'
                         + '· 找雨声 / 找玻璃碎裂<br>· 索引还有多少没跑<br>· 库里还有多少待归类</div>';
                     return;
                 }
@@ -2641,7 +2768,25 @@
                     const mine = m.role === 'user';
                     bubble.style.cssText = 'max-width:88%;padding:6px 9px;border-radius:8px;line-height:1.6;white-space:pre-wrap;'
                         + (mine ? 'margin-left:auto;background:rgba(139,92,246,.22);' : 'background:rgba(255,255,255,.06);');
-                    bubble.textContent = m.text;
+                    if (mine) {
+                        bubble.textContent = m.text;
+                    } else {
+                        // 助手回复按「句 → 字」两层切开（B21 逐字同步）：
+                        // 句子用来判断当前播放到哪一段，字用来做卡拉OK式的高亮。
+                        bubble.dataset.fishReply = String(fishChat.messages.indexOf(m));
+                        let cursor = 0;
+                        const parts = String(m.text || '').match(/[^。！？!?\n]*[。！？!?\n]?/g) || [];
+                        parts.forEach((part) => {
+                            if (!part) return;
+                            const sent = document.createElement('span');
+                            sent.className = 'fish-sent';
+                            sent.dataset.start = String(cursor);
+                            sent.dataset.end = String(cursor + part.length);
+                            sent.textContent = part;
+                            bubble.appendChild(sent);
+                            cursor += part.length;
+                        });
+                    }
                     body.appendChild(bubble);
                 });
                 body.scrollTop = body.scrollHeight;
@@ -2658,7 +2803,7 @@
                 thinking.id = 'fishThinking';
                 thinking.className = 'opacity-50';
                 thinking.style.fontSize = '11px';
-                thinking.textContent = '大肥鱼正在想…';
+                thinking.textContent = '回声正在想…';
                 body.appendChild(thinking);
                 body.scrollTop = body.scrollHeight;
                 try {
@@ -2677,7 +2822,53 @@
                     });
                     fishChat.messages.push({ role: 'assistant', text: res?.reply || '（没有回复）' });
                     fishChatSave(fishChat.messages);
-                    fishSpeak(res?.reply || '');
+                    // 语音模式：文字先不出现，等第一段语音就绪再显示，
+                    // 这样文字和声音从第一句就是对齐的（用户建议的方案）。
+                    const replyText = String(res?.reply || '');
+                    if (fishVoiceEnabled() && replyText) {
+                        const pendingMsg = fishChat.messages[fishChat.messages.length - 1];
+                        // 等语音期间先显示占位，别留一个空气泡
+                        pendingMsg.text = '正在准备语音…';
+                        paint();
+                        let revealed = false;
+                        const reveal = () => {
+                            if (revealed) return;
+                            revealed = true;
+                            pendingMsg.text = replyText;
+                            paint();
+                        };
+                        // 兜底：语音 8 秒还没就绪就先显示文字，别让用户干等
+                        const fallback = setTimeout(reveal, 8000);
+                        fishSpeak(replyText, {
+                            onFirstAudio: () => {
+                                clearTimeout(fallback);
+                                // 先显示文字（重建 span），下一帧再开始高亮
+                                reveal();
+                                return new Promise((r) => requestAnimationFrame(() => r()));
+                            },
+                            onGiveUp: () => { clearTimeout(fallback); reveal(); }
+                        });
+                    } else {
+                        fishSpeak(replyText);
+                    }
+
+                    // 助理搜到的音效直接铺到主列表：不切窗口也能看到、试听、拖拽
+                    try {
+                        const searchTrace = (res?.traces || [])
+                            .filter((t) => t.action === 'search' && (t.result?.items || []).length)
+                            .pop();
+                        const hits = searchTrace?.result?.items || [];
+                        if (hits.length && typeof displayAiSearchResults === 'function') {
+                            displayAiSearchResults(hits.map((item) => ({
+                                filename: item.name || String(item.path || '').split(/[\\/]/).pop() || '',
+                                file_path: item.path || '',
+                                similarity: item.score,
+                                tags: [],
+                            })));
+                        }
+                    } catch (err) {
+                        console.warn('[Fish] 搜索结果铺到主列表失败:', err);
+                    }
                 } catch (error) {
                     fishChat.messages.push({ role: 'assistant', text: '出错了：' + (error?.message || error) });
                 } finally {
@@ -2691,9 +2882,14 @@
             paintVoice();
             voiceBtn?.addEventListener('click', () => {
                 localStorage.setItem('echomind.fishVoice', fishVoiceEnabled() ? '0' : '1');
+                // 关掉语音就立刻停播，别让高亮和声音继续跑（B21）
+                if (!fishVoiceEnabled()) stopAssistantSpeech();
                 paintVoice();
             });
-            panel.querySelector('#fishChatClose').addEventListener('click', () => panel.remove());
+            panel.querySelector('#fishChatClose').addEventListener('click', () => {
+                stopAssistantSpeech();
+                panel.remove();
+            });
             panel.querySelector('#fishChatClear').addEventListener('click', () => {
                 fishChat.messages = [];
                 fishChatSave([]);
@@ -2715,7 +2911,7 @@
             pop.style.cssText = 'z-index:341;background:var(--bg-secondary);border:1px solid var(--border-color);width:230px';
             pop.innerHTML = [
                 '<div class="flex items-center gap-2 mb-2">',
-                '  <span style="font-size:13px;font-weight:600">大肥鱼</span>',
+                '  <span style="font-size:13px;font-weight:600">回声</span>',
                 '  <span id="fishStatusText" class="opacity-50" style="font-size:10px">待机中</span>',
                 '</div>',
                 '<div id="fishStats" class="space-y-1" style="font-size:11px"></div>',
@@ -2765,7 +2961,7 @@
                 localStorage.setItem('echomind.fishHidden', '1');
                 fishApplyVisibility();
                 pop.remove();
-                showNotification('大肥鱼藏起来了，可在设置里叫回来', 'info');
+                showNotification('回声藏起来了，可在设置里叫回来', 'info');
             });
             const close = (e) => {
                 if (!pop.contains(e.target) && e.target.id !== 'navFishBtn') {
@@ -2843,17 +3039,182 @@
 
         function fishVoiceEnabled() { return localStorage.getItem('echomind.fishVoice') === '1'; }
 
-        async function fishSpeak(text) {
-            if (!fishVoiceEnabled() || !text) return;
-            try {
-                const res = await rendererApi.post('/api/v1/assistant/speak', { text: String(text).slice(0, 400) }, { timeoutMs: 90000 });
-                if (!res?.path) return;
-                const audio = new Audio('soundmind-audio://local/' + encodeURIComponent(res.path));
-                audio.volume = 0.9;
-                await audio.play().catch(() => { });
-            } catch (error) {
-                console.warn('[Fish] 语音失败:', error);
+        // 把回复切成适合逐句合成的片段：先按句末标点切，太长的句子再按逗号切，
+        // 这样第一句可以先播，后面几句边播边合成（流水线）。
+        // 返回 {text, start, end}：start/end 是这段文字在整条回复里的字符偏移，
+        // 语音逐段播放时用它来点亮对应句子（B21）。
+        function splitSpeech(text) {
+            const raw = String(text || '').replace(/\r/g, '');
+            const clean = raw.trim();
+            if (!clean) return [];
+            const lead = raw.indexOf(clean);
+            const base = lead < 0 ? 0 : lead;
+            const out = [];
+            const MAX = 26;
+            let cursor = 0;
+            const sentences = clean.split(/(?<=[。！？!?；;\n])/);
+            for (const rawSentence of sentences) {
+                const s = rawSentence;
+                if (!s.trim()) { cursor += s.length; continue; }
+                const cap = out.length ? MAX : 12;
+                const push = (piece) => {
+                    if (!piece) return;
+                    const at = clean.indexOf(piece, cursor);
+                    const start = (at < 0 ? cursor : at) + base;
+                    out.push({ text: piece, start, end: start + piece.length });
+                };
+                if (s.length <= cap) { push(s); cursor += s.length; continue; }
+                let buf = '';
+                for (const seg of s.split(/(?<=[，,、：:])/)) {
+                    const limit = out.length ? MAX : cap;
+                    if (buf && (buf + seg).length > limit) { push(buf); buf = seg; }
+                    else buf += seg;
+                }
+                push(buf);
+                cursor += s.length;
             }
+            if (!out.length) return [{ text: clean, start: base, end: base + clean.length }];
+            return out;
+        }
+
+        let fishSpeechGen = 0;
+        let fishSpeechAudio = null;
+
+        // 语音播到哪一句就点亮哪一句，并把气泡滚到可视区中间（B21）
+        let fishHighlightGen = -1;
+        function highlightAssistantSentence(gen, start, end) {
+            fishHighlightGen = gen;
+            const chatBody = document.getElementById('fishChatBody');
+            if (!chatBody) return;
+            const bubbles = chatBody.querySelectorAll('[data-fish-reply]');
+            const bubble = bubbles.length ? bubbles[bubbles.length - 1] : null;
+            if (!bubble) return;
+            let firstActive = null;
+            bubble.querySelectorAll('.fish-sent').forEach((span) => {
+                const s = Number(span.dataset.start || 0);
+                const e = Number(span.dataset.end || 0);
+                const active = e > start && s < end;
+                span.classList.toggle('fish-sent-active', active);
+                if (active && !firstActive) firstActive = span;
+            });
+            if (firstActive && typeof firstActive.scrollIntoView === 'function') {
+                try { firstActive.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) { }
+            }
+        }
+        function clearAssistantHighlight() {
+            fishHighlightGen = -1;
+            document.querySelectorAll('#fishChatBody .fish-sent-active')
+                .forEach((span) => span.classList.remove('fish-sent-active'));
+        }
+        function stopAssistantSpeech() {
+            fishSpeechGen += 1;
+            if (fishSpeechAudio) { try { fishSpeechAudio.pause(); } catch (_) { } fishSpeechAudio = null; }
+            clearAssistantHighlight();
+            if (window.echoAvatar) { try { window.echoAvatar.stopTalk(); } catch (_) { } }
+        }
+
+        async function fishSpeak(text, options) {
+            const opts = options || {};
+            if (!fishVoiceEnabled() || !text) {
+                if (typeof opts.onGiveUp === 'function') opts.onGiveUp();
+                return;
+            }
+            const gen = ++fishSpeechGen;
+            if (fishSpeechAudio) { try { fishSpeechAudio.pause(); } catch (_) { } fishSpeechAudio = null; }
+            const chunks = splitSpeech(text);
+            if (!chunks.length) return;
+            const stats = { chunks: chunks.length, t0: performance.now(), firstAudio: 0, done: 0, failed: 0, log: [] };
+            window.__fishSpeechStats = stats;
+
+            // 合成请求：失败重试一次，避免某一段静默丢失导致「念到一半没了」
+            const pending = new Array(chunks.length).fill(null);
+            const request = (i) => {
+                if (i >= chunks.length) return;
+                if (pending[i]) return;
+                pending[i] = (async () => {
+                    // 冷启动时 Breeze 可能还没起来（503），退避重试 4 次；
+                    // 第一段尤其重要——以前这里只重试一次就放弃了，用户听到的是「第一句没声音」。
+                    const delays = [0, 800, 2000, 4000];
+                    for (let attempt = 0; attempt < delays.length; attempt += 1) {
+                        if (delays[attempt]) {
+                            await new Promise((r) => setTimeout(r, delays[attempt]));
+                        }
+                        try {
+                            const r = await rendererApi.post('/api/v1/assistant/speak',
+                                { text: String(chunks[i].text || '').slice(0, 400) }, { timeoutMs: 90000 });
+                            if (r && r.path) return r.path;
+                        } catch (error) {
+                            if (attempt === delays.length - 1) {
+                                console.warn('[Fish] 第 ' + (i + 1) + ' 段合成失败:', error?.message || error);
+                            }
+                        }
+                    }
+                    return null;
+                })();
+            };
+            for (let i = 0; i < Math.min(2, chunks.length); i++) request(i);
+
+            for (let i = 0; i < chunks.length; i++) {
+                if (gen !== fishSpeechGen) return;   // 有新回复插进来，放弃这一条
+                const path = await pending[i];
+                request(i + 2);
+                if (gen !== fishSpeechGen) return;
+                if (!path) {
+                    stats.failed += 1;
+                    stats.log.push({ i, chars: chunks[i].text.length, ok: false });
+                    console.warn('[Fish] 第 ' + (i + 1) + ' 段语音合成失败，已跳过');
+                    // B14：以前这种失败被 catch 吞掉，用户只觉得「没声音」。
+                    // 第一次失败就明确提示一次，别每次都弹。
+                    if (!window.__fishSpeakWarned) {
+                        window.__fishSpeakWarned = true;
+                        try {
+                            showNotification('语音合成失败，这一段跳过朗读（可稍后重试）', 'error');
+                        } catch (_) { }
+                    }
+                    continue;
+                }
+                const started = performance.now();
+                if (i === 0 && typeof opts.onFirstAudio === 'function') {
+                    try { await opts.onFirstAudio(); } catch (_) { }
+                }
+                highlightAssistantSentence(gen, chunks[i].start, chunks[i].end);
+                await new Promise((resolve) => {
+                    const audio = new Audio('soundmind-audio://local/' + encodeURIComponent(path));
+                    audio.volume = 0.9;
+                    fishSpeechAudio = audio;
+                    if (!stats.firstAudio) stats.firstAudio = performance.now() - stats.t0;
+                    if (window.echoAvatar) window.echoAvatar.talk(chunks[i].text);
+                    let finished = false;
+                    const finish = (reason) => {
+                        if (finished) return;
+                        finished = true;
+                        clearTimeout(watch);
+                        audio.onended = null;
+                        audio.onerror = null;
+                        if (reason !== 'ended') stats.log.push({ i, chars: chunks[i].text.length, ok: false, reason });
+                        resolve();
+                    };
+                    // 看门狗：音频一旦卡住（onended 不来）也要让队列继续，别把后面全堵死
+                    const watch = setTimeout(() => finish('timeout'), 45000);
+                    audio.onended = () => finish('ended');
+                    audio.onerror = () => finish('error');
+                    audio.play().catch(() => finish('play-failed'));
+                });
+                stats.log.push({ i, chars: chunks[i].text.length, ok: true, ms: Math.round(performance.now() - started) });
+            }
+            stats.done = performance.now() - stats.t0;
+            if (stats.failed === chunks.length && typeof opts.onGiveUp === 'function') {
+                try { opts.onGiveUp(); } catch (_) { }
+            }
+            if (gen === fishSpeechGen) clearAssistantHighlight();
+            if (gen === fishSpeechGen && window.echoAvatar) window.echoAvatar.stopTalk();
+        }
+
+        // 本地 TTS 冷启动要 1 秒多，开机时有语音就预热一次，第一条回复不用多等
+        if (fishVoiceEnabled()) {
+            setTimeout(() => {
+                rendererApi.post('/api/v1/assistant/speak', { text: '嗯' }, { timeoutMs: 30000 }).catch(() => { });
+            }, 8000);
         }
 
         function fishBubble(text, ms = 7000) {
@@ -2904,7 +3265,7 @@
                 event.preventDefault();
                 localStorage.setItem('echomind.fishHidden', '1');
                 fishApplyVisibility();
-                showNotification('大肥鱼已隐藏，右键顶栏空白处可恢复（或设置里）', 'info');
+                showNotification('回声已隐藏，右键顶栏空白处可恢复（或设置里）', 'info');
             });
             fishSetPlaying(typeof isPlaying !== 'undefined' ? isPlaying : false);
         }
@@ -3239,6 +3600,7 @@
         // ===== 多声道条 =====
         const channelState = {
             count: 0,
+            layout: '',
             peaks: [],
             mutes: new Set(),
             solos: new Set(),
@@ -3265,19 +3627,65 @@
         }
 
 
+        // 按 ffmpeg 的标准声道顺序给名字（5.1 = FL FR FC LFE BL BR）
+        const CHANNEL_LABELS = {
+            mono: ['M'],
+            stereo: ['L', 'R'],
+            '2.1': ['L', 'R', 'LFE'],
+            quad: ['L', 'R', 'SL', 'SR'],
+            '5.0': ['L', 'R', 'C', 'SL', 'SR'],
+            '5.1': ['L', 'R', 'C', 'LFE', 'SL', 'SR'],
+            '6.1': ['L', 'R', 'C', 'LFE', 'BC', 'SL', 'SR'],
+            '7.1': ['L', 'R', 'C', 'LFE', 'BL', 'BR', 'SL', 'SR'],
+        };
+        function channelLabel(index, total) {
+            const byLayout = CHANNEL_LABELS[String(channelState.layout || '')] || null;
+            if (byLayout && byLayout[index]) return byLayout[index];
+            if (total === 2) return ['L', 'R'][index] || ('CH' + (index + 1));
+            if (total === 6) return ['L', 'R', 'C', 'LFE', 'SL', 'SR'][index] || ('CH' + (index + 1));
+            if (total === 4) return ['L', 'R', 'SL', 'SR'][index] || ('CH' + (index + 1));
+            return 'CH' + (index + 1);
+        }
+
+        // 当前播放位置附近的峰值 → 该声道此刻的「音量」
+        function channelLevelAt(peaks, ratio) {
+            if (!Array.isArray(peaks) || !peaks.length) return 0;
+            const center = Math.min(peaks.length - 1, Math.max(0, Math.floor(ratio * peaks.length)));
+            let max = 0;
+            for (let i = Math.max(0, center - 2); i <= Math.min(peaks.length - 1, center + 2); i += 1) {
+                const v = Math.abs(Number(peaks[i]) || 0);
+                if (v > max) max = v;
+            }
+            return Math.min(1, max);
+        }
+
+        // 只在波形左边那一条里画「电平条」，不画波形
         function renderChannelStrips() {
-            const bar = document.getElementById('channelBar');
-            const strips = document.getElementById('channelStrips');
+            const rail = document.getElementById('channelRail');
+            const meters = document.getElementById('channelMeters');
             const info = document.getElementById('channelInfo');
-            if (!bar || !strips) return;
-            // 默认只有 >2 声道才自动展开；双声道可用「声道」按钮手动打开
+            if (!rail || !meters) return;
             const pinned = localStorage.getItem('echomind.channelBar') === '1';
-            if (!channelState.count || (channelState.count < 3 && !pinned)) {
-                bar.classList.add('hidden');
+            // 用户没点「声道」按钮就不显示（以前 >2 声道会自动展开）
+            if (!channelState.count || !pinned) {
+                rail.classList.add('hidden');
+                rail.classList.remove('flex');
+                document.getElementById('channelSplitter')?.classList.add('hidden');
+                const tools = document.getElementById('channelRailTools');
+                if (tools) { tools.classList.add('hidden'); tools.classList.remove('flex'); }
                 return;
             }
-            bar.classList.remove('hidden');
-            strips.innerHTML = '';
+            rail.classList.remove('hidden');
+            rail.classList.add('flex');
+            const tools = document.getElementById('channelRailTools');
+            if (tools) { tools.classList.remove('hidden'); tools.classList.add('flex'); }
+            const splitter = document.getElementById('channelSplitter');
+            if (splitter) {
+                splitter.classList.remove('hidden');
+                const savedWidth = Number(localStorage.getItem('echomind.channelRailWidth') || 0);
+                if (savedWidth >= 60) rail.style.width = savedWidth + 'px';
+            }
+            meters.innerHTML = '';
 
             const mutedNow = new Set();
             if (channelState.solos.size) {
@@ -3287,74 +3695,156 @@
             }
             channelState.mutes.forEach(i => mutedNow.add(i));
 
-            channelState.peaks.forEach((peaks, index) => {
+            const total = Math.min(6, channelState.count);
+            for (let index = 0; index < total; index += 1) {
                 const channel = index + 1;
-                const strip = document.createElement('div');
-                strip.className = 'flex flex-col items-center gap-0.5 shrink-0';
-                strip.style.width = '64px';
+                const item = document.createElement('div');
+                item.className = 'flex flex-col items-center gap-0.5 min-h-0 shrink-0';
+                item.style.width = '40px';
 
                 const label = document.createElement('div');
-                label.className = 'text-[10px] opacity-60';
-                label.textContent = 'CH' + channel;
-                strip.appendChild(label);
+                label.className = 'text-[9px] opacity-60 shrink-0';
+                label.textContent = channelLabel(index, channelState.count);
+                item.appendChild(label);
 
-                const canvas = document.createElement('canvas');
-                canvas.className = 'rounded';
-                canvas.style.width = '64px';
-                canvas.style.height = '46px';
-                canvas.style.background = 'var(--bg-tertiary)';
-                strip.appendChild(canvas);
-                rendererWaveform.renderChannelStrip(canvas, peaks, { muted: mutedNow.has(channel) });
+                const track = document.createElement('div');
+                track.className = 'flex-1 w-[16px] rounded-sm overflow-hidden relative min-h-0';
+                track.style.minHeight = '18px';
+                track.style.background = 'var(--bg-tertiary)';
+                const fill = document.createElement('div');
+                fill.dataset.fillCh = String(channel);
+                fill.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:0%;'
+                    + 'background:linear-gradient(to top,#22c55e,#eab308 70%,#ef4444);transition:height .06s linear';
+                fill.style.opacity = mutedNow.has(channel) ? '0.45' : '1';
+                track.appendChild(fill);
+                item.appendChild(track);
 
                 const buttons = document.createElement('div');
-                buttons.className = 'flex gap-0.5';
-
-                const mkToggle = (text, active, color, handler) => {
+                buttons.className = 'flex gap-0.5 shrink-0 w-full';
+                const mkToggle = (text, active, color, handler, kind) => {
                     const button = document.createElement('button');
-                    button.className = 'w-7 h-5 rounded text-[10px] border';
+                    // 铺满整列：两个按钮撑不进 30px 就会压到旁边声道
+                    button.className = 'flex-1 min-w-0 h-4 rounded text-[9px] border leading-none px-0';
                     button.textContent = text;
                     button.style.borderColor = 'var(--border-color)';
                     button.style.background = active ? color : 'transparent';
                     button.style.color = active ? '#fff' : 'var(--text-secondary)';
+                    button.dataset.btnCh = String(channel);
+                    button.dataset.kind = kind;
                     button.addEventListener('click', handler);
                     return button;
                 };
                 buttons.appendChild(mkToggle('S', channelState.solos.has(channel), '#3b82f6', () => {
                     if (channelState.solos.has(channel)) channelState.solos.delete(channel);
                     else channelState.solos.add(channel);
-                    renderChannelStrips();
+                    updateChannelButtonStates();
                     applyChannelSelection();
-                }));
+                }, 'S'));
                 buttons.appendChild(mkToggle('M', channelState.mutes.has(channel), '#ef4444', () => {
                     if (channelState.mutes.has(channel)) channelState.mutes.delete(channel);
                     else channelState.mutes.add(channel);
-                    renderChannelStrips();
+                    updateChannelButtonStates();
                     applyChannelSelection();
-                }));
-                strip.appendChild(buttons);
-                strips.appendChild(strip);
-            });
+                }, 'M'));
+                item.appendChild(buttons);
+                meters.appendChild(item);
+            }
 
             if (info) info.textContent = channelState.count + ' 声道';
+        }
+
+        // 每帧刷新电平：没有播放时归零
+        // 只改按钮外观，不重建 DOM：重建会让整个播放区闪一下
+        function updateChannelButtonStates() {
+            document.querySelectorAll('#channelMeters button[data-btn-ch]').forEach((btn) => {
+                const channel = Number(btn.dataset.btnCh);
+                const isSolo = btn.dataset.kind === 'S';
+                const active = isSolo ? channelState.solos.has(channel) : channelState.mutes.has(channel);
+                btn.style.background = active ? (isSolo ? '#3b82f6' : '#ef4444') : 'transparent';
+                btn.style.color = active ? '#fff' : 'var(--text-secondary)';
+            });
+            const mutedNow = new Set(channelState.mutes);
+            if (channelState.solos.size) {
+                for (let i = 1; i <= channelState.count; i += 1) {
+                    if (!channelState.solos.has(i)) mutedNow.add(i);
+                }
+            }
+            document.querySelectorAll('#channelMeters [data-fill-ch]').forEach((fill) => {
+                fill.style.opacity = mutedNow.has(Number(fill.dataset.fillCh)) ? '0.45' : '1';
+            });
+        }
+
+        function updateChannelMeters() {
+            if (!channelState.count) return;
+            const fills = document.querySelectorAll('#channelMeters [data-fill-ch]');
+            if (!fills.length) return;
+            const playing = !!(audioPlayer && isPlaying && !audioPlayer.paused);
+            const duration = Number(audioPlayer?.duration || 0);
+            const ratio = playing && duration > 0
+                ? Math.min(1, Math.max(0, audioPlayer.currentTime / duration))
+                : 0;
+            fills.forEach((fill) => {
+                const channel = Number(fill.dataset.fillCh) - 1;
+                const level = playing ? channelLevelAt(channelState.peaks[channel], ratio) : 0;
+                const prev = Number(fill.dataset.level || 0);
+                // 没在播就直接归零，不要留一个慢慢衰减的残影
+                const next = !playing ? 0 : (level > prev ? level : prev * 0.75 + level * 0.25);
+                fill.dataset.level = String(next);
+                fill.style.height = Math.round(next * 100) + '%';
+            });
         }
 
         async function loadChannelsFor(sound) {
             const filePath = sound?.filePath;
             if (!filePath) return;
             try {
-                const data = await rendererApi.get('/api/v1/audio/channels?path=' + encodeURIComponent(filePath) + '&points=160');
+                const data = await rendererApi.get('/api/v1/audio/channels?path=' + encodeURIComponent(filePath) + '&points=600');
                 channelState.count = Number(data?.channels || 0);
+                channelState.layout = String(data?.layout || '');
                 channelState.peaks = Array.isArray(data?.peaks) ? data.peaks : [];
                 channelState.mutes.clear();
                 channelState.solos.clear();
                 channelState.paths.clear();
                 renderChannelStrips();
+                prefetchChannelMixes(sound);
             } catch (error) {
                 console.warn('[Channels] 读取声道失败:', error);
                 channelState.count = 0;
                 channelState.peaks = [];
                 renderChannelStrips();
             }
+        }
+
+        // 预先在后台把「单独听某个声道」的试听文件生成好（服务端按组合缓存），
+        // 这样第一次点 S/M 时不用等解码，基本是瞬间切换。
+        function prefetchChannelMixes(sound) {
+            if (!sound?.filePath || !channelState.count) return;
+            if (localStorage.getItem('echomind.channelBar') !== '1') return;
+            const total = Math.min(6, channelState.count);
+            const variants = [];
+            for (let i = 1; i <= total; i += 1) variants.push([i]);
+            if (total <= 3) {
+                for (let i = 1; i <= total; i += 1) {
+                    const rest = [];
+                    for (let k = 1; k <= total; k += 1) if (k !== i) rest.push(k);
+                    if (rest.length) variants.push(rest);
+                }
+            }
+            const filePath = sound.filePath;
+            const projectId = currentProject?.id || 'default';
+            void (async () => {
+                for (const audible of variants) {
+                    const key = total + ':' + audible.join(',');
+                    if (channelState.paths.has(key)) continue;
+                    try {
+                        const res = await rendererApi.post('/api/v1/audio/channel-mix',
+                            { path: filePath, audible }, { timeoutMs: 120000 });
+                        if (res?.path) {
+                            channelState.paths.set(key, 'soundmind-audio://local/' + encodeURIComponent(res.path));
+                        }
+                    } catch (_) { }
+                }
+            })();
         }
 
         async function resolveChannelSource(sound) {
@@ -3374,26 +3864,242 @@
 
         async function applyChannelSelection() {
             if (!currentSound) return;
+            // S 和 M 同时选中 = 这条声道既不单独听也被静音 → 什么都不响
+            const audibleNow = audibleChannels();
+            if (channelState.count > 0 && audibleNow.length === 0) {
+                channelState.silent = true;
+                if (audioPlayer) audioPlayer.volume = 0;
+                return;
+            }
+            if (channelState.silent) {
+                channelState.silent = false;
+                if (audioPlayer) audioPlayer.volume = currentVolume / 100;
+            }
+            channelState.switchToken = (channelState.switchToken || 0) + 1;
+            const token = channelState.switchToken;
             const wasPlaying = Boolean(isPlaying);
+            const startedAt = Date.now();
             const position = audioPlayer ? audioPlayer.currentTime : 0;
             try {
                 const mixed = await resolveChannelSource(currentSound);
-                if (!audioPlayer) initAudioPlayer();
-                const base = await rendererAudio.resolvePlaybackSource(currentSound, {
+                if (token !== channelState.switchToken) return;
+                const base = mixed || await rendererAudio.resolvePlaybackSource(currentSound, {
                     api: rendererApi,
                     projectId: currentProject?.id || 'default',
                 });
-                const src = mixed || base;
-                audioPlayer.pause();
-                audioPlayer.src = src;
-                audioPlayer.load();
-                await rendererAudio.waitForMetadata(audioPlayer);
-                applyPlaybackRate();
-                try { audioPlayer.currentTime = Math.min(position, audioPlayer.duration || position); } catch (_) { }
-                if (wasPlaying) { await audioPlayer.play(); isPlaying = true; }
+                if (token !== channelState.switchToken) return;
+                if (!audioPlayer) initAudioPlayer();
+                if (audioPlayer.src === base) return;
+                // 等待期间旧声音一直在播，这里按实际耗补正播放位置
+                const advance = wasPlaying ? (Date.now() - startedAt) / 1000 : 0;
+                await switchPlaybackSource(base, position + advance, wasPlaying);
             } catch (error) {
                 showNotification('切换声道失败: ' + (error?.message || error), 'error');
             }
+        }
+        // 通用「试听 → 勾选 → 另存」对话框：分轨和去人声共用
+        function openAudioSaveDialog({ title, hint, rows, checkboxes = true }) {
+            document.getElementById('stemsDialog')?.remove();
+            if (!rows || !rows.length) {
+                showNotification('没有可保存的文件', 'warning');
+                return;
+            }
+            const overlay = document.createElement('div');
+            overlay.id = 'stemsDialog';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center';
+            const box = document.createElement('div');
+            box.style.cssText = 'width:min(760px,94vw);max-height:82vh;overflow:auto;background:var(--bg-secondary);'
+                + 'border:1px solid var(--border-color);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;font-size:12px';
+            box.innerHTML = ''
+                + '<div style="display:flex;justify-content:space-between;align-items:center">'
+                + '  <strong style="font-size:13px">' + title + '</strong>'
+                + '  <button id="stemsClose" style="border:0;background:transparent;cursor:pointer;font-size:16px;opacity:.6">×</button>'
+                + '</div>'
+                + '<div style="opacity:.7">' + (hint || '') + '</div>'
+                + '<div id="stemsList" style="display:flex;flex-direction:column;gap:8px"></div>'
+                + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
+                + '  <input id="stemsTarget" readonly placeholder="还没有选择保存文件夹"'
+                + '         style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-primary)">'
+                + '  <button id="stemsPick" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">选择文件夹</button>'
+                + '</div>'
+                + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">'
+                + '  <button id="stemsCancel" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">关闭</button>'
+                + '  <button id="stemsSave" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border-color);background:var(--accent-color,#6b8afd);color:#fff;cursor:pointer">保存选中</button>'
+                + '</div>';
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            const list = box.querySelector('#stemsList');
+            rows.forEach((row, index) => {
+                const item = document.createElement('div');
+                item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color)';
+                if (checkboxes) {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = true;
+                    checkbox.dataset.stemIndex = String(index);
+                    item.appendChild(checkbox);
+                }
+                const name = document.createElement('span');
+                name.style.cssText = 'min-width:96px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500';
+                name.textContent = row.label || row.name || ('轨道 ' + (index + 1));
+                name.title = row.stemPath || '';
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.preload = 'none';
+                audio.style.cssText = 'flex:1;height:32px';
+                audio.src = 'soundmind-audio://local/' + encodeURIComponent(row.stemPath);
+                audio.addEventListener('play', () => {
+                    list.querySelectorAll('audio').forEach((other) => { if (other !== audio) other.pause(); });
+                });
+                item.appendChild(name);
+                item.appendChild(audio);
+                list.appendChild(item);
+            });
+            let targetDir = '';
+            const targetInput = box.querySelector('#stemsTarget');
+            box.querySelector('#stemsPick').addEventListener('click', async () => {
+                try {
+                    const picked = await window.electronAPI.fileImport.selectFolder({ title: '选择保存到的文件夹' });
+                    if (picked?.success && picked.folder) {
+                        targetDir = picked.folder;
+                        targetInput.value = targetDir;
+                    }
+                } catch (error) {
+                    showNotification('选择文件夹失败: ' + (error?.message || error), 'error');
+                }
+            });
+            const close = () => overlay.remove();
+            box.querySelector('#stemsClose').addEventListener('click', close);
+            box.querySelector('#stemsCancel').addEventListener('click', close);
+            overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+            box.querySelector('#stemsSave').addEventListener('click', async () => {
+                const picked = [];
+                if (checkboxes) {
+                    box.querySelectorAll('#stemsList input[type=checkbox]').forEach((checkbox) => {
+                        if (checkbox.checked) {
+                            const row = rows[Number(checkbox.dataset.stemIndex)];
+                            if (row) picked.push(row.stemPath);
+                        }
+                    });
+                } else {
+                    rows.forEach((row) => picked.push(row.stemPath));
+                }
+                if (!picked.length) { showNotification('还没勾选任何文件', 'warning'); return; }
+                if (!targetDir) { showNotification('先选一个保存文件夹', 'warning'); return; }
+                try {
+                    const res = await rendererApi.post('/api/v1/audio/stems/save', {
+                        files: picked, target_dir: targetDir,
+                    }, { timeoutMs: 300000 });
+                    showNotification('已保存 ' + (res?.count || 0) + ' 个到 ' + targetDir, 'success');
+                    if ((res?.skipped || []).length) console.warn('[Save] 跳过:', res.skipped);
+                    close();
+                } catch (error) {
+                    showNotification('保存失败: ' + (error?.message || error), 'error');
+                }
+            });
+        }
+        // 分轨结果：逐条试听 + 勾选 + 选保存文件夹（绝不写回原文件夹）
+        function openStemsDialog(result) {
+            document.getElementById('stemsDialog')?.remove();
+            const rows = [];
+            (result?.results || []).forEach((item) => {
+                if (!item || !item.ok) return;
+                Object.entries(item.stems || {}).forEach(([name, stemPath]) => {
+                    if (stemPath) rows.push({ name, stemPath });
+                });
+                if (item.instrumental) rows.push({ name: 'instrumental', stemPath: item.instrumental });
+            });
+            if (!rows.length) {
+                showNotification('分轨没有产出可保存的轨道', 'warning');
+                return;
+            }
+            const label = { vocals: '人声', drums: '鼓', bass: '贝斯', other: '其他', instrumental: '伴奏（无人声）' };
+            const overlay = document.createElement('div');
+            overlay.id = 'stemsDialog';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center';
+            const box = document.createElement('div');
+            box.style.cssText = 'width:min(760px,94vw);max-height:82vh;overflow:auto;background:var(--bg-secondary);'
+                + 'border:1px solid var(--border-color);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;font-size:12px';
+            box.innerHTML = ''
+                + '<div style="display:flex;justify-content:space-between;align-items:center">'
+                + '  <strong style="font-size:13px">分轨完成 · 选择要保存的轨道</strong>'
+                + '  <button id="stemsClose" style="border:0;background:transparent;cursor:pointer;font-size:16px;opacity:.6">×</button>'
+                + '</div>'
+                + '<div style="opacity:.7">先试听，勾选满意的；保存位置自己选，不会写回原文件夹。</div>'
+                + '<div id="stemsList" style="display:flex;flex-direction:column;gap:8px"></div>'
+                + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
+                + '  <input id="stemsTarget" readonly placeholder="还没有选择保存文件夹"'
+                + '         style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-primary)">'
+                + '  <button id="stemsPick" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">选择文件夹</button>'
+                + '</div>'
+                + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">'
+                + '  <button id="stemsCancel" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">关闭</button>'
+                + '  <button id="stemsSave" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border-color);background:var(--accent-color,#6b8afd);color:#fff;cursor:pointer">保存选中</button>'
+                + '</div>';
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            const list = box.querySelector('#stemsList');
+            rows.forEach((row, index) => {
+                const item = document.createElement('div');
+                item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color)';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = true;
+                checkbox.dataset.stemIndex = String(index);
+                const name = document.createElement('span');
+                name.style.cssText = 'min-width:96px;font-weight:500';
+                name.textContent = label[row.name] || row.name;
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.preload = 'none';
+                audio.style.cssText = 'flex:1;height:32px';
+                audio.src = 'soundmind-audio://local/' + encodeURIComponent(row.stemPath);
+                audio.addEventListener('play', () => {
+                    list.querySelectorAll('audio').forEach((other) => { if (other !== audio) other.pause(); });
+                });
+                item.appendChild(checkbox);
+                item.appendChild(name);
+                item.appendChild(audio);
+                list.appendChild(item);
+            });
+            let targetDir = '';
+            const targetInput = box.querySelector('#stemsTarget');
+            box.querySelector('#stemsPick').addEventListener('click', async () => {
+                try {
+                    const picked = await window.electronAPI.fileImport.selectFolder({ title: '选择分轨保存到的文件夹' });
+                    if (picked?.success && picked.folder) {
+                        targetDir = picked.folder;
+                        targetInput.value = targetDir;
+                    }
+                } catch (error) {
+                    showNotification('选择文件夹失败: ' + (error?.message || error), 'error');
+                }
+            });
+            const close = () => overlay.remove();
+            box.querySelector('#stemsClose').addEventListener('click', close);
+            box.querySelector('#stemsCancel').addEventListener('click', close);
+            overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+            box.querySelector('#stemsSave').addEventListener('click', async () => {
+                const saved = [];
+                box.querySelectorAll('#stemsList input[type=checkbox]').forEach((checkbox) => {
+                    if (checkbox.checked) {
+                        const row = rows[Number(checkbox.dataset.stemIndex)];
+                        if (row) saved.push(row.stemPath);
+                    }
+                });
+                if (!saved.length) { showNotification('还没勾选任何轨道', 'warning'); return; }
+                if (!targetDir) { showNotification('先选一个保存文件夹', 'warning'); return; }
+                try {
+                    const res = await rendererApi.post('/api/v1/audio/stems/save', {
+                        files: saved, target_dir: targetDir,
+                    }, { timeoutMs: 120000 });
+                    showNotification('已保存 ' + (res?.count || 0) + ' 条到 ' + targetDir, 'success');
+                    if ((res?.skipped || []).length) console.warn('[Stems] 跳过:', res.skipped);
+                    close();
+                } catch (error) {
+                    showNotification('保存失败: ' + (error?.message || error), 'error');
+                }
+            });
         }
 
         function bindChannelBar() {
@@ -3417,6 +4123,39 @@
                 renderChannelStrips();
                 applyChannelSelection();
             });
+
+            // 声道栏和波形之间可拖拽改宽度（双击复位）
+            const splitter = document.getElementById('channelSplitter');
+            const rail = document.getElementById('channelRail');
+            if (splitter && rail) {
+                let dragging = false;
+                let startX = 0;
+                let startWidth = 0;
+                splitter.addEventListener('pointerdown', (event) => {
+                    dragging = true;
+                    startX = event.clientX;
+                    startWidth = rail.getBoundingClientRect().width;
+                    splitter.setPointerCapture(event.pointerId);
+                    event.preventDefault();
+                });
+                splitter.addEventListener('pointermove', (event) => {
+                    if (!dragging) return;
+                    const next = Math.round(Math.min(420, Math.max(60, startWidth + (event.clientX - startX))));
+                    rail.style.width = next + 'px';
+                });
+                const stop = () => {
+                    if (!dragging) return;
+                    dragging = false;
+                    const width = Math.round(rail.getBoundingClientRect().width);
+                    try { localStorage.setItem('echomind.channelRailWidth', String(width)); } catch (_) { }
+                };
+                splitter.addEventListener('pointerup', stop);
+                splitter.addEventListener('pointercancel', stop);
+                splitter.addEventListener('dblclick', () => {
+                    rail.style.width = '';
+                    try { localStorage.removeItem('echomind.channelRailWidth'); } catch (_) { }
+                });
+            }
         }
 
         // ===== 倍速 / 倒放 =====
@@ -3567,22 +4306,20 @@
             }
         }
 
-        function initAudioPlayer() {
-            audioPlayer = new Audio();
-            audioPlayer.preload = 'metadata';
-            audioPlayer.addEventListener('ended', () => {
+        // 播放元素的四类事件统一在这里绑，切换音源时对新元素再调一次即可
+        function attachPlayerHandlers(el) {
+            el.addEventListener('ended', () => {
+                if (el !== audioPlayer) return;
                 if (isLooping) {
-                    audioPlayer.currentTime = 0;
-                    audioPlayer.play();
+                    el.currentTime = 0;
+                    el.play();
                 } else {
                     isPlaying = false;
-                    stopPlaybackAnimation(); // 停止动画更新
+                    stopPlaybackAnimation();
                     if (playbackInterval) clearInterval(playbackInterval);
-                    // 播放结束时释放 Blob URL，防止内存泄漏
                     releaseCurrentBlobUrl();
                     updatePlaybackUI();
                     broadcastPlayState();
-                    // 如果有搜索结果（包括AI搜索），保持显示搜索结果；否则显示正常列表
                     const searchQuery = document.getElementById('searchInput').value.trim();
                     if (allSearchResults.length > 0) {
                         renderSoundList('', allSearchResults);
@@ -3591,26 +4328,70 @@
                     }
                 }
             });
-            audioPlayer.addEventListener('timeupdate', () => {
-                if (audioPlayer && currentSound) {
-                    playbackProgress = Math.round(audioPlayer.currentTime * 1000);
-                    updatePlaybackUI();
-                }
+            el.addEventListener('timeupdate', () => {
+                if (el !== audioPlayer || !currentSound) return;
+                playbackProgress = Math.round(el.currentTime * 1000);
+                updatePlaybackUI();
             });
-            
-            audioPlayer.addEventListener('loadedmetadata', () => {
-                if (currentSound) {
-                    currentSound.duration = Math.round(audioPlayer.duration * 1000);
-                    updatePlaybackUI();
-                }
+            el.addEventListener('loadedmetadata', () => {
+                if (el !== audioPlayer || !currentSound) return;
+                currentSound.duration = Math.round(el.duration * 1000);
+                updatePlaybackUI();
             });
-            audioPlayer.addEventListener('error', (e) => {
-                console.error('音频加载失败:', e);
+            el.addEventListener('error', (e) => {
+                if (el !== audioPlayer) return;
+                console.error('[Player] 音频加载失败:', e);
                 showNotification('音频加载失败', 'error');
                 isPlaying = false;
                 updatePlaybackUI();
                 broadcastPlayState();
             });
+        }
+
+        function initAudioPlayer() {
+            audioPlayer = new Audio();
+            audioPlayer.preload = 'metadata';
+            attachPlayerHandlers(audioPlayer);
+        }
+
+        // 换音源不碰正在播的元素：新元素先加载好，再把它设成当前播放器，
+        // 旧元素立刻停。这样界面上的波形/进度不会重置，也不会先静音再出声。
+        async function switchPlaybackSource(src, position, wasPlaying) {
+            const next = new Audio();
+            next.preload = 'auto';
+            next.src = src;
+            next.volume = channelState.silent ? 0 : currentVolume / 100;
+            next.muted = isMuted;
+            next.loop = isLooping;
+            try { next.playbackRate = playbackRate; } catch (_) { }
+            await new Promise((resolve, reject) => {
+                let settled = false;
+                const done = (ok) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    next.removeEventListener('loadedmetadata', onOk);
+                    next.removeEventListener('error', onErr);
+                    if (ok) resolve(); else reject(new Error('音源加载失败'));
+                };
+                const onOk = () => done(true);
+                const onErr = () => done(false);
+                const timer = setTimeout(() => done(true), 6000);
+                next.addEventListener('loadedmetadata', onOk);
+                next.addEventListener('error', onErr);
+                next.load();
+            });
+            try {
+                next.currentTime = Math.min(position, next.duration || position);
+            } catch (_) { }
+            const previous = audioPlayer;
+            attachPlayerHandlers(next);
+            audioPlayer = next;
+            if (previous) {
+                try { previous.pause(); previous.removeAttribute('src'); previous.load(); } catch (_) { }
+            }
+            if (wasPlaying) { await next.play(); isPlaying = true; }
+            return next;
         }
 
         async function loadAndPlaySound(sound) {
@@ -3961,17 +4742,31 @@
             sourceHeader.appendChild(sourceSearchBtn);
 
             const sourceRefreshBtn = document.createElement('button');
+            sourceRefreshBtn.id = 'sourceRefreshBtn';
             sourceRefreshBtn.className = 'p-1 rounded hover:bg-white/10 transition-colors';
-            sourceRefreshBtn.title = '重新读取目录（列表和实际不符时点这里）';
+            sourceRefreshBtn.title = '重新读取目录：核对磁盘，把新增的音效补进来（约 20 秒）';
             sourceRefreshBtn.innerHTML = '<i data-lucide="refresh-cw" class="w-3 h-3 opacity-70"></i>';
             sourceRefreshBtn.addEventListener('click', async (event) => {
                 event.stopPropagation();
+                if (sourceRefreshBtn.dataset.busy === '1') return;
+                sourceRefreshBtn.dataset.busy = '1';
                 sourceRefreshBtn.style.opacity = '0.4';
                 try {
+                    // 以前这里只重读数据库，磁盘上新增的文件永远不会出现。
+                    // 扫一遍磁盘再刷新：没有新文件就只是刷新树（18.7 秒的扫描）。
+                    if (typeof rescanLibraryInto === 'function') {
+                        await rescanLibraryInto(() => {});
+                    }
                     await loadUserFolders();
                     await loadFolderStats(true);
+                    if (typeof loadFilesFromDatabase === 'function') {
+                        await loadFilesFromDatabase();
+                    }
                     renderFolderTree();
+                } catch (error) {
+                    showNotification('重新读取目录失败: ' + (error?.message || error), 'error');
                 } finally {
+                    sourceRefreshBtn.dataset.busy = '';
                     sourceRefreshBtn.style.opacity = '';
                 }
             });
@@ -6101,6 +6896,8 @@
             input.className = 'w-full px-2 py-1.5 rounded text-sm outline-none';
             input.style.cssText = 'background:var(--bg-primary);border:1px solid var(--border-color);color:var(--text-primary)';
             input.placeholder = layer === 'scene' ? '如：枪械、环境、UI' : '如：短促、金属、远距离';
+            input.setAttribute('autofocus', '');
+            input.setAttribute('tabindex', '0');
             panel.appendChild(input);
 
             const footer = document.createElement('div');
@@ -6134,7 +6931,7 @@
                 if (!name) { input.focus(); return; }
                 overlay.remove();
                 try {
-                    await rendererApi.post('/api/v1/tags', { name, layer });
+                    await rendererApi.post('/api/v1/tags' + tagProjectQuery(), { name, layer });
                 } catch (error) {
                     showNotification('创建标签失败: ' + (error?.message || error), 'error');
                     return;
@@ -6172,11 +6969,33 @@
                 if (event.key === 'Escape') { event.preventDefault(); overlay.remove(); }
             });
 
-            // 焦点：等一帧 + 延时双保险（Electron 有时窗口还没拿到焦点）
-            const focusInput = () => { try { window.focus(); input.focus(); input.select(); } catch (_) { } };
+            // 焦点：只 focus 输入框本身。以前每次都先 window.focus()，
+            // 它会把焦点从 input 抢回窗口，结果敲键盘没有任何字符进得去。
+            const focusInput = () => { try { input.focus({ preventScroll: true }); input.select(); } catch (_) { } };
             requestAnimationFrame(focusInput);
             setTimeout(focusInput, 60);
             setTimeout(focusInput, 200);
+
+            // 兜底：即使焦点没落到 input，敲进来的字符也手动补进输入框，
+            // 保证「新建标签」在任何焦点状态下都可用。
+            overlay.addEventListener('keydown', (event) => {
+                if (event.ctrlKey || event.metaKey || event.altKey) return;
+                if (event.key === 'Enter') { event.preventDefault(); submit(); return; }
+                if (event.key === 'Escape') { event.preventDefault(); overlay.remove(); return; }
+                if (event.key === 'Backspace') {
+                    event.preventDefault();
+                    input.value = input.value.slice(0, -1);
+                    return;
+                }
+                if (event.key.length === 1) {
+                    event.preventDefault();
+                    input.value += event.key;
+                    try { input.focus({ preventScroll: true }); } catch (_) { }
+                }
+            }, true);
+            overlay.addEventListener('mousedown', (event) => {
+                if (event.target !== overlay) setTimeout(focusInput, 0);
+            });
         }
 
         function filterByCategory(categoryId) {
@@ -6508,7 +7327,9 @@
             mkExtra('删除源文件并从库移除（回收站）', true, () => batchDeleteSounds(targetsForDelete(), true));
             menu.appendChild(extras);
 
-            menu.appendChild(makeMenuItem('重新分析该素材', 'refresh-cw', () => reanalyzeSound(sound)));
+            menu.appendChild(makeMenuItem('重新分析：一句话描述（只重算文本向量）', 'file-text', () => reanalyzeSound(sound, 'description')));
+            menu.appendChild(makeMenuItem('重新分析：音频向量（不动描述/标签）', 'audio-waveform', () => reanalyzeSound(sound, 'audio')));
+            menu.appendChild(makeMenuItem('重新分析：全部', 'refresh-cw', () => reanalyzeSound(sound, 'all')));
 
             const closeMenu = (e) => {
                 if (!menu.contains(e.target)) {
@@ -6782,11 +7603,27 @@
             }).catch((err) => showNotification('复制失败: ' + (err.message || err), 'error'));
         }
 
-        function reanalyzeSound(sound) {
-            if (!window.electronAPI || !window.electronAPI.backendAPI) return;
-            window.electronAPI.backendAPI.reanalyzeFile(sound.filePath)
-                .then(() => showNotification(`已提交重新分析：「${sound.name}」`, 'info'))
-                .catch((err) => showNotification('提交失败: ' + (err.message || err), 'error'));
+        // B22：重新分析拆成四个粒度，只动该动的部分
+        async function reanalyzeSound(sound, scope) {
+            const mode = scope || 'all';
+            const label = {
+                description: '重新生成描述',
+                audio: '重算音频向量',
+                tags: '重新生成标签',
+                all: '全部重新分析',
+            }[mode] || '重新分析';
+            try {
+                const res = await rendererApi.post(
+                    '/api/v1/db/file/' + encodeURIComponent(sound.filePath)
+                    + '/reanalyze?scope=' + encodeURIComponent(mode),
+                    {},
+                    { timeoutMs: 180000 }
+                );
+                showNotification(`已提交${label}：「${sound.name}」`, 'info');
+                return res;
+            } catch (error) {
+                showNotification(label + '失败: ' + (error?.message || error), 'error');
+            }
         }
 
         // ---- 批量重命名 ----
@@ -8031,7 +8868,7 @@
                 let created = 0;
                 for (const name of missing) {
                     try {
-                        await rendererApi.post('/api/v1/tags', { name, layer: 'attr' });
+                        await rendererApi.post('/api/v1/tags' + tagProjectQuery(), { name, layer: 'attr' });
                         created += 1;
                     } catch (_) { }
                 }
@@ -8185,10 +9022,20 @@
             viewMode = mode === 'card' ? 'card' : 'list';
             try { localStorage.setItem('echomind.viewMode', viewMode); } catch (_) { }
             applyViewMode();
-            renderSoundList(document.getElementById('searchInput')?.value || '');
+            if (aiResultMode && allSearchResults.length) {
+                renderSoundList('', allSearchResults);
+            } else if (lastRenderArgs) {
+                renderSoundList(lastRenderArgs.filter, lastRenderArgs.sounds);
+            } else {
+                renderSoundList(document.getElementById('searchInput')?.value || '');
+            }
         }
 
+        // 记住最近一次渲染用的数据源：切换列表/卡片时要原样重画，
+        // 否则会退回 soundData（整库分页），搜索结果直接变空
+        let lastRenderArgs = null;
         function renderSoundList(filter = '', sounds = soundData) {
+            lastRenderArgs = { filter, sounds };
             const container = document.getElementById('soundList');
             container.innerHTML = '';
             applyViewMode();
@@ -9296,6 +10143,36 @@
             }
         }
 
+        // 搜索结果只有文件名和分数：按 id 批量补描述和标签，补到了再重画一次
+        async function hydrateResultMeta(rows) {
+            const list = Array.isArray(rows) ? rows : [];
+            const ids = [...new Set(list.map((row) => row && row.fileId).filter(Boolean))];
+            if (!ids.length) return false;
+            try {
+                const res = await rendererApi.post('/api/v1/files/meta', { ids }, { timeoutMs: 60000 });
+                const items = res?.items || [];
+                if (!items.length) return false;
+                const byId = new Map(items.map((item) => [String(item.id), item]));
+                let changed = false;
+                list.forEach((row) => {
+                    const meta = byId.get(String(row.fileId));
+                    if (!meta) return;
+                    if (meta.ai_description && meta.ai_description !== row.aiDescription) {
+                        row.aiDescription = meta.ai_description;
+                        changed = true;
+                    }
+                    if (Array.isArray(meta.tags) && meta.tags.length) {
+                        row.tags = meta.tags;
+                        changed = true;
+                    }
+                });
+                return changed;
+            } catch (error) {
+                console.warn('[Search] 补描述/标签失败:', error);
+                return false;
+            }
+        }
+
         function displayAiSearchResults(results) {
             // 将 AI 搜索结果转换为 soundData 格式并显示
             const container = document.getElementById('soundList');
@@ -9315,8 +10192,13 @@
                 format: r.format,
                 similarity: r.similarity,
                 aiDescription: r.ai_description || r.metadata?.ai_description || '',
-                tags: ['AI搜索']
+                // 后端已经补了 tags 就直接用；老后端没有就用占位符，稍后再补一次
+                tags: (Array.isArray(r.tags) && r.tags.length) ? r.tags : ['AI搜索']
             }));
+            // 搜索接口只回文件名和分数，描述和标签要再按 id 批量补一次
+            void hydrateResultMeta(allSearchResults).then((changed) => {
+                if (changed) renderSoundList('', allSearchResults);
+            });
 
             // 更新结果计数
             const headerText = document.querySelector('main .h-10 .flex-1');
@@ -11460,6 +12342,16 @@
                 rendererApi.post('/api/v1/index/hash?project_id=' + encodeURIComponent(currentProject?.id || 'default'), {}, { timeoutMs: 60000 })
                     .catch(() => { });
 
+                // 索引默认暂停：先让用户导描述包，再分别跑两种向量
+                if (data.added > 0) {
+                    setTimeout(() => {
+                        showNotification(
+                            '索引已暂停。建议先「导入描述包」，再点常用条的「修复文本向量」和「修复音频向量」（两者分开跑，不会互相拖慢）',
+                            'info', 12000
+                        );
+                    }, 1200);
+                }
+
                 // 导入完成后提醒一次：库里还有多少重复没处理
                 setTimeout(() => { maybeHintDuplicates(); }, 2500);
             }
@@ -13121,7 +14013,7 @@
                 const label = document.getElementById('fishToggleLabel');
                 const paint = () => {
                     const hidden = localStorage.getItem('echomind.fishHidden') === '1';
-                    if (label) label.textContent = hidden ? '叫出大肥鱼' : '藏起大肥鱼';
+                    if (label) label.textContent = hidden ? '叫出回声' : '藏起回声';
                 };
                 paint();
                 btn?.addEventListener('click', () => {
@@ -13439,7 +14331,8 @@
             // AI 搜索也不自动触发，必须点右侧「AI」按钮。
             const searchInputEl = document.getElementById('searchInput');
             const runKeywordSearch = async () => {
-                const query = searchInputEl.value.trim();
+                document.getElementById('searchHistoryMenu')?.classList.add('hidden');
+            const query = searchInputEl.value.trim();
                 activeUserFolder = null; // 搜索/清空都会换列表，移出入口不再适用
                 setSidebarView(null);
                 // M4：tag:标签名 → 直接按标签筛选
@@ -13562,6 +14455,9 @@
                     }
                     allSearchResults = (allSearchResults || []).concat(extra);
                     renderSoundList('', allSearchResults);
+                    void hydrateResultMeta(extra).then((changed) => {
+                        if (changed) renderSoundList('', allSearchResults);
+                    });
                     showNotification('语义结果已补充 ' + extra.length + ' 条', 'success');
                 } catch (error) {
                     // 语义层失败不影响已经显示的关键词结果
@@ -13646,7 +14542,11 @@
                         
                         // 渲染结果
                         renderSoundList('', allSearchResults);
-                        
+                        // 本地搜索同样只有文件名和分数：批量补描述和系统标签
+                        void hydrateResultMeta(allSearchResults).then((changed) => {
+                            if (changed && currentSearchQuery === query) renderSoundList('', allSearchResults);
+                        });
+
                         if (isNewSearch) {
                             showNotification(`已显示 ${allSearchResults.length} 个结果，正在补充语义结果…`, 'success');
                             loadSemanticSupplement(query, searchSeq);
@@ -14316,7 +15216,7 @@
                 document.getElementById('volumeFill').style.width = `${currentVolume}%`;
                 
                 if (audioPlayer) {
-                    audioPlayer.volume = currentVolume / 100;
+                    audioPlayer.volume = channelState.silent ? 0 : currentVolume / 100;
                 }
                 
                 if (currentVolume > 0 && isMuted) {
@@ -16264,16 +17164,17 @@
                             <span id="descStats" class="text-xs opacity-70"></span>
                         </div>
                         <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color);">
-                            <div class="text-sm font-medium mb-1">描述包（换电脑 / 分享给别人用）</div>
-                            <p class="text-xs opacity-60 mb-2">导出后是一个 JSON 文件，按「相对音效库根目录的路径」记录描述。
-                                别人把软件和描述包拿走，导入自己库里的音效后，点「导入描述包」即可套用，不用重新生成。</p>
+                            <div class="text-sm font-medium mb-1">描述包 / 标签包（换电脑、分享给别人用）</div>
+                            <p class="text-xs opacity-60 mb-2">导出后是一个 JSON 文件，按「相对音效库根目录的路径」记录描述和标签。
+                                别人把软件和包拿走，导入自己库里的音效后，点下面的按钮即可套用，不用重新生成。
+                                <b>只有标签、没有描述</b>的标签包也能直接导入。</p>
                             <div class="flex items-center gap-3">
                                 <button id="exportDescPackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
                                         style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出描述包</button>
                                 <button id="importDescPackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入描述包</button>
+                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入描述包 / 标签包</button>
                                 <span id="descPackStatus" class="text-xs opacity-70"></span>
                             </div>
                         </div>
@@ -16538,6 +17439,54 @@
     <script src="./assets/renderer/sfx.js"></script>
     <script src="./assets/renderer/broken.js"></script>
     <script src="./assets/renderer/panels.js"></script>
+
+    <!-- 助理形象启动：顶栏小精灵位置，说话/思考时驱动表情 -->
+    <script>
+    (function () {
+      'use strict';
+      var el = document.getElementById('navAvatar');
+      if (!el || !window.EchoMindAvatar) return;
+      var avatar = window.EchoMindAvatar.create(el);
+      window.echoAvatar = avatar;
+
+      // 发消息 → 思考
+      document.addEventListener('click', function (e) {
+        if (e.target && e.target.closest && e.target.closest('#sendMessage')) {
+          if (avatar) avatar.express('thinking');
+        }
+      }, true);
+
+      // 收到回复 → 微笑，几秒后回到平常
+      var msgs = document.getElementById('chatMessages');
+      if (msgs && window.MutationObserver) {
+        var smileTimer = 0;
+        new MutationObserver(function (records) {
+          var added = records.some(function (r) { return r.addedNodes && r.addedNodes.length; });
+          if (!added || !avatar) return;
+          avatar.express('smile');
+          clearTimeout(smileTimer);
+          smileTimer = setTimeout(function () { avatar.express('neutral'); }, 5000);
+        }).observe(msgs, { childList: true });
+      }
+
+      // 播报语音时对口型（没有音频分析，按文字长度估时长）
+      function hookSpeak() {
+        if (!window.rendererApi || !window.rendererApi.post || window.rendererApi.__avatarHooked) return;
+        var orig = window.rendererApi.post.bind(window.rendererApi);
+        window.rendererApi.post = function (url, body, opts) {
+          try {
+            if (String(url).indexOf('/assistant/speak') >= 0 && avatar) {
+              avatar.talk(body && body.text);
+            }
+          } catch (err) {}
+          return orig(url, body, opts);
+        };
+        window.rendererApi.__avatarHooked = true;
+      }
+      hookSpeak();
+      setTimeout(hookSpeak, 1500);
+    })();
+    </script>
     <div id="helpTip"></div>
 </body>
 </html>

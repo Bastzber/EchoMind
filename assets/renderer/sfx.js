@@ -4,6 +4,14 @@
 (function () {
     'use strict';
 
+    // 打包后页面来自 file://，相对路径 fetch 会打到 file:///api/... 直接 Failed to fetch，
+    // 必须走渲染层统一的 api（带 127.0.0.1:8000 前缀）。
+    function apiFetch(path, options) {
+        const api = window.SoundBotRenderer?.api;
+        if (api && typeof api.fetch === 'function') return api.fetch(path, options);
+        return fetch(path, options);
+    }
+
     // ---------- 分类模板数据（滑块 → 中文生成描述） ----------
     const SFX_CATEGORIES = [
         { name: '环境音', items: [
@@ -399,10 +407,11 @@
         state.current = null;
         renderCurrentSound();
         try {
-            const resp = await fetch('/api/v1/sfx/generate', {
+            const resp = await apiFetch('/api/v1/sfx/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text_prompt: prompt, format: 'mp3', sample_rate: 44100 })
+                body: JSON.stringify({ text_prompt: prompt, format: 'mp3', sample_rate: 44100 }),
+                timeoutMs: 180000
             });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.detail || data.message || '生成失败');
@@ -500,10 +509,11 @@
         const c = state.current;
         const tags = [state.activeCat.name, state.activeItem.name];
         try {
-            const resp = await fetch('/api/v1/sfx/save', {
+            const resp = await apiFetch('/api/v1/sfx/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ audio_path: c.audio_path, name: c.name, tags: tags })
+                body: JSON.stringify({ audio_path: c.audio_path, name: c.name, tags: tags }),
+                timeoutMs: 60000
             });
             const data = await resp.json();
             if (!resp.ok || !data.success) throw new Error(data.detail || '保存失败');

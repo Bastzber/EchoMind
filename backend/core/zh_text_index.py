@@ -33,6 +33,30 @@ def status() -> Dict[str, Any]:
         return dict(_state)
 
 
+_count_cache: Dict[str, Any] = {"value": 0, "at": 0.0}
+
+
+def collection_count(ttl: float = 30.0) -> int:
+    """text_zh 里现在有多少条。缺失时返回 0（不抛异常）。
+
+    打开 Chroma 有几百毫秒开销，状态接口会被频繁轮询，所以带 30 秒缓存。
+    """
+    now = time.time()
+    if now - float(_count_cache.get("at") or 0) < ttl:
+        return int(_count_cache.get("value") or 0)
+    value = 0
+    try:
+        from core.indexer import get_chroma_client, safe_project_chroma_path
+
+        client = get_chroma_client(safe_project_chroma_path("default"))
+        value = int(client.get_collection(COLLECTION).count())
+    except Exception:
+        value = 0
+    _count_cache["value"] = value
+    _count_cache["at"] = now
+    return value
+
+
 def _text_of(row: Dict[str, Any]) -> str:
     parts = [str(row.get("filename") or "")]
     desc = str(row.get("ai_description") or "").strip()

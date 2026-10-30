@@ -449,6 +449,12 @@ class DatabaseManager:
                     conn.execute("PRAGMA journal_mode=DELETE")
                 conn.execute("PRAGMA synchronous=NORMAL")
                 conn.execute("PRAGMA wal_autocheckpoint=1000")
+                # 索引任务与描述包写入同时跑时会撞写锁：默认 5 秒内自动重试，
+                # 而不是立刻抛 database is locked（B6 的一半）。
+                try:
+                    conn.execute("PRAGMA busy_timeout=5000")
+                except sqlite3.Error:
+                    pass
                 self._local.conn = conn
             except sqlite3.Error as e:
                 _get_logger().error(f"数据库连接失败: {e}")
@@ -1845,6 +1851,91 @@ class DatabaseManager:
         except Exception as exc:
             logger.debug("同步 FTS 行失败 %s: %s", file_uuid, exc)
 
+    def mark_artifacts_stale(
+        self, project_id: str, kind: str, file_uuids: Iterable[str]
+    ) -> int:
+        """只把指定文件标脏。
+
+        原来是 mark_project_artifacts(project, [kind], 'stale')：改 3 条描述就
+        把 6.5 万条文本向量全标脏，下一次对账要重编码整库。这里精确到文件。
+        """
+        if kind not in ARTIFACT_KINDS:
+            return 0
+        selected = [str(uuid) for uuid in dict.fromkeys(file_uuids) if uuid]
+        if not selected:
+            return 0
+        stamp = datetime.now().isoformat()
+        updated = 0
+        for offset in range(0, len(selected), 500):
+            batch = selected[offset:offset + 500]
+            placeholders = ",".join("?" for _ in batch)
+            with self.get_cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE file_artifacts
+                    SET state='stale', updated_at=?
+                    WHERE project_id=? AND kind=? AND state='ready'
+                      AND file_uuid IN ({placeholders})
+                    """,
+                    (stamp, str(project_id), kind, *batch),
+                )
+                updated += cursor.rowcount
+        return updated
+
+    def update_fts_rows(self, project_id: str, file_uuids: Iterable[str]) -> int:
+        """批量同步 FTS 行：一次查询 + 一次 executemany，替代逐条 update_fts_row。
+
+        逐条版本每条都要 SELECT + DELETE + INSERT + commit，64k 条描述包就是这么
+        把写锁占满的（日志里的 database is locked）。
+        """
+        from core.zh_tokenizer import tokenize
+
+        selected = [str(uuid) for uuid in dict.fromkeys(file_uuids) if uuid]
+        if not selected:
+            return 0
+        written = 0
+        for offset in range(0, len(selected), 500):
+            chunk = selected[offset:offset + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            try:
+                with self.get_cursor() as cursor:
+                    rows = cursor.execute(
+                        f"SELECT file_uuid, filename, ai_description, tags FROM files "
+                        f"WHERE file_uuid IN ({placeholders})",
+                        chunk,
+                    ).fetchall()
+                    payload = []
+                    for row in rows:
+                        name = str(row["filename"] or "")
+                        stem = name.rsplit(".", 1)[0] if "." in name else name
+                        try:
+                            tag_list = json.loads(row["tags"] or "[]")
+                            tag_text = " ".join(str(t) for t in tag_list if t)
+                        except Exception:
+                            tag_text = str(row["tags"] or "")
+                        user_tag_text = self._user_tag_text(cursor, project_id, row["file_uuid"])
+                        if user_tag_text:
+                            tag_text = (tag_text + " " + user_tag_text).strip()
+                        payload.append((
+                            row["file_uuid"], str(project_id), tokenize(name), tokenize(stem),
+                            tokenize(row["ai_description"] or ""), tokenize(tag_text),
+                        ))
+                    if payload:
+                        cursor.executemany(
+                            "DELETE FROM files_fts WHERE file_uuid=?", [(item[0],) for item in payload]
+                        )
+                        cursor.executemany(
+                            "INSERT INTO files_fts "
+                            "(file_uuid, project_id, filename, title, description, tags) "
+                            "VALUES (?,?,?,?,?,?)",
+                            payload,
+                        )
+                        cursor.connection.commit()
+                        written += len(payload)
+            except Exception as exc:
+                logger.debug("批量同步 FTS 失败（%d 条）: %s", len(chunk), exc)
+        return written
+
     def remove_mappings_under(self, project_id: str, folder: str) -> int:
         """删掉目录（含子目录）在「我的文件夹」里的映射。
 
@@ -2511,6 +2602,37 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM files WHERE canonical_path = ?", (canonical_path,))
             return cursor.rowcount > 0
 
+    def delete_files_by_uuids(self, project_id: str, file_uuids: Iterable[str]) -> int:
+        """按 file_uuid 批量删记录（files + artifacts + FTS），返回删除行数。
+
+        比 delete_file(path) 可靠：路径的规范形式（斜杠方向）和库里存的可能不一致，
+        用 uuid 不会因为斜杠方向不一致而匹配不上。
+        """
+        selected = [str(u) for u in dict.fromkeys(file_uuids) if u]
+        if not selected:
+            return 0
+        removed = 0
+        for offset in range(0, len(selected), 400):
+            batch = selected[offset:offset + 400]
+            marks = ",".join("?" for _ in batch)
+            with self.get_cursor() as cursor:
+                cursor.execute(
+                    f"DELETE FROM file_artifacts WHERE project_id=? AND file_uuid IN ({marks})",
+                    (str(project_id), *batch),
+                )
+                try:
+                    cursor.execute(
+                        f"DELETE FROM files_fts WHERE file_uuid IN ({marks})", tuple(batch)
+                    )
+                except Exception:
+                    pass
+                cursor.execute(
+                    f"DELETE FROM files WHERE project_id=? AND file_uuid IN ({marks})",
+                    (str(project_id), *batch),
+                )
+                removed += cursor.rowcount
+        return removed
+
     def get_broken_files(self, project_id: str = "default") -> List[Dict[str, Any]]:
         """列出所有索引失败的损坏文件（artifact state=failed）。
 
@@ -2864,20 +2986,32 @@ class DatabaseManager:
         if not name:
             return {"deleted": 0, "files": 0}
         with self.get_cursor() as cursor:
-            row = cursor.execute(
-                "SELECT id FROM tags WHERE project_id=? AND name=?",
+            rows = cursor.execute(
+                "SELECT id, project_id FROM tags WHERE project_id=? AND name=?",
                 (str(project_id), name),
-            ).fetchone()
-            if not row:
+            ).fetchall()
+            if not rows:
+                # 老数据里标签可能建在 default 工程（创建时没带 project_id），
+                # 而删除按当前工程过滤，于是一条都删不掉。这里退回按名字全局找。
+                rows = cursor.execute(
+                    "SELECT id, project_id FROM tags WHERE name=?", (name,)
+                ).fetchall()
+                if rows:
+                    logger.info(
+                        "[Tags] 标签「%s」不在工程 %s 下，改为按 id 删除（属于 %s）",
+                        name, project_id, rows[0][1],
+                    )
+            if not rows:
                 return {"deleted": 0, "files": 0}
-            tag_id = row[0]
-            files = self._files_touched_by_tag(cursor, project_id, tag_id)
-            cursor.execute(
-                "DELETE FROM file_tags WHERE project_id=? AND tag_id=?",
-                (str(project_id), tag_id),
-            )
-            cursor.execute("DELETE FROM tags WHERE id=?", (tag_id,))
-        return {"deleted": 1, "files": len(files)}
+            total_files = 0
+            for tag_id, owner in rows:
+                total_files += len(self._files_touched_by_tag(cursor, owner, tag_id))
+                cursor.execute(
+                    "DELETE FROM file_tags WHERE project_id=? AND tag_id=?",
+                    (str(owner), tag_id),
+                )
+                cursor.execute("DELETE FROM tags WHERE id=?", (tag_id,))
+        return {"deleted": len(rows), "files": total_files}
 
     def list_tag_usage(self, project_id: str) -> List[Dict[str, Any]]:
         """标签 + 使用次数，按次数降序（用于标签管理面板）。"""
@@ -3003,6 +3137,76 @@ class DatabaseManager:
                 WHERE project_id=? AND file_uuid=? AND kind=?
             """, (project_id, file_uuid, kind)).fetchone()
         return dict(row) if row else None
+
+    def get_artifact_states(
+        self,
+        project_id: str,
+        kind: str,
+        file_ids: Iterable[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """批量取工件的 state / source_fingerprint，用于接管或对账。"""
+        if kind not in ARTIFACT_KINDS:
+            return {}
+        selected = tuple(dict.fromkeys(str(value) for value in file_ids if value))
+        if not selected:
+            return {}
+        result: Dict[str, Dict[str, Any]] = {}
+        for offset in range(0, len(selected), 500):
+            batch = selected[offset:offset + 500]
+            placeholders = ",".join("?" for _ in batch)
+            with self.get_cursor() as cursor:
+                rows = cursor.execute(
+                    f"""
+                    SELECT file_uuid, state, source_fingerprint, engine_fingerprint
+                    FROM file_artifacts
+                    WHERE project_id=? AND kind=? AND file_uuid IN ({placeholders})
+                    """,
+                    (project_id, kind, *batch),
+                ).fetchall()
+            for row in rows:
+                result[str(row["file_uuid"])] = {
+                    "state": row["state"],
+                    "source_fingerprint": row["source_fingerprint"],
+                    "engine_fingerprint": row["engine_fingerprint"],
+                }
+        return result
+
+    def set_artifacts_ready(
+        self,
+        project_id: str,
+        kind: str,
+        file_ids: Iterable[str],
+        *,
+        engine_fingerprint: Optional[str] = None,
+        now: Optional[str] = None,
+    ) -> int:
+        """把一批工件直接标成 ready（接管已有向量时用，不重新编码）。"""
+        if kind not in ARTIFACT_KINDS:
+            return 0
+        selected = tuple(dict.fromkeys(str(value) for value in file_ids if value))
+        if not selected:
+            return 0
+        timestamp = now or datetime.now().isoformat()
+        updated = 0
+        for offset in range(0, len(selected), 500):
+            batch = selected[offset:offset + 500]
+            placeholders = ",".join("?" for _ in batch)
+            with self.get_cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE file_artifacts
+                    SET state='ready',
+                        engine_fingerprint=COALESCE(?, engine_fingerprint),
+                        error_code=NULL,
+                        error_message=NULL,
+                        updated_at=?
+                    WHERE project_id=? AND kind=?
+                      AND state<>'ready' AND file_uuid IN ({placeholders})
+                    """,
+                    (engine_fingerprint, timestamp, project_id, kind, *batch),
+                )
+                updated += cursor.rowcount
+        return updated
 
     def get_ready_artifact_ids(
         self,
@@ -3258,6 +3462,54 @@ class DatabaseManager:
             """, (job_id, project_id, kind, max(0, int(total)), now, now))
         return job_id
 
+    def list_jobs(self, state: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """列出后台任务（新的在前）。UI 用它显示「正在跑什么」，看门狗用它找卡死任务。"""
+        with self.get_cursor() as cursor:
+            if state:
+                rows = cursor.execute(
+                    "SELECT * FROM jobs WHERE state=? ORDER BY updated_at DESC LIMIT ?",
+                    (str(state), max(1, int(limit))),
+                ).fetchall()
+            else:
+                rows = cursor.execute(
+                    "SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?",
+                    (max(1, int(limit)),),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def fail_stalled_jobs(self, stale_minutes: float = 10.0) -> List[Dict[str, Any]]:
+        """把「running 但长时间没进度」的任务标记为 failed，返回被处理的任务。
+
+        卡死的任务如果一直显示 running，用户会以为软件坏了，也没有重试入口。
+        这里按 updated_at 判断：超过阈值没有更新就判失败，并写清楚原因。
+        """
+        from datetime import datetime as _dt, timedelta as _td
+
+        cutoff = (_dt.now() - _td(minutes=float(stale_minutes))).isoformat()
+        stalled: List[Dict[str, Any]] = []
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT * FROM jobs WHERE state='running' AND updated_at < ?",
+                (cutoff,),
+            ).fetchall()
+        for row in rows:
+            job = dict(row)
+            message = (
+                f"超过 {int(stale_minutes)} 分钟没有进度更新，判定为卡死并停止跟踪"
+                f"（processed={job.get('processed')}/{job.get('total')}，阶段 {job.get('stage') or '-'}）"
+            )
+            self.update_job(
+                job["id"],
+                state="failed",
+                stage="stalled",
+                error_code="job_stalled",
+                error_message=message[:400],
+            )
+            job["state"] = "failed"
+            job["error_message"] = message
+            stalled.append(job)
+        return stalled
+
     def update_job(self, job_id: str, **changes: Any) -> bool:
         allowed = {
             "state", "stage", "processed", "total", "cancel_requested",
@@ -3276,6 +3528,36 @@ class DatabaseManager:
         with self.get_cursor() as cursor:
             cursor.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id=?", params)
             return cursor.rowcount > 0
+
+    def list_recent_jobs(
+        self,
+        project_id: Optional[str] = None,
+        limit: int = 50,
+        states: Optional[Iterable[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """最近的任务列表：排查「到底在跑什么」「是不是卡住了」用（B16）。"""
+        wanted = [str(s) for s in (states or []) if s]
+        sql = "SELECT * FROM jobs"
+        clauses: List[str] = []
+        params: List[Any] = []
+        if project_id:
+            clauses.append("project_id=?")
+            params.append(str(project_id))
+        if wanted:
+            clauses.append("state IN (%s)" % ",".join("?" for _ in wanted))
+            params.extend(wanted)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ?"
+        params.append(max(1, min(int(limit or 50), 500)))
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(sql, tuple(params)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["cancel_requested"] = bool(item.get("cancel_requested"))
+            result.append(item)
+        return result
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self.get_cursor() as cursor:
@@ -3437,17 +3719,45 @@ class DatabaseManager:
         """
         if project_id == "default" or not is_safe_project_id(project_id):
             return False
+        # 关掉外键级联，先把子表显式删干净再删主表。
+        # 开着 FK 时 SQLite 每条 files 都要做一次级联检查：实测 100 个文件要 29.5 秒，
+        # 2 万文件的工程 180 秒都删不完（B11）。显式删子表 500 条只要 0.09 秒。
+        connection = self._get_connection()
+        previous_fk = 1
+        try:
+            previous_fk = int(connection.execute("PRAGMA foreign_keys").fetchone()[0] or 0)
+            connection.execute("PRAGMA foreign_keys=OFF")
+        except Exception:
+            previous_fk = 1
         try:
             with self.get_cursor() as cursor:
-                cursor.execute("DELETE FROM files WHERE project_id = ?", (project_id,))
-                cursor.execute("DELETE FROM imported_folder_mappings WHERE project_id = ?", (project_id,))
-                cursor.execute("DELETE FROM user_folders WHERE project_id = ?", (project_id,))
-                cursor.execute("DELETE FROM recent_projects WHERE project_id = ?", (project_id,))
+                for table in (
+                    "file_artifacts",
+                    "files_fts",
+                    "file_tags",
+                    "tags",
+                    "files",
+                    "imported_folder_mappings",
+                    "user_folders",
+                    "recent_projects",
+                    "index_manifests",
+                    "jobs",
+                ):
+                    try:
+                        cursor.execute(f"DELETE FROM {table} WHERE project_id = ?", (project_id,))
+                    except Exception as table_error:
+                        # 老库里可能没有某张表，跳过即可
+                        _get_logger().debug(f"删除 {table} 失败（忽略）: {table_error}")
                 cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             return True
         except Exception as e:
             _get_logger().error(f"删除工程失败 {project_id}: {e}")
             return False
+        finally:
+            try:
+                connection.execute("PRAGMA foreign_keys=%d" % (1 if previous_fk else 0))
+            except Exception:
+                pass
 
     def add_to_recent_projects(self, project_id: str) -> bool:
         """
@@ -3606,6 +3916,20 @@ class DatabaseManager:
                 SELECT * FROM files WHERE project_id = ? ORDER BY created_at DESC
             """, (project_id,))
             return [self._row_to_record(row) for row in cursor.fetchall()]
+
+    def get_file_identities(self, project_id: str) -> List[tuple]:
+        """只取 (file_uuid, path, source_fingerprint)，给索引对账用。
+
+        `get_files_by_project` 会把每行构造成 AudioFileRecord：实测 6.5 万条要
+        12.7 秒，光这一步就把事件循环按住十几秒（B3 的元凶）。
+        这里只走 SQL + 元组，同样 6.5 万条约 1 秒。
+        """
+        with self.get_cursor() as cursor:
+            rows = cursor.execute(
+                "SELECT file_uuid, path, source_fingerprint FROM files WHERE project_id=?",
+                (str(project_id),),
+            ).fetchall()
+        return [(row[0], row[1], row[2]) for row in rows]
 
     def add_file_with_project(self, record: AudioFileRecord, project_id: str = 'default') -> bool:
         """

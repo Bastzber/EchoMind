@@ -201,6 +201,15 @@ def _get_mel_worker():
     return _mel_worker
 
 
+def reset_mel_worker_safe() -> bool:
+    """公开的重启入口：取消任务时用来打断卡在 mel 里的调用。"""
+    try:
+        _reset_mel_worker()
+        return True
+    except Exception:
+        return False
+
+
 def _reset_mel_worker():
     global _mel_worker
     with _mel_worker_lock:

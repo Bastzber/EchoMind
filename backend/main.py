@@ -5801,6 +5801,128 @@ async def _vector_pack_import_task(job_id: str, project_id: str, kind: str, pack
         logger.error("[VectorPack] 导入异常: %s", exc)
 
 
+class KnowledgeImportRequest(BaseModel):
+    """导入知识包（描述 + 标签 + 两套向量）。path 为空时自动找安装目录里的包。"""
+
+    path: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+_KNOWLEDGE_PACK_NAME = "EchoMind-知识包.zip"
+
+
+def _knowledge_pack_candidates() -> List[str]:
+    """按优先级列出可能的知识包位置（安装目录 / 用户数据目录）。"""
+    candidates: List[str] = []
+    try:
+        # 后端 exe 在 win-unpacked/resources/backend/soundbot-backend/ 下，
+        # 知识包放在 win-unpacked/ 根目录，所以要往上找几层。
+        exe_dir = Path(sys.executable).resolve().parent
+        for depth in range(0, 5):
+            base = exe_dir.parents[depth - 1] if depth else exe_dir
+            candidates.append(str(base / _KNOWLEDGE_PACK_NAME))
+    except Exception:
+        pass
+    try:
+        candidates.append(str(Path.cwd() / _KNOWLEDGE_PACK_NAME))
+    except Exception:
+        pass
+    try:
+        candidates.append(str(config.get_user_data_dir() / _KNOWLEDGE_PACK_NAME))
+    except Exception:
+        pass
+    return candidates
+
+
+@app.get("/api/v1/knowledge/available")
+async def knowledge_pack_available():
+    """检测安装目录里有没有内置知识包（首次启动提示用）。"""
+    from core import knowledge_pack
+
+    for candidate in _knowledge_pack_candidates():
+        path = Path(candidate)
+        if not path.is_file():
+            continue
+        try:
+            info = knowledge_pack.inspect_pack(path)
+        except Exception as exc:
+            logger.warning("[KnowledgePack] 检查 %s 失败: %s", path, exc)
+            continue
+        return {"success": True, "available": True, "path": str(path), **info}
+    return {"success": True, "available": False}
+
+
+@app.post("/api/v1/knowledge/import")
+async def knowledge_pack_import(payload: KnowledgeImportRequest, background_tasks: BackgroundTasks):
+    """导入知识包：写描述/标签 + 导入两套向量，一个任务跑完。"""
+    from core import knowledge_pack
+
+    zip_path = (payload.path or "").strip()
+    if not zip_path:
+        for candidate in _knowledge_pack_candidates():
+            if Path(candidate).is_file():
+                zip_path = candidate
+                break
+    if not zip_path:
+        raise HTTPException(status_code=404, detail="没找到知识包（%s）" % _KNOWLEDGE_PACK_NAME)
+    try:
+        info = knowledge_pack.inspect_pack(Path(zip_path))
+    except knowledge_pack.KnowledgePackError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    project_id = payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default")
+    db_manager = get_db_manager()
+    job_id = db_manager.create_job(project_id, "knowledge_import", int(info.get("files") or 0))
+    background_tasks.add_task(_knowledge_import_task, job_id, project_id, Path(zip_path))
+    return {
+        "success": True,
+        "job_id": job_id,
+        "path": zip_path,
+        "files": info.get("files"),
+        "kinds": info.get("kinds"),
+        "size_mb": info.get("size_mb"),
+    }
+
+
+async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -> None:
+    """后台导知识包：进度写进 job，前端轮询 /api/v1/jobs/{id}。"""
+    import asyncio
+
+    from core import knowledge_pack
+
+    db_manager = get_db_manager()
+    db_manager.update_job(job_id, state="running", stage="unpacking")
+
+    def progress(stage: str, done: int, total: int) -> None:
+        try:
+            db_manager.update_job(job_id, stage=stage, processed=int(done))
+        except Exception:
+            pass
+
+    def cancelled() -> bool:
+        try:
+            job = db_manager.get_job(job_id)
+            return bool(job and job.get("cancel_requested"))
+        except Exception:
+            return False
+
+    try:
+        report = await asyncio.to_thread(
+            knowledge_pack.import_pack, db_manager, project_id, zip_path, progress, cancelled,
+        )
+        db_manager.update_job(
+            job_id, state="completed", stage="done",
+            processed=int(report.get("files") or 0),
+        )
+        logger.info("[KnowledgePack] 导入完成: %s", report)
+    except knowledge_pack.KnowledgePackError as exc:
+        db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
+        logger.warning("[KnowledgePack] 导入失败: %s", exc)
+    except Exception as exc:
+        db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
+        logger.error("[KnowledgePack] 导入异常: %s", exc)
+
+
 @app.get("/api/v1/db/stats")
 async def get_db_stats():
     """

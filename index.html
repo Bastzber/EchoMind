@@ -1663,6 +1663,46 @@
             }, 2000);
         }
 
+        // 内置知识包提示：库还没索引过、且安装目录带了包时，给一张卡片一键导入
+        let knowledgeOfferChecked = false;
+        async function maybeOfferKnowledgePack(backlog) {
+            if (knowledgeOfferChecked) return;
+            knowledgeOfferChecked = true;
+            if (localStorage.getItem('echomind.knowledgePackDismissed') === '1') return;
+            let info = null;
+            try {
+                info = await rendererApi.get('/api/v1/knowledge/available');
+            } catch (_) { return; }
+            if (!info || !info.available) return;
+            if (backlog < 1000) return;   // 已经建好了就别打扰
+            if (document.getElementById('knowledgeOfferCard')) return;
+            const card = document.createElement('div');
+            card.id = 'knowledgeOfferCard';
+            card.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:900;width:380px;'
+                + 'background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;'
+                + 'box-shadow:0 8px 24px rgba(0,0,0,.18);padding:14px;font-size:12px;line-height:1.6';
+            card.innerHTML = ''
+                + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                + '  <strong style="font-size:13px">检测到内置知识包</strong>'
+                + '  <button id="knowledgeOfferClose" style="border:0;background:transparent;cursor:pointer;opacity:.55;font-size:14px">×</button>'
+                + '</div>'
+                + '<div style="opacity:.8">安装包里有 <b>' + (info.files || 0) + '</b> 条描述/标签/向量（'
+                + (info.size_mb || '?') + ' MB）。导入后<b>不用再跑几小时索引</b>，约 1~2 分钟即可搜索。</div>'
+                + '<div style="display:flex;gap:8px;margin-top:10px">'
+                + '  <button id="knowledgeOfferImport" style="flex:1;padding:6px 8px;border-radius:8px;border:0;background:#6b8afd;color:#fff;cursor:pointer">立即导入</button>'
+                + '  <button id="knowledgeOfferLater" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-primary);cursor:pointer">以后再说</button>'
+                + '</div>';
+            document.body.appendChild(card);
+            card.querySelector('#knowledgeOfferClose')?.addEventListener('click', () => card.remove());
+            card.querySelector('#knowledgeOfferLater')?.addEventListener('click', () => {
+                localStorage.setItem('echomind.knowledgePackDismissed', '1');
+                card.remove();
+            });
+            card.querySelector('#knowledgeOfferImport')?.addEventListener('click', () => {
+                card.remove();
+                importKnowledgePack(info.path || '');
+            });
+        }
         // 待索引积压卡片：只在「有积压 + 没在跑 + 用户没关掉」时出现
         function maybeShowIndexBacklogCard(status, busy, job) {
             const CARD_ID = 'indexBacklogCard';
@@ -1803,6 +1843,12 @@
 
                 // 有大量待索引时给一张明确的卡片，而不是让它静默躺在数字里（B4）
                 maybeShowIndexBacklogCard(status, busy, job);
+                // 安装目录带了知识包、库里又基本没索引过 → 提示一键导入
+                const _backlog = Number(audio.pending || 0) + Number(text.pending || 0)
+                    + Number(audio.stale || 0) + Number(text.stale || 0);
+                if (!busy && _backlog >= 1000) {
+                    void maybeOfferKnowledgePack(_backlog);
+                }
 
                 // 读成功但当前没有索引任务 → 清掉「读取中…／读取失败」这类临时文案
                 const label = document.getElementById('indexJobStatus');
@@ -15469,6 +15515,57 @@
                 }
             });
 
+
+            // ===== 知识包导入（描述 + 标签 + 两套向量，一个任务） =====
+            async function importKnowledgePack(filePath) {
+                const statusEl = document.getElementById('knowledgePackStatus');
+                const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
+                try {
+                    setStatus('正在检查知识包…');
+                    const res = await rendererApi.post(
+                        '/api/v1/knowledge/import',
+                        { path: filePath || '', project_id: currentProject?.id || 'default' },
+                        { timeoutMs: 120000 }
+                    );
+                    const jobId = res?.job_id;
+                    if (!jobId) { setStatus('提交失败'); return; }
+                    setStatus(`已开始：${res.files ?? 0} 条，${res.size_mb ?? '?'} MB`);
+                    showNotification('开始导入知识包，请稍候（约 1~2 分钟）', 'info');
+                    for (let i = 0; i < 600; i += 1) {
+                        await new Promise((r) => setTimeout(r, 2000));
+                        let job = null;
+                        try {
+                            job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId));
+                        } catch (_) { continue; }
+                        if (!job) continue;
+                        if (job.state === 'completed') {
+                            setStatus('✅ 导入完成');
+                            showNotification('知识包导入完成，索引已就绪', 'success');
+                            await refreshProjectIndexStatus();
+                            loadFilesFromDatabase();
+                            return;
+                        }
+                        if (job.state === 'failed' || job.state === 'cancelled') {
+                            setStatus('导入失败: ' + (job.error_message || job.stage || ''));
+                            showNotification('知识包导入失败: ' + (job.error_message || job.stage || ''), 'error');
+                            return;
+                        }
+                        const done = Number(job.processed || 0);
+                        const total = Number(job.total || 0);
+                        setStatus(total
+                            ? `${job.stage === 'metadata' ? '写描述标签' : '导入向量'} ${done}/${total}`
+                            : `导入中（${job.stage || '...'}）`);
+                    }
+                    setStatus('仍在后台进行，可在任务列表查看');
+                } catch (error) {
+                    setStatus('导入失败: ' + (error?.message || error));
+                    showNotification('知识包导入失败: ' + (error?.message || error), 'error');
+                }
+            }
+
+            document.getElementById('importKnowledgePackBtn')?.addEventListener('click', () => {
+                importKnowledgePack('');
+            });
             document.getElementById('batchDescBtn')?.addEventListener('click', async () => {
                 if (descBatchRunning) return;
                 descBatchRunning = true;
@@ -17176,6 +17273,18 @@
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
                                         style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入描述包 / 标签包</button>
                                 <span id="descPackStatus" class="text-xs opacity-70"></span>
+                            </div>
+                        </div>
+                        <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color);">
+                            <div class="text-sm font-medium mb-1">知识包（描述 + 标签 + 两套向量，一次导入）</div>
+                            <p class="text-xs opacity-60 mb-2">最省事的方式：一个 zip 里同时有描述、标签和两套向量，
+                                导入后<b>不用再跑几小时索引</b>，一分多钟就能搜。安装包里若带了
+                                <code>EchoMind-知识包.zip</code>，点按钮会自动找到它。</p>
+                            <div class="flex items-center gap-3">
+                                <button id="importKnowledgePackBtn"
+                                        class="px-3 py-1.5 rounded-md text-sm font-medium text-white transition-colors hover:opacity-90"
+                                        style="background: #6b8afd;">导入知识包</button>
+                                <span id="knowledgePackStatus" class="text-xs opacity-70"></span>
                             </div>
                         </div>
                         <div id="descProgressWrap" class="hidden mb-4">

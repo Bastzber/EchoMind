@@ -17,6 +17,35 @@ logger = logging.getLogger(__name__)
 SUPPORTED_MODELS = ("htdemucs", "htdemucs_ft")
 DEFAULT_MODEL = "htdemucs"
 
+
+def _seed_bundled_weights() -> None:
+    """把随包内置的 Demucs 权重放进 HuggingFace 缓存，避免首次分轨联网下载。"""
+    import os as _os
+    import shutil as _shutil
+
+    try:
+        import config as _config
+
+        bundled = Path(_config.find_models_dir()) / 'demucs-hf' / 'hub'
+    except Exception:
+        return
+    if not bundled.is_dir():
+        return
+    try:
+        hf_home = Path(_os.environ.get('HF_HOME') or (Path.home() / '.cache' / 'huggingface'))
+        target = hf_home / 'hub'
+        target.mkdir(parents=True, exist_ok=True)
+        for repo in bundled.iterdir():
+            if not repo.is_dir():
+                continue
+            dest = target / repo.name
+            if dest.exists():
+                continue
+            _shutil.copytree(repo, dest)
+            logger.info('已释放内置 Demucs 权重: %s', dest)
+    except Exception as exc:
+        logger.debug('释放内置 Demucs 权重失败: %s', exc)
+
 _MODEL_CACHE: Dict[str, object] = {}
 _MODEL_LOCK = threading.Lock()
 
@@ -38,6 +67,7 @@ def load_model(model_name: str = DEFAULT_MODEL):
     with _MODEL_LOCK:
         if model_name in _MODEL_CACHE:
             return _MODEL_CACHE[model_name]
+        _seed_bundled_weights()
         from demucs.pretrained import get_model
 
         logger.info("加载 Demucs 模型: %s（首次会下载权重）", model_name)

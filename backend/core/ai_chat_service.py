@@ -139,6 +139,50 @@ class AIChatService:
             prepared.append({"role": "user", "content": message})
         return prepared
 
+    def _attach_meta(self, items: List[Dict[str, Any]]) -> None:
+        """给结果补 ai_description / tags（一次查询，不改动已有非空值）。"""
+        try:
+            import json as _json
+
+            from core.database import get_db_manager
+
+            ids = list(dict.fromkeys(str(item.get("file_id")) for item in items if item.get("file_id")))
+            if not ids:
+                return
+            db = get_db_manager()
+            # SQLite 默认最多 999 个参数；AI 搜索一次能带几万条结果，必须分批查，
+            # 否则整段 IN 查询直接抛错，标签和描述就全是空的。
+            by_id: Dict[str, Any] = {}
+            for offset in range(0, len(ids), 500):
+                chunk = ids[offset:offset + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                with db.get_cursor() as cursor:
+                    rows = cursor.execute(
+                        f"SELECT file_uuid, ai_description, tags FROM files "
+                        f"WHERE file_uuid IN ({placeholders})",
+                        tuple(chunk),
+                    ).fetchall()
+                for row in rows:
+                    by_id[str(row["file_uuid"])] = row
+            for item in items:
+                row = by_id.get(str(item.get("file_id")))
+                if row is None:
+                    continue
+                desc = str(row["ai_description"] or "")
+                if desc.startswith("[auto]"):
+                    desc = desc[len("[auto]"):].strip()
+                if desc:
+                    item["ai_description"] = desc
+                raw = row["tags"]
+                try:
+                    tags = _json.loads(raw) if isinstance(raw, str) else (raw or [])
+                except Exception:
+                    tags = []
+                if tags:
+                    item["tags"] = [str(tag) for tag in tags if str(tag).strip()]
+        except Exception as exc:
+            logger.debug("补齐结果描述/标签失败: %s", exc)
+
     async def chat(
         self,
         message: str,
@@ -176,6 +220,8 @@ class AIChatService:
                 # exposing the public field consumed by the renderer.
                 item["file_id"] = metadata.get("file_id")
                 serialized.append(item)
+            # 搜索结果只带文件名和分数，界面要显示描述和标签：按 id 批量补齐
+            self._attach_meta(serialized)
             yield {
                 "type": "results",
                 "results": serialized,

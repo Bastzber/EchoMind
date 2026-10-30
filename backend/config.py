@@ -159,8 +159,18 @@ def get_chroma_db_path(project_id: str = "default") -> Path:
 # ==================== 项目基础配置 ====================
 
 APP_NAME = "EchoMind"
-APP_VERSION = "0.3.0-beta.11"
+APP_VERSION = "0.3.0-beta.12"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# 导入完音效文件夹后是否立刻自动跑向量索引。
+# 默认关：用户紧接着通常要导描述包，两条长写事务撞在一起会 database is locked，
+# 向量管道也会被拖死。改成导入完成后由用户分别点「修复音频向量」「修复文本向量」。
+AUTO_INDEX_AFTER_IMPORT = os.getenv("ECHOMIND_AUTO_INDEX_AFTER_IMPORT", "0") == "1"
+
+# 导入后是否过一会儿自动补波形（只算波形，不碰向量）。
+# 波形要解码每个文件，但比向量便宜得多；导入后不补的话界面一直是空波形（B17）。
+AUTO_WAVEFORM_AFTER_IMPORT = os.getenv("ECHOMIND_AUTO_WAVEFORM_AFTER_IMPORT", "1") == "1"
+AUTO_WAVEFORM_DELAY_SECONDS = float(os.getenv("ECHOMIND_AUTO_WAVEFORM_DELAY", "180"))
 
 # ==================== 服务器配置 ====================
 

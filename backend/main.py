@@ -451,6 +451,63 @@ async def lifespan(app: FastAPI):
     preloader.add_progress_callback(on_model_progress)
     await preload_models_on_startup()
 
+    async def _loop_lag_watchdog() -> None:
+        """事件循环卡顿探针：卡住超过 3 秒就记一条日志，带卡了多久。
+
+        用户报过「索引一跑，/health 九分钟没响应」。有这条日志就能确认是
+        事件循环被谁堵住了，而不是靠猜（B3）。
+        """
+        import sys as _sys
+        import traceback as _traceback
+
+        interval = 1.0
+        while True:
+            started = time.monotonic()
+            await asyncio.sleep(interval)
+            drift = (time.monotonic() - started) - interval
+            if drift > 3.0:
+                # 光有"卡了多久"定位不了代码，把主线程栈一起打出来
+                try:
+                    frames = _sys._current_frames()
+                    stack = _traceback.format_stack(frames.get(threading.main_thread().ident))
+                    detail = "".join(stack[-6:]).strip()
+                except Exception as exc:
+                    detail = f"(取栈失败: {exc})"
+                logger.warning("[Loop] 事件循环卡顿 %.1fs\n%s", drift, detail)
+
+    try:
+        asyncio.create_task(_loop_lag_watchdog(), name="loop-lag-watchdog")
+    except Exception as exc:
+        logger.debug("启动事件循环探针失败: %s", exc)
+
+    async def _stalled_job_watchdog() -> None:
+        """卡死任务看门狗：长时间没有进度更新的 running 任务判失败。
+
+        原来编码卡住时任务会永远停在 running，界面看不出问题、也没有重试入口
+        （B2/B5）。阈值用 ECHOMIND_JOB_STALL_MINUTES 可调，默认 10 分钟。
+        """
+        try:
+            minutes = float(os.environ.get("ECHOMIND_JOB_STALL_MINUTES", "10") or 10)
+        except Exception:
+            minutes = 10.0
+        while True:
+            await asyncio.sleep(60)
+            try:
+                stalled = await asyncio.to_thread(
+                    get_db_manager().fail_stalled_jobs, minutes
+                )
+                for job in stalled:
+                    logger.warning(
+                        "[Jobs] 任务 %s 判定卡死：%s", job.get("id"), job.get("error_message")
+                    )
+            except Exception as exc:
+                logger.debug("卡死任务检查失败: %s", exc)
+
+    try:
+        asyncio.create_task(_stalled_job_watchdog(), name="stalled-job-watchdog")
+    except Exception as exc:
+        logger.debug("启动卡死任务看门狗失败: %s", exc)
+
     # 预热关键词搜索的文件快照：5 万条从 SQLite 重建约 10 秒，放在后台做，
     # 用户第一次搜索就不必等这一下。
     async def _warm_zh_embedder() -> None:
@@ -676,7 +733,7 @@ async def websocket_scan_progress(websocket: WebSocket, client_id: str):
 # ==================== 健康检查 ====================
 
 @app.get("/api/v1/health", response_model=schemas.HealthResponse)
-async def health_check():
+def health_check():
     """
     健康检查接口
 
@@ -1133,7 +1190,17 @@ async def _import_selected_files_task_locked(
         if defer_vectors:
             try:
                 await asyncio.sleep(1.0)
-                _schedule_project_reconcile(project_id, ("audio_vector", "text_vector"), reason="bulk_import")
+                if getattr(config, "AUTO_INDEX_AFTER_IMPORT", False):
+                    _schedule_project_reconcile(project_id, ("audio_vector", "text_vector"), reason="bulk_import")
+                else:
+                    # 刚导入完别急着跑向量：用户往往紧接着要导描述包，
+                    # 两条长写事务撞在一起就是 database is locked / 向量管道卡死。
+                    logger.info(
+                        "[IMPORT] 向量索引已暂停（%d 个文件待处理）：先导描述包，"
+                        "再在常用条分别点「修复音频向量」「修复文本向量」",
+                        len(file_paths),
+                    )
+                _schedule_waveform_after_import(project_id)
             except Exception as exc:
                 logger.debug("调度批量索引进程失败: %s", exc)
         db_manager.update_job(
@@ -1160,6 +1227,27 @@ async def _import_selected_files_task_locked(
         ws_manager.unregister_task(job_id)
 
 
+@app.get("/api/v1/jobs")
+async def list_background_jobs(
+    project_id: Optional[str] = None,
+    limit: int = 50,
+    state: Optional[str] = None,
+):
+    """任务列表（B16）：前端能看到「正在跑什么」，卡住时也能直接查。"""
+    states = [item for item in (state or "").replace(",", " ").split() if item]
+    jobs = get_db_manager().list_recent_jobs(
+        project_id=project_id, limit=limit, states=states or None
+    )
+    return {"jobs": jobs, "count": len(jobs)}
+
+
+@app.get("/api/v1/jobs")
+async def list_background_jobs(state: Optional[str] = None, limit: int = 50):
+    """所有后台任务列表（B16：以前只有单个任务查询，UI 看不到「正在跑什么」）。"""
+    jobs = get_db_manager().list_jobs(state=state, limit=limit)
+    return {"success": True, "count": len(jobs), "jobs": jobs}
+
+
 @app.get("/api/v1/jobs/{job_id}")
 async def get_background_job(job_id: str):
     job = get_db_manager().get_job(job_id)
@@ -1178,6 +1266,14 @@ async def cancel_background_job(job_id: str):
         return {"job_id": job_id, "state": job["state"], "cancel_requested": False}
     db_manager.update_job(job_id, cancel_requested=1)
     get_ws_manager().cancel_task(job_id)
+    # 编码/解码可能正卡在 mel worker 里，循环走不到取消检查点。
+    # 杀掉 worker 能立刻把阻塞的调用打断，取消才能真正生效。
+    try:
+        from core import embedder as _embedder
+
+        await asyncio.to_thread(_embedder.reset_mel_worker_safe)
+    except Exception as exc:
+        logger.debug("取消时重启 mel worker 失败: %s", exc)
     return {"job_id": job_id, "state": job["state"], "cancel_requested": True}
 
 
@@ -1716,7 +1812,9 @@ async def _scan_and_import_task_locked(
                 )
 
         # Decode/probe only after SQLite owns the candidate set.
-        db_manager.update_job(task_id, stage="decoding", processed=total, total=total)
+        # 注意：这里**不能**把 processed 直接写成 total ——一进解码阶段就显示 100%，
+        # 用户以为卡住了（B1）。保持已完成的候选数，只换阶段名。
+        db_manager.update_job(task_id, stage="decoding", total=total)
         audio_files, folder_structure = await _run_audio_work(
             scanner.scan_with_structure, folder_path, recursive
         )
@@ -1985,8 +2083,16 @@ async def _scan_and_import_task_locked(
         if defer_vectors:
             try:
                 await asyncio.sleep(1.0)
-                _schedule_project_reconcile(project_id, ("audio_vector", "text_vector"), reason="bulk_import")
-                logger.info("[IMPORT] 已调度后台批量索引")
+                if getattr(config, "AUTO_INDEX_AFTER_IMPORT", False):
+                    _schedule_project_reconcile(project_id, ("audio_vector", "text_vector"), reason="bulk_import")
+                    logger.info("[IMPORT] 已调度后台批量索引")
+                else:
+                    logger.info(
+                        "[IMPORT] 向量索引已暂停（%d 个文件待处理）：先导描述包，"
+                        "再分别修复音频/文本向量",
+                        len(file_paths),
+                    )
+                _schedule_waveform_after_import(project_id)
             except Exception as exc:
                 logger.debug("调度批量索引失败: %s", exc)
 
@@ -3019,9 +3125,72 @@ async def sfx_save_config(request: Dict[str, Any]):
     return {"success": True, "message": "音频生成配置已保存"}
 
 
+async def _regenerate_file_description(project_id: str, record: Any) -> bool:
+    """只重生成一个文件的一句话描述（不动音频向量、不动标签）。
+
+    注意 record 是 AudioFileRecord（dataclass），只能取属性，不能 .get()。
+    """
+    from core.llm_client import get_llm_client
+
+    client = get_llm_client()
+    if not getattr(client, "is_available", True):
+        return False
+    filename = str(
+        getattr(record, "filename", "")
+        or Path(str(getattr(record, "path", "") or "")).name
+    )
+    system = (
+        "你是音效库管理员。只输出最终的一句话描述，"
+        "不要分析、不要解释、不要复述任务。"
+    )
+    user = (
+        "用一句简体中文（不超过25字）描述这个音效的声音内容。"
+        "只输出这句话本身，不要引号、不要思考过程。\n"
+        f"文件名：{filename}"
+    )
+    try:
+        chunks: List[str] = []
+        async for chunk in client.chat(
+            messages=[{"role": "user", "content": user}],
+            system_prompt=system,
+            temperature=0.3,
+            max_tokens=800,
+            stream=False,
+        ):
+            if isinstance(chunk, dict) and chunk.get("type") == "content":
+                chunks.append(str(chunk.get("content") or ""))
+        text = "".join(chunks).strip().strip('"\'“”‘’《》').strip()
+        text = text.splitlines()[0].strip() if text else ""
+        if not text or len(text) > 60:
+            logger.warning("重生成描述内容异常 %s: %.40s", filename, text)
+            return False
+        return bool(
+            get_db_manager().update_ai_description(
+                str(getattr(record, "path", "") or ""), text, project_id
+            )
+        )
+    except Exception as exc:
+        logger.warning("重生成描述失败 %s: %s", filename, exc)
+        return False
+
+
 @app.post("/api/v1/db/file/{path:path}/reanalyze")
-async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
-    """重新分析单个素材：重建波形、音频向量、文本向量。"""
+async def reanalyze_db_file(
+    path: str,
+    background_tasks: BackgroundTasks,
+    scope: str = Query(default="all"),
+):
+    """重新分析单个素材。
+
+    scope:
+      all         重建波形 + 音频向量 + 文本向量（旧行为，默认）
+      audio       只重建波形 + 音频向量（CLAP），不动描述/标签
+      description 只重生成一句话描述，再重算这一个文件的文本向量
+      tags        只重生成标签（当前没有独立入口，返回明确提示）
+    """
+    scope = (scope or "all").strip().lower()
+    if scope not in {"all", "audio", "description", "tags"}:
+        raise HTTPException(status_code=422, detail="scope 只能是 all / audio / description / tags")
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting:
@@ -3031,11 +3200,39 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
         if not record:
             raise HTTPException(status_code=404, detail="文件不存在")
         now = datetime.now().isoformat()
+
+        if scope == "description":
+            ok = await _regenerate_file_description(current_project_id, record)
+            if not ok:
+                raise SoundBotAPIError(
+                    "description_failed",
+                    "描述生成失败：请检查设置里的 LLM 配置",
+                    status_code=503,
+                )
+            db_manager.mark_artifacts_stale_for_file(
+                current_project_id, record.file_uuid, ["text_vector"], now
+            )
+            try:
+                await _get_project_searcher(current_project_id).clear_cache()
+            except Exception as exc:
+                logger.debug(f"清理搜索缓存失败: {exc}")
+            job_id = db_manager.create_job(current_project_id, "index_reconcile", 1)
+            background_tasks.add_task(
+                _repair_index_task, job_id, current_project_id, ["text_vector"], "reconcile",
+            )
+            return {"success": True, "scope": "description", "job_id": job_id,
+                    "message": "已重生成描述，正在重算文本向量"}
+
+        if scope == "tags":
+            raise SoundBotAPIError(
+                "tags_scope_unsupported",
+                "标签还没有独立的重生成入口（会随「全部重新分析」一起刷新）",
+                status_code=501,
+            )
+
+        kinds = ["waveform", "audio_vector"] if scope == "audio" else ["waveform", "audio_vector", "text_vector"]
         db_manager.mark_artifacts_stale_for_file(
-            current_project_id,
-            record.file_uuid,
-            ["waveform", "audio_vector", "text_vector"],
-            now,
+            current_project_id, record.file_uuid, kinds, now
         )
         try:
             await _get_project_searcher(current_project_id).clear_cache()
@@ -3046,10 +3243,10 @@ async def reanalyze_db_file(path: str, background_tasks: BackgroundTasks):
             _repair_index_task,
             job_id,
             current_project_id,
-            ["waveform", "audio_vector", "text_vector"],
+            kinds,
             "reconcile",
         )
-    return {"success": True, "message": "已提交重新分析", "job_id": job_id}
+    return {"success": True, "scope": scope, "message": "已提交重新分析", "job_id": job_id}
 
 
 # ==================== 批量重命名 ====================
@@ -3879,6 +4076,14 @@ async def assistant_speak(payload: AssistantSpeakRequest):
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=422, detail="text 不能为空")
+    # 冷启动保护：刚开机/刚重启时 Breeze 还没起来，直接合成会 503，
+    # 前端那一段就被跳过了（表现就是「第一句话没声音」）。
+    # 这里最多等 25 秒，等它起来再合成。
+    if not await asyncio.to_thread(tts.breeze_available, 1.0):
+        for _ in range(25):
+            await asyncio.sleep(1.0)
+            if await asyncio.to_thread(tts.breeze_available, 1.0):
+                break
     provider = (getattr(payload, "provider", "") or "auto").strip() or "auto"
     result = await asyncio.to_thread(tts.speak, text, provider, getattr(payload, "profile_id", "") or "")
     if not result.get("ok"):
@@ -4279,6 +4484,44 @@ class FileCopyRequest(BaseModel):
     overwrite: bool = False
 
 
+class FileMetaRequest(BaseModel):
+    ids: List[str]
+
+
+@app.post("/api/v1/files/meta")
+async def files_meta_endpoint(payload: FileMetaRequest):
+    """按 id 批量取描述和标签：搜索结果只有文件名和分数，界面要补这两项。"""
+    import json as _json
+
+    ids = [str(item) for item in (payload.ids or []) if item][:500]
+    if not ids:
+        return {"success": True, "items": []}
+    db_manager = get_db_manager()
+    placeholders = ",".join("?" for _ in ids)
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            f"SELECT file_uuid, filename, ai_description, tags FROM files WHERE file_uuid IN ({placeholders})",
+            tuple(ids),
+        ).fetchall()
+    items = []
+    for row in rows:
+        raw_tags = row["tags"]
+        try:
+            tags = _json.loads(raw_tags) if isinstance(raw_tags, str) else (raw_tags or [])
+        except Exception:
+            tags = [part for part in str(raw_tags or "").split(",") if part.strip()]
+        description = str(row["ai_description"] or "")
+        if description.startswith("[auto]"):
+            description = description[len("[auto]"):].strip()
+        items.append({
+            "id": row["file_uuid"],
+            "filename": row["filename"],
+            "ai_description": description,
+            "tags": [str(tag) for tag in (tags or []) if str(tag).strip()],
+        })
+    return {"success": True, "items": items}
+
+
 @app.post("/api/v1/files/copy")
 async def files_copy_endpoint(payload: FileCopyRequest):
     """把生成的语音等文件另存到用户指定位置。"""
@@ -4484,6 +4727,55 @@ class SeparateRequest(BaseModel):
     stems: Optional[List[str]] = None
 
 
+def _stems_staging_root() -> Path:
+    """分轨产物先落在这里，由用户决定要不要、放到哪。"""
+    root = Path(tempfile.gettempdir()) / 'echomind-stems'
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+class StemsSaveRequest(BaseModel):
+    files: List[str]
+    target_dir: str
+    overwrite: bool = False
+
+
+@app.post('/api/v1/audio/stems/save')
+async def save_stems(payload: StemsSaveRequest):
+    """把用户选中的分轨文件复制到指定文件夹（不覆盖同名文件）。"""
+    import shutil
+
+    if not payload.files:
+        raise HTTPException(status_code=422, detail='没有选中的分轨')
+    target = Path(payload.target_dir).expanduser()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise SoundBotAPIError('bad_target_dir', f'无法创建目标文件夹: {exc}', status_code=400)
+    saved = []
+    skipped = []
+    for raw in payload.files:
+        src = Path(str(raw))
+        if not src.is_file():
+            skipped.append({'path': str(src), 'reason': 'not_found'})
+            continue
+        dest = target / src.name
+        if dest.exists() and not payload.overwrite:
+            stem, suffix = src.stem, src.suffix
+            index = 1
+            while dest.exists():
+                dest = target / f'{stem} ({index}){suffix}'
+                index += 1
+        try:
+            if dest.resolve() != src.resolve():
+                shutil.copy2(str(src), str(dest))
+        except Exception as exc:
+            skipped.append({'path': str(src), 'reason': str(exc)[:120]})
+            continue
+        saved.append(str(dest))
+    return {'success': True, 'saved': saved, 'count': len(saved), 'skipped': skipped, 'target_dir': str(target)}
+
+
 @app.post("/api/v1/audio/separate")
 async def separate_audio(payload: SeparateRequest):
     """用 Demucs 把音乐拆成人声/鼓/贝斯/其他，并额外合成一版伴奏。"""
@@ -4502,7 +4794,12 @@ async def separate_audio(payload: SeparateRequest):
         if not source.is_file():
             results.append({"source": str(path), "ok": False, "error": "文件不存在"})
             continue
-        out_dir = Path(payload.out_dir) if payload.out_dir else source.parent / "_分轨"
+        # 默认写到临时暂存区，绝不写进原文件夹：分轨产物要不要、放哪里由用户决定。
+        if payload.out_dir:
+            out_dir = Path(payload.out_dir)
+        else:
+            out_dir = Path(tempfile.mkdtemp(prefix='stems-', dir=str(_stems_staging_root())))
+
         outcome = await loop.run_in_executor(
             None, separate, str(source), str(out_dir), model_name, payload.stems, True
         )
@@ -4536,7 +4833,12 @@ async def remove_vocals_batch(payload: RemoveVocalsRequest):
         if not source.is_file():
             results.append({"source": str(path), "ok": False, "error": "文件不存在"})
             continue
-        out_dir = Path(payload.out_dir) if payload.out_dir else source.parent / "_去人声"
+        # 默认写临时暂存区，不写原文件夹：去人声结果是「伴奏」，要不要、放哪由用户决定
+        if payload.out_dir:
+            out_dir = Path(payload.out_dir)
+        else:
+            out_dir = Path(tempfile.mkdtemp(prefix='vocals-', dir=str(_stems_staging_root())))
+        out_dir.mkdir(parents=True, exist_ok=True)
         destination = out_dir / (source.stem + "_伴奏.wav")
         if destination.exists():
             index = 2
@@ -5343,7 +5645,11 @@ async def cleanup_broken_files(background_tasks: BackgroundTasks):
     if not broken:
         return {"success": True, "job_id": None, "count": 0, "message": "没有损坏文件"}
     job_id = db_manager.create_job(current_project_id, "broken_cleanup", len(broken))
-    background_tasks.add_task(_broken_cleanup_task, job_id, current_project_id, [b["path"] for b in broken])
+    entries = [
+        {"path": b.get("path") or "", "file_uuid": b.get("file_uuid") or ""}
+        for b in broken
+    ]
+    background_tasks.add_task(_broken_cleanup_task, job_id, current_project_id, entries)
     return {
         "success": True,
         "job_id": job_id,
@@ -5352,54 +5658,37 @@ async def cleanup_broken_files(background_tasks: BackgroundTasks):
     }
 
 
-async def _broken_cleanup_task(job_id: str, project_id: str, paths: List[str]) -> None:
-    """逐个清理损坏文件（仅移除软件库记录）。"""
+async def _broken_cleanup_task(job_id: str, project_id: str, entries: List[Dict[str, Any]]) -> None:
+    """批量清理损坏文件（仅移除软件库记录，磁盘原文件不动）。
+
+    两条关键改动：
+    1. 按 file_uuid 批量删记录：原来按路径删，路径规范形式不一致（斜杠方向）会全部匹配失败；
+    2. 不再逐个删 Chroma 向量：每个文件都要打开一次集合（实测 9.8s + 14.6s），200 个就是一小时。
+       向量留着只是孤儿，不影响搜索（搜索按 DB 命中），需要时用重建流程统一回收。
+    """
     db_manager = get_db_manager()
     ws_manager = get_ws_manager()
     db_manager.update_job(job_id, state="running", stage="removing")
     removed = 0
     failed = 0
     try:
-        for index, file_path in enumerate(paths):
-            job = db_manager.get_job(job_id)
-            if (job and job["cancel_requested"]) or ws_manager.is_task_cancelled(job_id):
-                db_manager.update_job(
-                    job_id, state="cancelled", stage="cancelled", processed=index
-                )
-                return
-            try:
-                record = db_manager.get_file(file_path, project_id)
-                if not record:
-                    failed += 1
-                    continue
-                try:
-                    await _run_model_work(
-                        _get_active_audio_indexer(project_id).remove_audio,
-                        file_path,
-                        record.file_uuid,
-                    )
-                except Exception as exc:
-                    logger.warning("损坏文件音频向量移除失败 %s: %s", file_path, exc)
-                try:
-                    await _run_model_work(
-                        _get_active_text_indexer(project_id).remove,
-                        file_id=record.file_uuid,
-                    )
-                except Exception as exc:
-                    logger.warning("损坏文件文本索引移除失败 %s: %s", file_path, exc)
-                if db_manager.delete_file(file_path, project_id):
-                    removed += 1
-                else:
-                    failed += 1
-            except Exception as exc:
-                logger.error("清理损坏文件失败 %s: %s", file_path, exc)
-                failed += 1
-            db_manager.update_job(job_id, processed=index + 1)
+        uuids = [str(entry.get("file_uuid") or "") for entry in entries]
+        uuids = [u for u in uuids if u]
+        job = db_manager.get_job(job_id)
+        if (job and job["cancel_requested"]) or ws_manager.is_task_cancelled(job_id):
+            db_manager.update_job(job_id, state="cancelled", stage="cancelled", processed=0)
+            return
+        for offset in range(0, len(uuids), 400):
+            chunk = uuids[offset:offset + 400]
+            removed += db_manager.delete_files_by_uuids(project_id, chunk)
+            db_manager.update_job(job_id, processed=min(offset + len(chunk), len(uuids)))
+        failed = max(0, len(uuids) - removed)
+        logger.info("[Broken] 清理完成：删除记录 %d 条，未匹配 %d 条", removed, failed)
         db_manager.update_job(
             job_id,
-            state="completed" if failed == 0 else "failed",
+            state="completed",
             stage=f"done removed={removed} failed={failed}",
-            processed=len(paths),
+            processed=len(uuids),
         )
     except Exception as exc:
         logger.error("损坏文件清理任务异常: %s", exc)
@@ -5410,6 +5699,103 @@ async def _broken_cleanup_task(job_id: str, project_id: str, paths: List[str]) -
         await _get_project_searcher(project_id).clear_cache()
     except Exception as exc:
         logger.debug(f"清理搜索缓存失败: {exc}")
+    except Exception as exc:
+        logger.debug(f"清理搜索缓存失败: {exc}")
+
+
+class VectorPackImportRequest(BaseModel):
+    """导入预计算向量包：kind + 包目录（或包里的 manifest 路径）。"""
+
+    kind: str
+    path: str
+    project_id: Optional[str] = None
+
+
+@app.post("/api/v1/vectors/import")
+async def vectors_import(payload: VectorPackImportRequest, background_tasks: BackgroundTasks):
+    """导入向量包：只按 sha256 匹配本机文件，不重新计算向量。"""
+    from core import vector_pack
+    from pathlib import Path as _Path
+
+    kind = (payload.kind or "").strip()
+    if kind not in ("audio_vector", "text_vector"):
+        raise HTTPException(status_code=422, detail="kind 只能是 audio_vector 或 text_vector")
+    pack_dir = _Path(payload.path)
+    if pack_dir.is_file():
+        pack_dir = pack_dir.parent
+    if not pack_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"路径不存在: {pack_dir}")
+    try:
+        pack = vector_pack.load_manifest(pack_dir, kind)
+        local = get_db_manager().get_index_manifest(
+            payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default"), kind
+        )
+        vector_pack.validate(pack, local, kind)
+    except vector_pack.VectorPackError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    project_id = payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default")
+    total = int(pack.get("count") or 0)
+    db_manager = get_db_manager()
+    job_id = db_manager.create_job(project_id, f"vector_import_{kind}", total)
+    background_tasks.add_task(_vector_pack_import_task, job_id, project_id, kind, pack_dir)
+    return {
+        "success": True,
+        "job_id": job_id,
+        "kind": kind,
+        "count": total,
+        "message": f"开始导入 {total} 条 {kind} 向量",
+    }
+
+
+@app.get("/api/v1/vectors/import/{job_id}")
+async def vectors_import_status(job_id: str):
+    job = get_db_manager().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return {"success": True, **job}
+
+
+async def _vector_pack_import_task(job_id: str, project_id: str, kind: str, pack_dir) -> None:
+    """后台导入：写 shadow collection → 校验条数 → 原子切换。"""
+    import asyncio
+
+    from core import vector_pack
+
+    db_manager = get_db_manager()
+    db_manager.update_job(job_id, state="running", stage="importing")
+
+    def progress(done: int, matched: int) -> None:
+        try:
+            db_manager.update_job(job_id, processed=int(done))
+        except Exception:
+            pass
+
+    def cancelled() -> bool:
+        try:
+            job = db_manager.get_job(job_id)
+            return bool(job and job.get("cancel_requested"))
+        except Exception:
+            return False
+
+    try:
+        result = await asyncio.to_thread(
+            vector_pack.import_pack,
+            db_manager, project_id, kind, pack_dir, None, progress, cancelled,
+        )
+        db_manager.update_job(
+            job_id,
+            state="completed",
+            stage=f"done written={result['written']} missing={result['missing']}",
+            processed=result["written"],
+        )
+        logger.info("[VectorPack] 导入完成 %s", result)
+    except vector_pack.VectorPackError as exc:
+        db_manager.update_job(job_id, state="failed", stage=f"error {exc}")
+        logger.warning("[VectorPack] 导入失败: %s", exc)
+    except Exception as exc:
+        db_manager.update_job(job_id, state="failed", stage=f"error {exc}")
+        logger.error("[VectorPack] 导入异常: %s", exc)
 
 
 @app.get("/api/v1/db/stats")
@@ -6154,6 +6540,27 @@ async def get_index_status():
         return schemas.IndexStatus(total_files=0, indexed_files=0)
 
 
+def _zh_text_status() -> Dict[str, Any]:
+    try:
+        from core import zh_embedder, zh_text_index
+
+        count = zh_text_index.collection_count()
+        model_ready = bool(zh_embedder.available())
+        return {
+            "available": count > 0 and model_ready,
+            "count": count,
+            "model_ready": model_ready,
+            "state": zh_text_index.status(),
+            "hint": (
+                "" if count > 0 and model_ready
+                else ("中文语义模型没加载" if not model_ready else "中文语义索引还没建（text_zh 为空）")
+            ),
+        }
+    except Exception as exc:
+        logger.debug("读取中文语义索引状态失败: %s", exc)
+        return {"available": False, "count": 0, "model_ready": False, "hint": "状态读取失败"}
+
+
 @app.get("/api/v1/projects/{project_id}/index/status")
 async def get_project_index_status(project_id: str):
     db_manager = get_db_manager()
@@ -6189,7 +6596,39 @@ async def get_project_index_status(project_id: str):
             kind: db_manager.get_index_manifest(project_id, kind) or {}
             for kind in ("audio_vector", "text_vector")
         },
+        # 中文语义（BGE / text_zh）是否真的可用：缺失时搜索结果只剩关键词分，
+        # 界面上要能看见「语义检索未建立」而不是静默降级（B15）。
+        "zh_text": _zh_text_status(),
     }
+
+
+@app.post("/api/v1/projects/{project_id}/index/adopt")
+async def adopt_project_index(
+    project_id: str,
+    kind: str = "text_vector",
+    dry_run: bool = False,
+):
+    """把磁盘上已有的向量接管回 SQLite 工件状态，不重新编码。
+
+    典型场景：collection 和 manifest 都在，但 file_artifacts 全停在 stale，
+    reconcile 会据此把整库重编码（6.5 万条一次跑会打爆内存）。这里只翻状态。
+    """
+    from core import index_adopt
+
+    db_manager = get_db_manager()
+    if not is_safe_project_id(project_id) or not db_manager.get_project(project_id):
+        raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
+    if kind not in ("audio_vector", "text_vector"):
+        raise SoundBotAPIError("invalid_kind", "kind 必须是 audio_vector 或 text_vector", status_code=422)
+    if kind == "audio_vector":
+        indexer = _get_active_audio_indexer(project_id)
+    else:
+        indexer = _get_active_text_indexer(project_id)
+    result = await asyncio.to_thread(
+        index_adopt.adopt_existing_vectors,
+        db_manager, indexer, project_id, kind, dry_run=dry_run,
+    )
+    return {"success": True, **result, "counts": db_manager.get_artifact_counts(project_id).get(kind)}
 
 
 @app.post("/api/v1/projects/{project_id}/index/reconcile")
@@ -6264,6 +6703,70 @@ async def _start_index_job(
     }
 
 
+def _schedule_waveform_after_import(project_id: str) -> None:
+    """导入后延迟一小会儿再补波形：不跟描述包导入抢写锁，也不占 GPU（B17）。"""
+    if not getattr(config, "AUTO_WAVEFORM_AFTER_IMPORT", True):
+        return
+    delay = max(10.0, float(getattr(config, "AUTO_WAVEFORM_DELAY_SECONDS", 180.0) or 180.0))
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _kick() -> None:
+            try:
+                _schedule_project_reconcile(project_id, ("waveform",), reason="post_import")
+                logger.info("[IMPORT] 已排队补波形（延迟 %.0fs）", delay)
+            except Exception as exc:
+                logger.debug("补波形排队失败: %s", exc)
+
+        loop.call_later(delay, _kick)
+    except Exception as exc:
+        logger.debug("补波形调度失败: %s", exc)
+
+
+def _adopt_before_reconcile(db_manager, project_id: str, kinds) -> list:
+    """对账之前先把"其实已经建好"的行接管回 ready。
+
+    没有这一步，reconcile 会把 6.5 万条老向量当缺失重新编码 —— 内存直接爆
+    （历史上真把机器搞崩过）。这里只在账面明显不对（ready 占比 < 90%）时才跑，
+    正常情况下几毫秒就返回。
+    """
+    from core import index_adopt
+
+    results = []
+    try:
+        counts_all = db_manager.get_artifact_counts(project_id)
+    except Exception as exc:
+        logger.debug("读取工件统计失败: %s", exc)
+        return results
+    for kind in kinds:
+        if kind not in ("audio_vector", "text_vector"):
+            continue
+        try:
+            manifest = db_manager.get_index_manifest(project_id, kind) or {}
+            if manifest.get("state") != "ready":
+                continue
+            counts = counts_all.get(kind) or {}
+            ready = int(counts.get("ready", 0) or 0)
+            total = sum(int(value or 0) for value in counts.values())
+            if total and ready >= total * 0.9:
+                continue
+            indexer = (
+                _get_active_audio_indexer(project_id)
+                if kind == "audio_vector"
+                else _get_active_text_indexer(project_id)
+            )
+            if indexer.get_indexed_count() <= 0:
+                continue
+            summary = index_adopt.adopt_existing_vectors(
+                db_manager, indexer, project_id, kind
+            )
+            logger.info("[Index] 接管已有向量 %s: %s", kind, summary)
+            results.append(summary)
+        except Exception as exc:
+            logger.warning("[Index] 接管 %s 失败（继续正常对账）: %s", kind, exc)
+    return results
+
+
 async def _repair_index_task(
     job_id: str,
     project_id: str,
@@ -6281,7 +6784,34 @@ async def _repair_index_task(
                 job_id, state="cancelled", stage="project_deleting"
             )
             return
-        await _repair_index_task_locked(job_id, project_id, kinds, mode)
+        try:
+            await _repair_index_task_locked(job_id, project_id, kinds, mode)
+        finally:
+            # 任务异常/取消退出时，本轮标成 processing 的工件必须退回 pending，
+            # 否则它们不会被任何对账再捡起来（数字冻结的典型成因）。
+            # 只在任务不是正常完成时做，避免和正常流程抢写。
+            db_manager = get_db_manager()
+            try:
+                job = db_manager.get_job(job_id)
+                if job and job.get("state") not in ("completed",):
+                    with db_manager.get_cursor() as cursor:
+                        fixed = cursor.execute(
+                            """
+                            UPDATE file_artifacts
+                            SET state='pending', error_code='job_interrupted',
+                                error_message='Index job stopped before finishing',
+                                updated_at=?
+                            WHERE project_id=? AND state='processing'
+                            """,
+                            (datetime.now().isoformat(), project_id),
+                        ).rowcount
+                    if fixed:
+                        logger.info(
+                            "[索引] 任务 %s 异常退出，%d 条 processing 退回 pending",
+                            job_id, fixed,
+                        )
+            except Exception as exc:
+                logger.debug("回滚 processing 失败: %s", exc)
 
 
 async def _repair_index_task_locked(
@@ -6307,14 +6837,12 @@ async def _repair_index_task_locked(
     except Exception:
         pass
     try:
-        records = db_manager.get_files_by_project(project_id)
+        # 只要三个字段，用轻量查询：get_files_by_project 会构造 6.5 万个
+        # AudioFileRecord，实测 12.7 秒，是「索引一跑 /health 就卡十几秒」的元凶。
+        identities = await asyncio.to_thread(db_manager.get_file_identities, project_id)
         expected = [
-            {
-                "file_id": record.file_uuid,
-                "file_path": record.path,
-                "source_fingerprint": record.source_fingerprint,
-            }
-            for record in records
+            {"file_id": uuid_value, "file_path": path_value, "source_fingerprint": fp}
+            for uuid_value, path_value, fp in identities
         ]
         vector_targets: Dict[str, Any] = {}
         shadow_kinds = set()
@@ -6340,8 +6868,34 @@ async def _repair_index_task_locked(
                 vector_targets["text_vector"] = active_text
 
         if mode != "rebuild":
+            # 先把已经存在且指纹匹配的向量接管回 ready，避免把老数据当缺失重编码
+            _adopt_before_reconcile(
+                db_manager, project_id, [k for k in kinds if k not in shadow_kinds]
+            )
+            # 小批量修复跳过全量对账：reconcile 要把 6.5 万条 collection 元数据搬到
+            # Python 里逐条比，实测 20~30 秒（线程里跑也卡 GIL，事件循环照样停摆）。
+            # 只有重建、或本轮工作量很大、或 manifest 要求重建时才做。
+            # 注意：work 还没算出来（在下面），这里用工件统计估本轮规模
+            _counts_now = db_manager.get_artifact_counts(project_id)
+            _backlog = sum(
+                int((_counts_now.get(kind) or {}).get(state, 0) or 0)
+                for kind in vector_targets if kind not in shadow_kinds
+                for state in ("pending", "failed", "stale")
+            )
+            _skip_reconcile = (
+                _backlog <= 5000
+                and not any(
+                    (db_manager.get_index_manifest(project_id, kind) or {}).get("needs_rebuild")
+                    for kind in vector_targets
+                )
+            )
+            if _skip_reconcile:
+                logger.info(
+                    "[索引] 本轮只有 %d 条要补，跳过全量对账（避免 20 秒级事件循环卡顿）",
+                    _backlog,
+                )
             for kind, indexer in vector_targets.items():
-                if kind in shadow_kinds:
+                if kind in shadow_kinds or _skip_reconcile:
                     continue
                 reconciliation = await _run_model_work(
                     indexer.reconcile, expected, remove_orphans=True
@@ -6353,11 +6907,17 @@ async def _repair_index_task_locked(
                     db_manager.set_artifact_state(project_id, file_id, kind, "stale")
 
         direct_kinds = [kind for kind in kinds if kind not in shadow_kinds]
+        # 单次任务最多处理这么多条；剩下的留给下一次调度。
+        # 全库一次塞进来会把内存吃到天花板（6.5 万条曾是 OOM 的直接原因）。
+        try:
+            work_limit = int(os.environ.get("ECHOMIND_INDEX_WORK_LIMIT", "3000") or 3000)
+        except ValueError:
+            work_limit = 3000
         work = db_manager.list_artifacts_for_work(
             project_id,
             direct_kinds,
             states=("pending", "failed", "stale"),
-            limit=100000,
+            limit=max(50, work_limit),
         )
         # A shadow must be a complete snapshot of all currently indexable
         # records, including rows whose old active vectors remain ready.
@@ -6369,6 +6929,7 @@ async def _repair_index_task_locked(
                 states=("pending", "processing", "ready", "failed", "stale"),
                 limit=100000,
             ))
+        _truncated = len(work) >= max(50, work_limit)
         db_manager.update_job(job_id, total=len(work), stage="processing")
         shadow_success: Dict[str, List[str]] = {
             kind: [] for kind in shadow_kinds
@@ -6385,9 +6946,19 @@ async def _repair_index_task_locked(
         audio_batch_queue: List[Tuple[str, str, Dict[str, Any], bool, str]] = []
         # text_vector 攒批：CLAP 文本编码一次 GPU forward 处理一批文本
         text_batch_queue: List[Tuple[str, str, Dict[str, Any], bool, str]] = []
+        # 每 20 条查一次取消标志并让出事件循环：原来每条都 get_job + 写 processing，
+        # 6.5 万条就是 13 万次独立事务，事件循环被 SQLite 拖住（B3）。
+        CANCEL_POLL_EVERY = 20
+        _cancel_requested = False
         for index, artifact in enumerate(work):
-            job = db_manager.get_job(job_id)
-            if job and job["cancel_requested"]:
+            if index % CANCEL_POLL_EVERY == 0:
+                await asyncio.sleep(0)
+                try:
+                    _job_now = db_manager.get_job(job_id)
+                    _cancel_requested = bool(_job_now and _job_now.get("cancel_requested"))
+                except Exception:
+                    _cancel_requested = False
+            if _cancel_requested:
                 if artifact["kind"] not in shadow_kinds:
                     db_manager.set_artifact_state(
                         project_id, artifact["file_uuid"], artifact["kind"], "stale"
@@ -6530,20 +7101,37 @@ async def _repair_index_task_locked(
                 marked_audio: set = set()
                 marked_count = 0
                 queue_by_uuid = {item[1]: item for item in audio_batch_queue}
+                _chunk_timeout = float(os.environ.get("ECHOMIND_ENCODE_CHUNK_TIMEOUT", "300") or 300)
+                _single_timeout = float(os.environ.get("ECHOMIND_ENCODE_SINGLE_TIMEOUT", "60") or 60)
+                _last_error = ""
                 for ci in range(0, len(entries), AUDIO_FLUSH_CHUNK):
+                    # 取消要在每块之间生效：块内编码不可中断，块与块之间必须能停
+                    _job = db_manager.get_job(job_id)
+                    if _job and _job["cancel_requested"]:
+                        for _p, _fid, _m, _sh, _fp in entries[ci:]:
+                            if not _sh:
+                                db_manager.set_artifact_state(
+                                    project_id, _fid, "audio_vector", "pending"
+                                )
+                        db_manager.update_job(
+                            job_id, state="cancelled", stage="cancelled",
+                            processed=min(ci, len(entries)),
+                        )
+                        return
                     chunk = entries[ci:ci + AUDIO_FLUSH_CHUNK]
                     try:
                         # 单批看门狗：坏文件会让编码永久挂起，超时后标记失败并重启 worker
                         chunk_ok = await asyncio.wait_for(
                             _run_model_work(audio_target.add_audio_batch, chunk),
-                            timeout=600,
+                            timeout=_chunk_timeout,
                         )
                         if chunk_ok:
                             ok_set.update(chunk_ok)
                     except asyncio.TimeoutError:
+                        _last_error = f"编码超时（>{int(_chunk_timeout)}s）"
                         logger.error(
-                            "[索引] 编码超时（>180s），疑似损坏文件，标记失败并重启 worker: %s",
-                            "|".join(p for p, _f, _m in chunk),
+                            "[索引] 编码超时（>%ss），疑似损坏文件，标记失败并重启 worker: %s",
+                            int(_chunk_timeout), "|".join(p for p, _f, _m in chunk),
                         )
                         try:
                             from core.embedder import get_embedder
@@ -6558,7 +7146,7 @@ async def _repair_index_task_locked(
                             try:
                                 _ok = await asyncio.wait_for(
                                     _run_model_work(audio_target.add_audio_batch, [_single]),
-                                    timeout=90,
+                                    timeout=_single_timeout,
                                 )
                                 if _ok:
                                     ok_set.update(_ok)
@@ -6575,6 +7163,7 @@ async def _repair_index_task_locked(
                             except Exception:
                                 pass
                     except Exception as exc:
+                        _last_error = f"{type(exc).__name__}: {exc}"[:200]
                         logger.exception("批量 audio_vector 落库失败")
                         try:
                             logger.error("AUDIO_BATCH_FAIL_PATHS=%s",
@@ -6607,18 +7196,32 @@ async def _repair_index_task_locked(
                                 )
                         else:
                             failures["audio_vector"] += 1
+                            # 失败原因要能定位：带上错误类型、时长、采样率、声道，
+                            # 否则只看「批量编码未产出向量」根本分不清是损坏、
+                            # 超时还是格式不支持（B5 / B9）。
+                            _detail = (
+                                "%s｜%s｜%ss｜%sHz｜%sch"
+                                % (
+                                    os.path.basename(str(_path3 or "")),
+                                    _last_error or "批量编码未产出向量",
+                                    (_meta3 or {}).get("duration", 0),
+                                    (_meta3 or {}).get("sample_rate", 0),
+                                    (_meta3 or {}).get("channels", 0),
+                                )
+                            )[:400]
+                            logger.warning("[索引] 音频失败: %s", _detail)
                             if _is_shadow3:
                                 shadow_outcomes["audio_vector"][_fid2] = {
                                     "state": "failed",
                                     "error_code": "audio_index_failed",
-                                    "error_message": "批量编码未产出向量",
+                                    "error_message": _detail,
                                     "permanent": False,
                                 }
                             else:
                                 db_manager.set_artifact_state(
                                     project_id, _fid2, "audio_vector", "failed",
                                     error_code="audio_index_failed",
-                                    error_message="批量编码未产出向量",
+                                    error_message=_detail,
                                 )
                         marked_count += 1
                         try:
@@ -6626,12 +7229,11 @@ async def _repair_index_task_locked(
                         except Exception:
                             pass
                     try:
-                        db_manager.update_job(
-                            job_id,
-                            processed=min(ci + len(chunk), len(entries)),
-                            total=len(entries),
-                            stage="audio_vector",
-                        )
+                        # 只推进 processed，不动 total：total 是整轮任务的总数，
+                        # 改成音频队列长度会让界面在阶段切换瞬间显示成 100%（B1）。
+                        # 只更新阶段：processed 由外层按工件推进，这里再写一次会让
+                        # 进度数字来回跳（500 → 96 → 416 这种，B1）。
+                        db_manager.update_job(job_id, stage="audio_vector")
                     except Exception:
                         pass
                 for path, file_uuid, _meta, is_shadow, source_fingerprint in audio_batch_queue:
@@ -6674,6 +7276,18 @@ async def _repair_index_task_locked(
             else:
                 TEXT_BATCH = 32
                 for i in range(0, len(text_batch_queue), TEXT_BATCH):
+                    _job = db_manager.get_job(job_id)
+                    if _job and _job["cancel_requested"]:
+                        for _p, _fid, _m, _sh, _fp in text_batch_queue[i:]:
+                            if not _sh:
+                                db_manager.set_artifact_state(
+                                    project_id, _fid, "text_vector", "pending"
+                                )
+                        db_manager.update_job(
+                            job_id, state="cancelled", stage="cancelled",
+                            processed=min(i, len(text_batch_queue)),
+                        )
+                        return
                     chunk = text_batch_queue[i:i + TEXT_BATCH]
                     fingerprint = None
                     try:
@@ -6698,12 +7312,7 @@ async def _repair_index_task_locked(
                             break
                         ok_count = 0
                     try:
-                        db_manager.update_job(
-                            job_id,
-                            processed=min(i + len(chunk), len(text_batch_queue)),
-                            total=len(text_batch_queue),
-                            stage="text_vector",
-                        )
+                        db_manager.update_job(job_id, stage="text_vector")
                     except Exception:
                         pass
                     for j, (_p, file_uuid, _meta, is_shadow, source_fingerprint) in enumerate(chunk):
@@ -6827,6 +7436,30 @@ async def _repair_index_task_locked(
             )
         else:
             db_manager.update_job(job_id, state="completed", stage="done")
+        # 单轮只处理 work_limit 条，剩下的必须接着排，否则会留下几万条 stale 没人碰
+        if _truncated:
+            try:
+                remaining = db_manager.get_artifact_counts(project_id)
+                left = sum(
+                    int((remaining.get(kind) or {}).get(state, 0) or 0)
+                    for kind in direct_kinds
+                    for state in ("pending", "stale", "failed")
+                )
+                if left > 0:
+                    logger.info(
+                        "[索引] 本轮达到单次上限 %d 条，还剩 %d 条，排队继续",
+                        len(work), left,
+                    )
+                    # 间隔拉到 60 秒：每轮都要重扫一遍 6.5 万条做 reconcile，
+                    # 连着排会把事件循环一直按住（实测 13~25 秒的卡顿）。
+                    asyncio.get_running_loop().call_later(
+                        60.0,
+                        lambda: _schedule_project_reconcile(
+                            project_id, tuple(direct_kinds), reason="continue"
+                        ),
+                    )
+            except Exception as exc:
+                logger.debug("排队续跑失败: %s", exc)
     except Exception as exc:
         logger.exception(f"索引修复任务失败: {exc}")
         db_manager.update_job(
@@ -7023,8 +7656,31 @@ async def metadata_preview(payload: Dict[str, Any], project_id: str = Query(defa
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+async def _after_metadata_apply(project_id: str) -> None:
+    """描述包写入之后的收尾：标脏文本向量 + 排一次补索引。
+
+    这些操作原来挤在请求里：mark_project_artifacts 要扫全库、_schedule_project_reconcile
+    还要 list_artifacts_for_work(limit=100000)。实测提交 20 条也要 35.9 秒，渲染层
+    30 秒超时，界面必然先报失败（B7）。现在挪到响应之后做。
+    """
+    try:
+        db_manager = get_db_manager()
+        # 逐文件标脏已经在 metadata_pack.apply 里做了，这里只更新 manifest 和排队。
+        db_manager.upsert_index_manifest(
+            project_id, "text_vector", state="stale", revision_increment=1
+        )
+        await asyncio.sleep(1.0)
+        _schedule_project_reconcile(project_id, ("text_vector",), reason="metadata_apply")
+    except Exception as exc:
+        logger.debug("标记/重建文本索引失败: %s", exc)
+
+
 @app.post("/api/v1/metadata/apply")
-async def metadata_apply(payload: Dict[str, Any], project_id: str = Query(default="default")):
+async def metadata_apply(
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    project_id: str = Query(default="default"),
+):
     """按预览结果写库：默认只补空白字段。"""
     from core.metadata_pack import apply as run_apply
 
@@ -7035,17 +7691,7 @@ async def metadata_apply(payload: Dict[str, Any], project_id: str = Query(defaul
     try:
         result = await asyncio.to_thread(run_apply, project_id, pairs, overwrite)
         if result.get("applied"):
-            try:
-                db_manager = get_db_manager()
-                db_manager.mark_project_artifacts(project_id, ["text_vector"], "stale")
-                db_manager.upsert_index_manifest(
-                    project_id, "text_vector", state="stale", revision_increment=1
-                )
-                # 之前只标脏不重建，搜索会一直用旧向量；这里排一个后台任务补上。
-                await asyncio.sleep(0.5)
-                _schedule_project_reconcile(project_id, ("text_vector",), reason="metadata_apply")
-            except Exception as exc:
-                logger.debug("标记/重建文本索引失败: %s", exc)
+            background_tasks.add_task(_after_metadata_apply, project_id)
         return {"success": True, **result}
     except Exception as exc:
         logger.error("描述包应用失败: %s", exc)
@@ -7059,6 +7705,8 @@ async def import_descriptions(
     project_id: str = Query(default="default"),
 ):
     """导入描述包：按相对路径（大小写不敏感）匹配，套用到当前库。"""
+    from core.metadata_pack import apply as run_apply
+
     try:
         items = payload.get("items") or []
         if not isinstance(items, list) or not items:
@@ -7080,10 +7728,16 @@ async def import_descriptions(
 
         applied = 0
         matched = 0
+        pairs: List[Dict[str, Any]] = []
         unmatched: List[Dict[str, str]] = []
         for item in items:
             description = str(item.get("description") or "").strip()
-            if not description:
+            # 标签包里可能只有 tags/user_tags、没有描述（B9）。以前这里直接
+            # continue，整包标签被丢弃，界面上还显示「导入成功 0 条」。
+            item_tags = item.get("tags")
+            item_user_tags = item.get("user_tags")
+            has_tags = bool(item_tags) or bool(item_user_tags)
+            if not description and not has_tags:
                 unmatched.append({
                     "rel": str(item.get("rel") or ""),
                     "filename": str(item.get("filename") or ""),
@@ -7110,13 +7764,24 @@ async def import_descriptions(
                 })
                 continue
             matched += 1
-            with db_manager.get_cursor() as cursor:
-                cursor.execute(
-                    "UPDATE files SET ai_description=? WHERE file_uuid=?",
-                    (description, uuid_value),
+            # 先攒起来，最后统一走 metadata_pack.apply 的分批写入（含标签合并）。
+            # 逐条 commit + 逐条刷 FTS 就是 database is locked 的来源。
+            pairs.append({
+                "file_uuid": uuid_value,
+                "description": description,
+                "tags": item_tags,
+                # user_tags 走 tags/file_tags 两层表，和 files.tags 不是一回事
+                "user_tags": item_user_tags,
+            })
+        if pairs:
+            try:
+                write_result = await asyncio.to_thread(
+                    run_apply, project_id, pairs, False
                 )
-                cursor.connection.commit()
-            applied += 1
+                applied = int(write_result.get("applied") or 0)
+            except Exception as write_error:
+                logger.exception("描述包批量写入失败: %s", write_error)
+                raise
         logger.info("描述包导入完成: 匹配 %d / 应用 %d / 未匹配 %d / 包内 %d",
                     matched, applied, len(unmatched), len(items))
 
@@ -7766,7 +8431,8 @@ async def delete_project(project_id: str):
             # SQLite is authoritative. If this fails, retain the searchable
             # collections; if it succeeds, an orphan index directory is harmless
             # and can be cleaned on the next attempt/startup.
-            success = db_manager.delete_project(project_id)
+            # 删库是纯同步的重活（几十万行），放线程里跑，别堵事件循环
+            success = await asyncio.to_thread(db_manager.delete_project, project_id)
             if not success:
                 raise SoundBotAPIError(
                     "project_delete_failed",

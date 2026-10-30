@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_BREEZE_URL = os.environ.get('ECHOMIND_BREEZE_URL', 'http://127.0.0.1:8080')
 SAMPLE_RATE = 24000
 
+# 助理播报的音色描述：Breeze 支持用自然语言指令控制音色，实测这句能把
+# 基频从 ~190Hz 抬到 ~240Hz（少女声）。改这里或者设 ECHOMIND_VOICE_STYLE 即可。
+DEFAULT_VOICE_STYLE = '一个十六七岁的少女，声音清亮甜美，语速自然'
+
 
 def cache_dir() -> Path:
     try:
@@ -46,6 +50,19 @@ def breeze_url() -> str:
     except Exception:
         pass
     return DEFAULT_BREEZE_URL.rstrip('/')
+
+
+def voice_style() -> str:
+    """助理播报用的音色指令，config 优先，其次环境变量，最后内置默认。"""
+    try:
+        import config
+
+        value = getattr(config, 'ASSISTANT_VOICE_STYLE', None)
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    return os.environ.get('ECHOMIND_VOICE_STYLE', DEFAULT_VOICE_STYLE)
 
 
 def breeze_available(timeout: float = 1.5) -> bool:
@@ -119,6 +136,113 @@ def _pcm_to_wav(pcm: bytes, channels: int = 1, sample_rate: int = SAMPLE_RATE) -
         return buffer.getvalue()
 
 
+def list_saved_voices(timeout: float = 5.0) -> list:
+    """Breeze 里已保存的音色 id 列表（GET /v1/voices）。"""
+    try:
+        request = urllib.request.Request(breeze_url() + '/v1/voices', method='GET')
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode('utf-8') or '{}')
+    except Exception as exc:
+        logger.debug('[TTS] 读取音色列表失败: %s', exc)
+        return []
+    items = data.get('voices') if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return []
+    return [
+        str(item.get('id') or item.get('name'))
+        for item in items
+        if isinstance(item, dict) and (item.get('id') or item.get('name'))
+    ]
+
+
+def register_saved_voice(profile: Dict[str, Any], name: str, timeout: float = 120.0) -> Optional[str]:
+    """把一个复刻音色注册成 Breeze 的保存音色，返回 voice_id。
+
+    参考音频只编码一次，之后每段合成都用同一个 voice_id，音色不会在句子之间漂。
+    """
+    sample = str(profile.get('sample') or '')
+    ref_text = str(profile.get('ref_text') or '').strip()
+    if not sample or not ref_text or not Path(sample).is_file():
+        return None
+    try:
+        payload = Path(sample).read_bytes()
+    except Exception as exc:
+        logger.warning('[TTS] 读取参考音频失败: %s', exc)
+        return None
+    fields = {'name': name, 'ref_text': ref_text}
+    files = {'ref_audio': (Path(sample).name, payload)}
+    body, headers = _multipart(fields, files)
+    request = urllib.request.Request(
+        breeze_url() + '/v1/voices', data=body, headers=headers, method='POST'
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode('utf-8') or '{}')
+    except Exception as exc:
+        logger.warning('[TTS] 注册保存音色失败: %s', exc)
+        return None
+    voice_id = str(data.get('id') or data.get('voice_id') or name)
+    logger.info('[TTS] 已注册保存音色 %s', voice_id)
+    return voice_id
+
+
+_breeze_voice_cache: Dict[str, str] = {}
+
+
+def assistant_voice_id() -> Optional[str]:
+    """助理朗读用的固定音色 id。
+
+    ECHOMIND_ASSISTANT_VOICE（或 config.ASSISTANT_VOICE）可以是已有的 voice id，
+    也可以是复刻音色的 id/名字（会自动注册成 echomind-<id> 并复用）。
+    没配置就返回 None，走原来的「文本指令 + 每次上传参考音频」路径。
+    """
+    target = (os.environ.get('ECHOMIND_ASSISTANT_VOICE') or '').strip()
+    if not target:
+        # %APPDATA%\EchoMind\assistant_voice.txt：一行音色 id，改完不用重启后端
+        try:
+            voice_file = Path(os.environ.get('APPDATA', '')) / 'EchoMind' / 'assistant_voice.txt'
+            if voice_file.is_file():
+                target = voice_file.read_text(encoding='utf-8').strip()
+        except Exception as exc:
+            logger.debug('[TTS] 读取 assistant_voice.txt 失败: %s', exc)
+    if not target:
+        try:
+            target = str(getattr(config, 'ASSISTANT_VOICE', '') or '').strip()
+        except Exception:
+            target = ''
+    if not target:
+        return None
+    if target in _breeze_voice_cache:
+        return _breeze_voice_cache[target]
+
+    saved = list_saved_voices()
+    if target in saved:
+        _breeze_voice_cache[target] = target
+        return target
+
+    profile = None
+    try:
+        from core.voice_clone import load_profiles
+
+        for item in load_profiles():
+            if target in (str(item.get('id')), str(item.get('name'))):
+                profile = item
+                break
+    except Exception as exc:
+        logger.debug('[TTS] 读取复刻音色失败: %s', exc)
+    if not profile:
+        return None
+
+    safe = ''.join(ch for ch in str(profile.get('id') or 'default') if ch.isalnum() or ch in '-_')[:24]
+    name = 'echomind-' + (safe or 'default')
+    if name in saved:
+        _breeze_voice_cache[target] = name
+        return name
+    voice_id = register_saved_voice(profile, name)
+    if voice_id:
+        _breeze_voice_cache[target] = voice_id
+    return voice_id
+
 def breeze_speak(
     text: str,
     ref_audio: Optional[str] = None,
@@ -128,6 +252,7 @@ def breeze_speak(
     timeout: float = 180.0,
     channels: int = 1,
     sample_rate: int = SAMPLE_RATE,
+    voice_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """调用本地 breeze-server 合成，返回 {ok, path, provider}。"""
     content = (text or '').strip()
@@ -135,7 +260,11 @@ def breeze_speak(
         return {'ok': False, 'error': '文本不能为空'}
     fields: Dict[str, str] = {'text': content}
     files: Dict[str, tuple] = {}
-    if ref_audio and ref_text:
+    if voice_id:
+        # 已保存音色：服务端直接用编码好的参考，不再每次上传音频
+        # （文档实测首帧 906ms → 276ms，且各段音色一致）
+        fields['voice_id'] = voice_id
+    elif ref_audio and ref_text:
         try:
             files['ref_audio'] = (Path(ref_audio).name, Path(ref_audio).read_bytes())
             fields['ref_text'] = ref_text
@@ -184,11 +313,53 @@ def doubao_speak(text: str, profile_id: str = '') -> Dict[str, Any]:
     }
 
 
+def assistant_reference() -> Optional[Dict[str, str]]:
+    """给助理朗读用的固定参考音色。
+
+    Breeze 是零样本克隆模型：不给参考音频时，同一句话分几段合成，
+    音色会在不同段之间漂（用户听感就是「一会儿少女一会儿御姐」）。
+    这里固定用同一个已复刻音色做参考，保证每一段是同一个人的声音。
+    """
+    try:
+        from core.voice_clone import load_profiles
+
+        for profile in load_profiles():
+            sample = str(profile.get('sample') or '')
+            ref_text = str(profile.get('ref_text') or '').strip()
+            if sample and Path(sample).is_file() and ref_text:
+                return {'ref_audio': sample, 'ref_text': ref_text, 'name': str(profile.get('name') or '')}
+    except Exception as exc:
+        logger.debug('[TTS] 读取参考音色失败: %s', exc)
+    return None
+
+
 def speak(text: str, provider: str = 'auto', profile_id: str = '') -> Dict[str, Any]:
     """按优先级挑选引擎：breeze（本地）→ doubao（云端）→ 失败。"""
     auto = (provider or 'auto').lower()
     if auto in ('auto', 'breeze') and breeze_available():
-        result = breeze_speak(text)
+        # 固定音色：配置了 ECHOMIND_ASSISTANT_VOICE 就走保存音色（voice_id），
+        # 每段都是同一份编码好的参考，音色不会在句子之间漂。
+        saved_voice = assistant_voice_id()
+        if saved_voice:
+            result = breeze_speak(text, instruction=voice_style(), voice_id=saved_voice)
+            if result.get('ok'):
+                return result
+            logger.warning('[TTS] 保存音色合成失败，回退到普通路径: %s', result.get('error'))
+        # 老路径：文本指令 + 每次上传参考音频（需显式开启）
+        reference = (
+            assistant_reference()
+            if os.environ.get('ECHOMIND_ASSISTANT_VOICE_PROFILE') == '1'
+            else None
+        )
+        if reference:
+            result = breeze_speak(
+                text,
+                ref_audio=reference['ref_audio'],
+                ref_text=reference['ref_text'],
+                instruction=voice_style(),
+            )
+        else:
+            result = breeze_speak(text, instruction=voice_style())
         if result.get('ok'):
             return result
         if auto == 'breeze':

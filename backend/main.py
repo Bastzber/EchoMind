@@ -5923,6 +5923,59 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
         logger.error("[KnowledgePack] 导入异常: %s", exc)
 
 
+class KnowledgeExportRequest(BaseModel):
+    """导出知识包到指定路径。"""
+
+    out_path: str
+    project_id: Optional[str] = None
+
+
+@app.post("/api/v1/knowledge/export")
+async def knowledge_pack_export(payload: KnowledgeExportRequest, background_tasks: BackgroundTasks):
+    """把当前库导出成知识包（描述 + 标签 + 两套向量）。"""
+    out_path = (payload.out_path or "").strip()
+    if not out_path:
+        raise HTTPException(status_code=422, detail="out_path 不能为空")
+    project_id = payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default")
+    db_manager = get_db_manager()
+    file_count = db_manager.get_file_count(project_id)
+    job_id = db_manager.create_job(project_id, "knowledge_export", int(file_count or 0))
+    background_tasks.add_task(_knowledge_export_task, job_id, project_id, Path(out_path))
+    return {"success": True, "job_id": job_id, "out_path": out_path, "files": file_count}
+
+
+async def _knowledge_export_task(job_id: str, project_id: str, out_path: Path) -> None:
+    import asyncio
+
+    from core import knowledge_pack
+
+    db_manager = get_db_manager()
+    db_manager.update_job(job_id, state="running", stage="exporting")
+
+    def progress(stage: str, done: int, total: int) -> None:
+        try:
+            db_manager.update_job(job_id, stage=stage, processed=int(done))
+        except Exception:
+            pass
+
+    try:
+        report = await asyncio.to_thread(
+            knowledge_pack.export_pack, db_manager, project_id, out_path, progress,
+        )
+        db_manager.update_job(
+            job_id, state="completed", stage="done",
+            processed=int(report.get("files") or 0),
+            error_message=None,
+        )
+        logger.info("[KnowledgePack] 导出完成: %s", report)
+    except knowledge_pack.KnowledgePackError as exc:
+        db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
+        logger.warning("[KnowledgePack] 导出失败: %s", exc)
+    except Exception as exc:
+        db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
+        logger.error("[KnowledgePack] 导出异常: %s", exc)
+
+
 @app.get("/api/v1/db/stats")
 async def get_db_stats():
     """

@@ -383,9 +383,6 @@
                     <button id="importFolderBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="folder-plus" class="w-4 h-4"></i><span data-i18n="file.import.folder">导入文件夹</span>
                     </button>
-                    <button id="importDescPackBtn2" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="file-json" class="w-4 h-4"></i><span>导入描述包（.json）</span>
-                    </button>
                 </div>
             </div>
             <div class="relative">
@@ -15382,11 +15379,16 @@
                 // 顶部这颗按钮现在直接导「知识包」：先找安装目录里的包，
                 // 找不到就弹文件选择框让用户挑 zip。
                 document.getElementById('descPackMenuBtn')?.addEventListener('click', async () => {
-                    const ok = await importKnowledgePack('');
-                    if (ok) return;
+                    // 让用户自己选包（默认定位到安装目录里的那个，新用户直接回车即可）
+                    let defaultPath = '';
+                    try {
+                        const info = await rendererApi.get('/api/v1/knowledge/available');
+                        if (info?.available && info.path) defaultPath = info.path;
+                    } catch (_) { }
                     try {
                         const picked = await window.electronAPI?.dialogs?.showOpenDialog({
                             title: '选择知识包（EchoMind-知识包.zip）',
+                            defaultPath: defaultPath || undefined,
                             filters: [{ name: '知识包', extensions: ['zip'] }],
                             properties: ['openFile'],
                         });
@@ -15566,6 +15568,63 @@
                 }
             }
 
+
+            // ===== 知识包：导出 / 导入（设置页按钮） =====
+            document.getElementById('exportKnowledgePackBtn')?.addEventListener('click', async () => {
+                const statusEl = document.getElementById('knowledgePackStatus');
+                const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
+                try {
+                    const saved = await window.electronAPI?.dialogs?.showSaveDialog({
+                        title: '导出知识包',
+                        defaultPath: 'EchoMind-知识包.zip',
+                        filters: [{ name: '知识包', extensions: ['zip'] }],
+                    });
+                    const outPath = saved?.filePath || saved?.filePaths?.[0];
+                    if (!outPath) { setStatus('已取消'); return; }
+                    setStatus('正在导出…');
+                    const res = await rendererApi.post(
+                        '/api/v1/knowledge/export',
+                        { out_path: outPath, project_id: currentProject?.id || 'default' },
+                        { timeoutMs: 60000 }
+                    );
+                    const jobId = res?.job_id;
+                    if (!jobId) { setStatus('导出提交失败'); return; }
+                    for (let i = 0; i < 900; i += 1) {
+                        await new Promise((r) => setTimeout(r, 1500));
+                        let job = null;
+                        try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
+                        if (!job) continue;
+                        if (job.state === 'completed') {
+                            setStatus('✅ 已导出: ' + outPath);
+                            showNotification('知识包已导出到 ' + outPath, 'success');
+                            return;
+                        }
+                        if (job.state === 'failed' || job.state === 'cancelled') {
+                            setStatus('导出失败: ' + (job.error_message || job.stage || ''));
+                            showNotification('知识包导出失败: ' + (job.error_message || job.stage || ''), 'error');
+                            return;
+                        }
+                        setStatus('导出中（' + (job.stage || '...') + ' ' + (job.processed || 0) + '）');
+                    }
+                } catch (error) {
+                    setStatus('导出失败: ' + (error?.message || error));
+                    showNotification('知识包导出失败: ' + (error?.message || error), 'error');
+                }
+            });
+
+            document.getElementById('importKnowledgePackBtn')?.addEventListener('click', async () => {
+                try {
+                    const picked = await window.electronAPI?.dialogs?.showOpenDialog({
+                        title: '选择知识包（EchoMind-知识包.zip）',
+                        filters: [{ name: '知识包', extensions: ['zip'] }],
+                        properties: ['openFile'],
+                    });
+                    const filePath = picked?.filePaths?.[0] || picked?.filePath;
+                    if (filePath) await importKnowledgePack(filePath);
+                } catch (error) {
+                    showNotification('选择知识包失败: ' + (error?.message || error), 'error');
+                }
+            });
             document.getElementById('batchDescBtn')?.addEventListener('click', async () => {
                 if (descBatchRunning) return;
                 descBatchRunning = true;
@@ -17261,18 +17320,18 @@
                             <span id="descStats" class="text-xs opacity-70"></span>
                         </div>
                         <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color);">
-                            <div class="text-sm font-medium mb-1">描述包 / 标签包（换电脑、分享给别人用）</div>
-                            <p class="text-xs opacity-60 mb-2">导出后是一个 JSON 文件，按「相对音效库根目录的路径」记录描述和标签。
-                                别人把软件和包拿走，导入自己库里的音效后，点下面的按钮即可套用，不用重新生成。
-                                <b>只有标签、没有描述</b>的标签包也能直接导入。</p>
+                            <div class="text-sm font-medium mb-1">知识包（换电脑、分享给别人用）</div>
+                            <p class="text-xs opacity-60 mb-2">一个 zip 里同时包含 <b>一句话描述</b>、<b>标签</b>、
+                                <b>音频向量</b> 和 <b>文本向量</b>。别人把软件和知识包拿走，导入自己库里的音效后，
+                                点「导入知识包」即可全部套用，<b>不用再跑几小时索引</b>。</p>
                             <div class="flex items-center gap-3">
-                                <button id="exportDescPackBtn"
+                                <button id="exportKnowledgePackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出描述包</button>
-                                <button id="importDescPackBtn"
+                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出知识包</button>
+                                <button id="importKnowledgePackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入描述包 / 标签包</button>
-                                <span id="descPackStatus" class="text-xs opacity-70"></span>
+                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入知识包</button>
+                                <span id="knowledgePackStatus" class="text-xs opacity-70"></span>
                             </div>
                         </div>
                         <div id="descProgressWrap" class="hidden mb-4">

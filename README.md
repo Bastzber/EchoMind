@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI 音效管理器
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.11-orange.svg)](https://github.com/Bastzber/EchoMind/releases)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.12-orange.svg)](https://github.com/Bastzber/EchoMind/releases)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -13,7 +13,7 @@
 >
 > 本地优先、AI 驱动的桌面音效管理器。
 
-当前源码版本为 **v0.3.0-beta.11（预发布）**。
+当前源码版本为 **v0.3.0-beta.12（预发布）**。
 
 测试版 V12 · [发布页](https://github.com/Bastzber/EchoMind/releases)
 

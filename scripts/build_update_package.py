@@ -17,6 +17,7 @@ import json
 import math
 import os
 import sys
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +91,14 @@ def main() -> int:
     p_delta.add_argument('--out', required=True)
     p_delta.add_argument('--dry-run', action='store_true')
 
+    p_full = sub.add_parser('full', help='生成"一个包搞定"的全量更新包（不管当前装的是哪一版都能覆盖）')
+    p_full.add_argument('--target', required=True)
+    p_full.add_argument('--version', required=True)
+    p_full.add_argument('--product-version', required=True,
+                        help='产品版本号（如 0.3.0-beta.12），写进 baseVersion 让客户端的版本校验放行')
+    p_full.add_argument('--out', required=True)
+    p_full.add_argument('--dry-run', action='store_true')
+
     args = parser.parse_args()
     target = Path(args.target).resolve()
 
@@ -103,6 +112,34 @@ def main() -> int:
         return 0
 
     target_files = walk_files(target)
+    if args.command == 'full':
+        entries = [{'path': rel, 'sha256': sha256_file(full), 'size': size}
+                   for rel, (full, size) in sorted(target_files.items())]
+        total = sum(item['size'] for item in entries)
+        print(f'全量包: {len(entries)} 个文件（{total / 1024 / 1024:.1f} MB）')
+        if args.dry_run:
+            print('[DRY RUN] 未写 zip')
+            return 0
+        manifest = {
+            'version': args.version,
+            'baseVersion': args.product_version,
+            'createdAt': datetime.now().isoformat(timespec='seconds'),
+            'files': entries,
+            'remove': [],
+            'totalBytes': total,
+            'complete': True,
+        }
+        out_path = Path(args.out).resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        started = time.time()
+        with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
+            for rel, (full, _size) in sorted(target_files.items()):
+                archive.write(full, rel)
+        print(f'\n全量更新包: {out_path}（{out_path.stat().st_size / 1024 / 1024:.1f} MB，'
+              f'{time.time() - started:.1f} 秒）')
+        return 0
+
     if args.base_manifest:
         manifest_data = json.loads(Path(args.base_manifest).read_text(encoding='utf-8'))
         base_files = {item['path']: (None, item['size'], item['sha256']) for item in manifest_data['files']}

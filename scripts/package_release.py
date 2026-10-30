@@ -97,6 +97,16 @@ def build_asar() -> Path:
         src = REPO / folder
         if src.exists():
             shutil.copytree(src, stage / folder)
+    # 运行时依赖：lib/updater-apply.py 用 yauzl 解压更新包，它自己又依赖这两个。
+    # 少打这 4 个包，asar 能打出来但一启动就崩（dev 模式发现不了，因为 dev 直接读仓库）。
+    runtime_packages = ['yauzl', 'buffer-crc32', 'fd-slicer', 'pend']
+    modules_dir = stage / 'node_modules'
+    modules_dir.mkdir(exist_ok=True)
+    for package in runtime_packages:
+        source = REPO / 'node_modules' / package
+        if not source.exists():
+            raise SystemExit('缺少运行时依赖: node_modules/%s' % package)
+        shutil.copytree(source, modules_dir / package)
     out = REPO / 'dist-package-app.asar'
     node = os.environ.get('ECHOMIND_NODE') or r'C:\Users\cj\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
     run([node, str(REPO / 'node_modules' / '@electron' / 'asar' / 'bin' / 'asar.js'),

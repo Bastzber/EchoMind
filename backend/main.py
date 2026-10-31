@@ -5962,10 +5962,11 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
 
 
 class KnowledgeExportRequest(BaseModel):
-    """导出知识包到指定路径。"""
+    """导出知识包到指定路径。base_pack 给定时只导出该包里没有的新文件（增量包）。"""
 
     out_path: str
     project_id: Optional[str] = None
+    base_pack: Optional[str] = None
 
 
 @app.post("/api/v1/knowledge/export")
@@ -5977,12 +5978,27 @@ async def knowledge_pack_export(payload: KnowledgeExportRequest, background_task
     project_id = payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default")
     db_manager = get_db_manager()
     file_count = db_manager.get_file_count(project_id)
+    base_pack = (payload.base_pack or "").strip()
+    if base_pack and not Path(base_pack).is_file():
+        raise HTTPException(status_code=404, detail=f"基线包不存在: {base_pack}")
     job_id = db_manager.create_job(project_id, "knowledge_export", int(file_count or 0))
-    background_tasks.add_task(_knowledge_export_task, job_id, project_id, Path(out_path))
-    return {"success": True, "job_id": job_id, "out_path": out_path, "files": file_count}
+    background_tasks.add_task(
+        _knowledge_export_task,
+        job_id, project_id, Path(out_path),
+        Path(base_pack) if base_pack else None,
+    )
+    return {
+        "success": True,
+        "job_id": job_id,
+        "out_path": out_path,
+        "files": file_count,
+        "base_pack": base_pack or None,
+    }
 
 
-async def _knowledge_export_task(job_id: str, project_id: str, out_path: Path) -> None:
+async def _knowledge_export_task(
+    job_id: str, project_id: str, out_path: Path, base_pack: Optional[Path] = None
+) -> None:
     import asyncio
 
     from core import knowledge_pack
@@ -5998,7 +6014,7 @@ async def _knowledge_export_task(job_id: str, project_id: str, out_path: Path) -
 
     try:
         report = await asyncio.to_thread(
-            knowledge_pack.export_pack, db_manager, project_id, out_path, progress,
+            knowledge_pack.export_pack, db_manager, project_id, out_path, progress, base_pack,
         )
         db_manager.update_job(
             job_id, state="completed", stage="done",

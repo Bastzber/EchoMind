@@ -140,6 +140,7 @@ def import_pack(
     expected_fingerprint: Optional[str] = None,
     progress: Optional[Any] = None,
     cancelled: Optional[Any] = None,
+    merge_into_active: bool = False,
 ) -> Dict[str, Any]:
     """把向量包写进 shadow collection，校验后原子切换。"""
     from core.index_lifecycle import create_shadow_indexer, verified_manifest
@@ -189,7 +190,19 @@ def import_pack(
 
     by_sha = sha_index(db_manager, project_id)
     fingerprint = str(pack.get('engine_fingerprint') or (local or {}).get('engine_fingerprint') or '')
-    indexer = create_shadow_indexer(project_id, kind)
+    if merge_into_active:
+        # 增量包：并进当前激活集合。绝不能新建 shadow 再切 manifest——
+        # 那样包里没带的旧向量会在切换后全部"消失"。
+        from core.index_lifecycle import get_active_audio_indexer, get_active_text_indexer
+
+        indexer = (
+            get_active_audio_indexer(db_manager, project_id)
+            if kind == 'audio_vector'
+            else get_active_text_indexer(db_manager, project_id)
+        )
+        logger.info('[VectorPack] 增量合并到现有集合 %s', indexer.collection_name)
+    else:
+        indexer = create_shadow_indexer(project_id, kind)
     dim = int(header['dim'])
 
     matched = 0
@@ -249,10 +262,13 @@ def import_pack(
         indexer._record_engine_write(fingerprint)
     except Exception as exc:
         logger.debug('记录引擎指纹失败: %s', exc)
-    manifest = verified_manifest(indexer, written)
-    if not manifest.get('engine_fingerprint'):
-        manifest['engine_fingerprint'] = fingerprint
-    db_manager.activate_index_manifests(project_id, {kind: manifest})
+    if merge_into_active:
+        manifest = {'collection_name': indexer.collection_name, 'written': written}
+    else:
+        manifest = verified_manifest(indexer, written)
+        if not manifest.get('engine_fingerprint'):
+            manifest['engine_fingerprint'] = fingerprint
+        db_manager.activate_index_manifests(project_id, {kind: manifest})
 
     # 命中的文件标 ready；没命中的保持原状（pending 的继续等本地补索引）。
     # 分批更新：6 万行一条大事务会把 WAL 撑到上百 MB，还长时间持有写锁。

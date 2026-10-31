@@ -136,7 +136,11 @@ def import_pack(
             raise KnowledgePackError('不是知识包（pack_kind 不对）')
         _prepare_kind_manifests(manifest, work_dir)
 
-        report: Dict[str, Any] = {'files': int(manifest.get('files') or 0)}
+        pack_mode = str(manifest.get('pack_mode') or 'full')
+        report: Dict[str, Any] = {
+            'files': int(manifest.get('files') or 0),
+            'pack_mode': pack_mode,
+        }
         if progress:
             progress('metadata', 0, report['files'])
         meta = _import_metadata(db_manager, project_id, work_dir / 'metadata.jsonl', progress)
@@ -154,6 +158,8 @@ def import_pack(
                     db_manager, project_id, kind, work_dir, None,
                     (lambda done, matched, _k=kind: progress(_k, done, int(info.get('count') or 0))) if progress else None,
                     cancelled,
+                    # 增量包必须并进现有集合：新建 shadow 再切换会把旧向量丢掉
+                    merge_into_active=(pack_mode == 'delta'),
                 )
                 kinds_report[kind] = result
             except vector_pack.VectorPackError as exc:
@@ -168,11 +174,30 @@ def import_pack(
 
         shutil.rmtree(work_dir, ignore_errors=True)
 
+def _read_pack_shas(pack_path: Path) -> set:
+    """读一个已有知识包的 sha256 集合（生成增量包时用来排除已包含的文件）。"""
+    import zipfile
+
+    shas = set()
+    with zipfile.ZipFile(pack_path) as zf:
+        with zf.open('metadata.jsonl') as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    shas.add(str(json.loads(line).get('sha256') or '').lower())
+                except Exception:
+                    continue
+    return shas
+
+
 def export_pack(
     db_manager,
     project_id: str,
     out_path: Path,
     progress: Optional[Callable[[str, int, int], None]] = None,
+    base_pack: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """把当前库导出成知识包（描述 + 标签 + 两套向量），返回汇总。"""
     import hashlib
@@ -198,6 +223,23 @@ def export_pack(
             ).fetchall()]
         if not rows:
             raise KnowledgePackError('库里没有带 sha256 的文件，先导入音效并补算哈希')
+
+        pack_mode = 'full'
+        base_count = 0
+        if base_pack:
+            # 增量包：只带「基线包里没有的文件」（新增的），已存在的一律不动，
+            # 避免把对方手工改过的描述覆盖掉。
+            base_shas = _read_pack_shas(Path(base_pack))
+            base_count = len(base_shas)
+            before = len(rows)
+            rows = [r for r in rows if str(r['sha256']).lower() not in base_shas]
+            pack_mode = 'delta'
+            logger.info(
+                '[KnowledgePack] 增量导出：基线 %d 条，本次新增 %d 条（总 %d）',
+                base_count, len(rows), before,
+            )
+            if not rows:
+                raise KnowledgePackError('对比基线包后没有新增文件，不需要增量包')
 
         paths = [str(r['path']) for r in rows]
         try:
@@ -234,6 +276,8 @@ def export_pack(
             'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'project_source': project_id,
             'library_root': root,
+            'pack_mode': pack_mode,
+            'base_pack_files': base_count,
             'files': len(rows),
             'vocabulary': sorted(vocab.items(), key=lambda kv: -kv[1])[:4000],
             'kinds': {},

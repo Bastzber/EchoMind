@@ -15612,6 +15612,57 @@
                 }
             });
 
+
+            // 导出增量包：先选基线包，再选保存位置，只导出基线里没有的新文件
+            document.getElementById('exportDeltaPackBtn')?.addEventListener('click', async () => {
+                const statusEl = document.getElementById('knowledgePackStatus');
+                const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
+                try {
+                    const base = await window.electronAPI?.dialogs?.showOpenDialog({
+                        title: '选择基线知识包（只导出它里面没有的新文件）',
+                        filters: [{ name: '知识包', extensions: ['zip'] }],
+                        properties: ['openFile'],
+                    });
+                    const basePath = base?.filePaths?.[0] || base?.filePath;
+                    if (!basePath) { setStatus('已取消'); return; }
+                    const saved = await window.electronAPI?.dialogs?.showSaveDialog({
+                        title: '导出增量包',
+                        defaultPath: 'EchoMind-知识包-增量.zip',
+                        filters: [{ name: '知识包', extensions: ['zip'] }],
+                    });
+                    const outPath = saved?.filePath || saved?.filePaths?.[0];
+                    if (!outPath) { setStatus('已取消'); return; }
+                    setStatus('正在对比基线…');
+                    const res = await rendererApi.post(
+                        '/api/v1/knowledge/export',
+                        { out_path: outPath, base_pack: basePath, project_id: currentProject?.id || 'default' },
+                        { timeoutMs: 60000 }
+                    );
+                    const jobId = res?.job_id;
+                    if (!jobId) { setStatus('提交失败'); return; }
+                    for (let i = 0; i < 900; i += 1) {
+                        await new Promise((r) => setTimeout(r, 1500));
+                        let job = null;
+                        try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
+                        if (!job) continue;
+                        if (job.state === 'completed') {
+                            setStatus('✅ 增量包已导出: ' + outPath);
+                            showNotification('增量包已导出到 ' + outPath, 'success');
+                            return;
+                        }
+                        if (job.state === 'failed' || job.state === 'cancelled') {
+                            setStatus('导出失败: ' + (job.error_message || job.stage || ''));
+                            showNotification('增量包导出失败: ' + (job.error_message || job.stage || ''), 'error');
+                            return;
+                        }
+                        setStatus('导出中（' + (job.stage || '...') + ' ' + (job.processed || 0) + '）');
+                    }
+                } catch (error) {
+                    setStatus('导出失败: ' + (error?.message || error));
+                    showNotification('增量包导出失败: ' + (error?.message || error), 'error');
+                }
+            });
+
             document.getElementById('importKnowledgePackBtn')?.addEventListener('click', async () => {
                 try {
                     const picked = await window.electronAPI?.dialogs?.showOpenDialog({
@@ -17323,11 +17374,15 @@
                             <div class="text-sm font-medium mb-1">知识包（换电脑、分享给别人用）</div>
                             <p class="text-xs opacity-60 mb-2">一个 zip 里同时包含 <b>一句话描述</b>、<b>标签</b>、
                                 <b>音频向量</b> 和 <b>文本向量</b>。别人把软件和知识包拿走，导入自己库里的音效后，
-                                点「导入知识包」即可全部套用，<b>不用再跑几小时索引</b>。</p>
+                                点「导入知识包」即可全部套用，<b>不用再跑几小时索引</b>。
+                                后来只加了一批新音效？点「导出增量包」，选上次那个包当基线，只导出新增部分。</p>
                             <div class="flex items-center gap-3">
                                 <button id="exportKnowledgePackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
                                         style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出知识包</button>
+                                <button id="exportDeltaPackBtn"
+                                        class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
+                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出增量包</button>
                                 <button id="importKnowledgePackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
                                         style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入知识包</button>

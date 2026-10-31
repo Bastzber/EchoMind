@@ -15,6 +15,7 @@ import os
 import pickle
 import sys
 import threading
+import time
 
 import numpy as np
 
@@ -144,9 +145,13 @@ def compute_mel_batch(paths, sample_rate, max_samples, model_path):
         model.eval()
         result = {}
         for p in paths:
+            _t0 = time.time()
             feats, reason = _process_one(service, processor, p, sample_rate, max_samples)
+            _cost = time.time() - _t0
             if feats is None:
-                _diag(f'文件处理失败 {reason}: {p[:120]}')
+                _diag(f'文件处理失败 {reason} 耗时{_cost:.1f}s: {p[:120]}')
+            elif _cost > 3:
+                _diag(f'文件处理慢 {_cost:.1f}s: {p[:100]}')
                 # 把失败原因带回去（父进程会写进日志/artifact），
                 # 否则只有一句「批量编码未产出向量」，根本不知道卡在哪一步。
                 result[p] = {"error": reason or "feats_none"}

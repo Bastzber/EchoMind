@@ -55,6 +55,20 @@ _WINDOWS_RESERVED_NAMES = {
 }
 
 
+def _index_diag(msg: str) -> None:
+    """把索引失败原因写到文件：这些分支原来只 return False，查不到原因。"""
+    try:
+        import os as _os
+        import time as _t
+
+        base = _os.path.join(_os.environ.get('APPDATA', '.'), 'EchoMind', 'logs')
+        _os.makedirs(base, exist_ok=True)
+        with open(_os.path.join(base, 'index-diag.log'), 'a', encoding='utf-8') as fh:
+            fh.write(f'{_t.strftime("%Y-%m-%d %H:%M:%S")} {msg}\n')
+    except Exception:
+        pass
+
+
 def normalize_file_path(file_path: str) -> str:
     """Create a stable path key across Windows separator/case variants."""
     value = os.fspath(file_path)
@@ -536,6 +550,7 @@ class AudioIndexer:
             embedder = get_embedder()
             if embedder is None:
                 logger.warning("CLAP 模型不可用，文件保持 pending: %s", file_path)
+                _index_diag(f"模型不可用: {file_path[:100]}")
                 return False
             self._ensure_engine_compatible(getattr(embedder, "fingerprint", ""))
             file_id = self._record_id(file_path, metadata)
@@ -561,6 +576,7 @@ class AudioIndexer:
 
             row = self._generate_embedding_for_file(file_id, file_path, audio_info, embedder)
             if row is None:
+                _index_diag(f"单文件编码返回空: {file_path[:100]}")
                 return False
             row["metadata"].update(_sanitize_metadata(metadata))
             row["metadata"]["file_path"] = file_path

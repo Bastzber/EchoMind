@@ -1059,6 +1059,9 @@
     <script src="./assets/renderer/playback.js"></script>
     <script src="./assets/renderer/first-run.js"></script>
     <script src="./assets/renderer/duplicates2.js"></script>
+    <script src="./assets/renderer/scene-tree.js"></script>
+    <script src="./assets/renderer/updater.js"></script>
+    <script src="./assets/renderer/ambient-loop.js"></script>
     <script>
 
         // ===== 帮助问号：鼠标悬浮显示功能说明 =====
@@ -2162,119 +2165,11 @@
         let ambiencePending = false;
         let ambienceLastAt = 0;
 
-        function fadeAudio(audio, from, to, ms, done) {
-            const steps = Math.max(1, Math.round(ms / 50));
-            let i = 0;
-            const timer = setInterval(() => {
-                i += 1;
-                const value = from + (to - from) * (i / steps);
-                try { audio.volume = Math.min(1, Math.max(0, value)); } catch (_) { }
-                if (i >= steps) {
-                    clearInterval(timer);
-                    done && done();
-                }
-            }, 50);
-        }
 
-        function stopAmbience() {
-            recipeState.ambiencePlaying = false;
-            if (ambienceTimer) { clearInterval(ambienceTimer); ambienceTimer = null; }
-            if (ambiencePlayer) {
-                const old = ambiencePlayer;
-                ambiencePlayer = null;
-                fadeAudio(old, old.volume, 0, 250, () => {
-                    try { old.pause(); } catch (_) { }
-                });
-            }
-            const btn = document.getElementById('recipeStopAmbience');
-            if (btn) btn.classList.add('hidden');
-        }
 
-        async function fetchAmbience(x, y) {
-            const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
-            const data = await rendererApi.post(
-                `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/ambience`,
-                {
-                    x, y, seconds: 6,
-                    enabled: [...recipeState.enabled],
-                    layer_samples: recipeState.layerSamples,
-                },
-                { timeoutMs: 60000 }
-            );
-            return base + data.url;
-        }
 
-        function recordAmbiencePoint(x, y) {
-            recipeState.lastPoint = { x, y };
-            if (!recipeState.recording) return;
-            recipeState.events.push({
-                t: (Date.now() - recipeState.startedAt) / 1000,
-                x, y,
-            });
-        }
 
-        async function startAmbience(x, y) {
-            if (!recipeState.current) return;
-            recipeState.ambiencePlaying = true;
-            stopRecipeAudio();
-            recordAmbiencePoint(x, y);
-            const btn = document.getElementById('recipeStopAmbience');
-            if (btn) btn.classList.remove('hidden');
-            try {
-                const url = await fetchAmbience(x, y);
-                const audio = new Audio(url);
-                audio.loop = true;
-                audio.volume = 0;
-                await audio.play().catch(() => {});
-                const previous = ambiencePlayer;
-                ambiencePlayer = audio;
-                fadeAudio(audio, 0, 0.9, 350);
-                if (previous) fadeAudio(previous, previous.volume, 0, 350, () => { try { previous.pause(); } catch (_) { } });
-            } catch (error) {
-                showNotification('环境音生成失败: ' + error.message, 'error');
-            }
-        }
 
-        function updateAmbience(x, y) {
-            if (!recipeState.ambiencePlaying || ambiencePending) return;
-            const now = Date.now();
-            if (now - ambienceLastAt < 450) return;
-            ambienceLastAt = now;
-            ambiencePending = true;
-            recordAmbiencePoint(x, y);
-            (async () => {
-                try {
-                    const base = rendererApi.getConfig?.().apiBase || 'http://127.0.0.1:8000';
-                    const data = await rendererApi.post(
-                        `/api/v1/recipes/${encodeURIComponent(recipeState.current.id)}/ambience`,
-                        {
-                            x, y, seconds: 6,
-                            enabled: [...recipeState.enabled],
-                            layer_samples: recipeState.layerSamples,
-                        },
-                        { timeoutMs: 60000 }
-                    );
-                    const audio = new Audio(base + data.url);
-                    audio.loop = true;
-                    audio.volume = 0;
-                    await audio.play().catch(() => {});
-                    const previous = ambiencePlayer;
-                    ambiencePlayer = audio;
-                    const swap = () => {
-                        fadeAudio(audio, 0, 0.9, 450);
-                        if (previous) {
-                            fadeAudio(previous, previous.volume, 0, 450, () => {
-                                try { previous.pause(); } catch (_) { }
-                            });
-                        }
-                    };
-                    // 等新的一段真正出声后再交叉淡化，避免中间出现空档
-                    if (audio.readyState >= 2) swap();
-                    else audio.addEventListener('playing', swap, { once: true });
-                } catch (_) { }
-                ambiencePending = false;
-            })();
-        }
 
         // ===== 环境音：4 条音轨常驻循环，拖动只改音量（结构上不可能断层）=====
         let stemsState = null;
@@ -2537,75 +2432,8 @@
         }
 
         // 从后端拿全库标签统计（本地 soundData 只有分页加载的一部分）
-        async function loadTagStats() {
-            try {
-                const data = await rendererApi.get('/api/v1/db/tags');
-                window.__tagStats = (data && data.tags) || [];
-            } catch (error) {
-                console.warn('[Tags] 标签统计加载失败:', error);
-                window.__tagStats = window.__tagStats || [];
-            }
-            try {
-                const layered = await rendererApi.get('/api/v1/tags');
-                window.__tagLayers = {
-                    scene: (layered && layered.scene) || [],
-                    attr: (layered && layered.attr) || [],
-                };
-            } catch (error) {
-                console.warn('[Tags] 分层标签加载失败:', error);
-                window.__tagLayers = window.__tagLayers || { scene: [], attr: [] };
-            }
-            renderCategoryTree();
-        }
 
         // 标签右键：切换场景/属性层、删除
-        function showTagLayerMenu(event, tag) {
-            document.getElementById('tagLayerMenu')?.remove();
-            const menu = document.createElement('div');
-            menu.id = 'tagLayerMenu';
-            menu.className = 'fixed z-[210] rounded-lg shadow-xl py-1 w-44';
-            menu.style.backgroundColor = 'var(--bg-secondary)';
-            menu.style.border = '1px solid var(--border-color)';
-            menu.style.left = Math.min(event.clientX, window.innerWidth - 190) + 'px';
-            menu.style.top = Math.min(event.clientY, window.innerHeight - 190) + 'px';
-
-            const item = (label, onClick, danger) => {
-                const btn = document.createElement('button');
-                btn.className = 'w-full px-3 py-1.5 text-xs text-left hover:bg-white/5'
-                    + (danger ? ' text-red-400' : '');
-                btn.textContent = label;
-                btn.addEventListener('click', onClick);
-                menu.appendChild(btn);
-            };
-
-            item(tag.layer === 'scene' ? '✓ 已是场景标签' : '设为场景标签', async () => {
-                menu.remove();
-                await patchTag(tag.id, { layer: 'scene' });
-            });
-            item(tag.layer === 'attr' ? '✓ 已是属性标签' : '设为属性标签', async () => {
-                menu.remove();
-                await patchTag(tag.id, { layer: 'attr' });
-            });
-            item('批量重命名该标签…', () => {
-                menu.remove();
-                renameSoundsInTag(tag.name);
-            });
-            item('删除标签', async () => {
-                menu.remove();
-                if (!confirm(`删除标签「${tag.name}」？`)) return;
-                await rendererApi.delete(`/api/v1/tags/${encodeURIComponent(tag.id)}`);
-                await loadTagStats();
-            }, true);
-
-            document.body.appendChild(menu);
-            const close = (e) => {
-                if (!menu.contains(e.target)) {
-                    menu.remove();
-                    document.removeEventListener('click', close);
-                }
-            };
-            setTimeout(() => document.addEventListener('click', close), 100);
-        }
 
         // ===== 侧边栏标签：右键改名/删除，拖拽合并 =====
         const tagProjectQuery = () => '?project_id=' + encodeURIComponent(currentProject?.id || 'default');
@@ -2872,178 +2700,11 @@
         }
 
         // ==================== 检查更新（下拉菜单入口） ====================
-        async function fillMenuVersion() {
-            if (!window.electronAPI?.updates) return;
-            let version = '';
-            try {
-                version = 'v' + await window.electronAPI.updates.version();
-            } catch (_) {
-                return;
-            }
-            for (const id of ['menuVersionText', 'aboutVersionText']) {
-                const el = document.getElementById(id);
-                if (el && !el.textContent) el.textContent = version;
-            }
-        }
 
-        function showUpdateDialog(latest) {
-            document.getElementById('updateDialog')?.remove();
-            const overlay = document.createElement('div');
-            overlay.id = 'updateDialog';
-            overlay.className = 'fixed inset-0 z-[300] flex items-center justify-center';
-            overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
 
-            const panel = document.createElement('div');
-            panel.className = 'rounded-lg shadow-2xl p-5 w-[520px] max-w-[92vw] max-h-[80vh] flex flex-col';
-            panel.style.backgroundColor = 'var(--bg-secondary)';
-            panel.style.border = '1px solid var(--border-color)';
-
-            const header = document.createElement('div');
-            header.className = 'flex items-start justify-between gap-4 mb-3';
-            const titleBox = document.createElement('div');
-            const h3 = document.createElement('h3');
-            h3.className = 'text-base font-semibold';
-            h3.textContent = '发现新版本';
-            const sub = document.createElement('div');
-            sub.className = 'text-xs opacity-60 mt-1';
-            sub.textContent = 'v' + latest.version + (latest.releasedAt ? '　' + latest.releasedAt : '');
-            titleBox.appendChild(h3);
-            titleBox.appendChild(sub);
-            const closeBtn = document.createElement('button');
-            closeBtn.className = 'p-1 rounded hover:bg-white/10 transition-colors shrink-0';
-            closeBtn.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i>';
-            closeBtn.addEventListener('click', () => overlay.remove());
-            header.appendChild(titleBox);
-            header.appendChild(closeBtn);
-            panel.appendChild(header);
-
-            const notes = document.createElement('div');
-            notes.className = 'flex-1 overflow-y-auto text-xs opacity-75 leading-6 whitespace-pre-line mb-4';
-            notes.textContent = (latest.notes || []).join('\n') || '这个版本没有写更新说明';
-            panel.appendChild(notes);
-
-            const footer = document.createElement('div');
-            footer.className = 'flex items-center gap-2 shrink-0';
-            const openBtn = document.createElement('button');
-            openBtn.className = 'px-3 py-1.5 rounded text-sm text-white';
-            openBtn.style.background = '#22c55e';
-            openBtn.textContent = '打开下载页';
-            openBtn.disabled = !latest.url;
-            openBtn.style.opacity = latest.url ? '1' : '0.5';
-            openBtn.addEventListener('click', () => {
-                if (!latest.url) return;
-                window.electronAPI?.updates?.openExternal(latest.url);
-            });
-            footer.appendChild(openBtn);
-
-            if (latest.code) {
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'px-3 py-1.5 rounded text-sm border hover:bg-white/5';
-                copyBtn.style.borderColor = 'var(--border-color)';
-                copyBtn.textContent = '复制提取码 ' + latest.code;
-                copyBtn.addEventListener('click', async () => {
-                    try {
-                        await navigator.clipboard.writeText(latest.code);
-                        showNotification('提取码已复制：' + latest.code, 'success');
-                    } catch (_) {
-                        showNotification('提取码：' + latest.code, 'info');
-                    }
-                });
-                footer.appendChild(copyBtn);
-            }
-
-            const spacer = document.createElement('div');
-            spacer.className = 'flex-1';
-            footer.appendChild(spacer);
-
-            const laterBtn = document.createElement('button');
-            laterBtn.className = 'px-3 py-1.5 rounded text-sm border hover:bg-white/5';
-            laterBtn.style.borderColor = 'var(--border-color)';
-            laterBtn.textContent = '以后再说';
-            laterBtn.addEventListener('click', () => overlay.remove());
-            footer.appendChild(laterBtn);
-
-            panel.appendChild(footer);
-            overlay.appendChild(panel);
-            overlay.addEventListener('mousedown', (event) => {
-                if (event.target === overlay) overlay.remove();
-            });
-            document.body.appendChild(overlay);
-            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
-        }
-
-        function formatBytesText(value) {
-            const size = Number(value || 0);
-            if (size < 1024) return size + ' B';
-            if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
-            if (size < 1024 * 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + ' MB';
-            return (size / 1024 / 1024 / 1024).toFixed(2) + ' GB';
-        }
 
         // 安装本地增量更新包：只替换变化的文件，不碰 %APPDATA% 里的用户数据
-        async function installLocalUpdate() {
-            const api = window.electronAPI?.updates;
-            if (!api?.pickLocal) { showNotification('当前环境不支持本地更新', 'info'); return; }
-            const picked = await api.pickLocal();
-            if (!picked || picked.canceled || !picked.zipPath) return;
 
-            const info = await api.inspect(picked.zipPath);
-            if (!info || !info.ok) {
-                showNotification('无法读取更新包: ' + (info?.error || '未知错误'), 'error');
-                return;
-            }
-            if (info.upToDate) {
-                showNotification('当前已经是 v' + (info.version || '该版本') + '，无需更新', 'success');
-                return;
-            }
-            const lines = [
-                '更新包版本：v' + (info.version || '未知'),
-                info.baseVersion ? '适配版本：v' + info.baseVersion : '',
-                '',
-                '需要替换 ' + info.replaceCount + ' 个文件（约 ' + formatBytesText(info.replaceBytes) + '）',
-                info.removeCount ? '需要删除 ' + info.removeCount + ' 个旧文件' : '',
-                '',
-                '标签、界面布局、皮肤等用户数据不会受影响。',
-                '继续安装？'
-            ].filter(Boolean);
-            if (!confirm(lines.join('\n'))) return;
-
-            showNotification('正在应用更新，请不要关闭软件…', 'info');
-            const result = await api.apply(picked.zipPath);
-            if (!result || !result.ok) {
-                showNotification('更新失败: ' + (result?.error || '未知错误'), 'error');
-                return;
-            }
-            const summary = '更新完成：替换 ' + (result.replaced || 0) + ' 个文件'
-                + (result.removed ? '，清理 ' + result.removed + ' 个旧文件' : '')
-                + (result.needsRestart ? '，' + (result.pendingCount || 0) + ' 个文件需要退出后替换' : '');
-            showNotification(summary, 'success');
-            if (confirm(summary + '\n\n需要重启才能生效，现在重启吗？\n（重启时会自动完成剩余文件的替换）')) {
-                await api.restart();
-            }
-        }
-
-        async function checkForUpdatesFromMenu() {
-            if (!window.electronAPI?.updates) {
-                showNotification('当前环境不支持检查更新', 'info');
-                return;
-            }
-            showNotification('正在检查更新…', 'info');
-            try {
-                const res = await window.electronAPI.updates.check();
-                if (!res || !res.ok) {
-                    showNotification((res && res.error) || '检查更新失败', 'error');
-                    return;
-                }
-                if (!res.hasUpdate) {
-                    showNotification('已是最新版本 v' + res.current, 'success');
-                    return;
-                }
-                showUpdateDialog(res.latest);
-            } catch (error) {
-                showNotification('检查更新失败: ' + (error?.message || error), 'error');
-            }
-        }
 
         // ==================== SETTINGS ====================
         function toggleSettings() {

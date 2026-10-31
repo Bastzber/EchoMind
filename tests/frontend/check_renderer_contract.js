@@ -16,6 +16,15 @@ const moduleNames = ['api', 'state', 'audio', 'waveform', 'search', 'projects', 
 const moduleSources = Object.fromEntries(
   moduleNames.map(name => [name, read(`assets/renderer/${name}.js`)])
 );
+// 10-31 的重构把渲染层从 index.html 拆到了 assets/renderer/*.js。
+// 下面这些「有没有接线」的契约改成看整个渲染层，不再限定必须写在 index.html 里。
+const rendererCode = fs
+  .readdirSync(path.join(root, 'assets', 'renderer'))
+  .filter(name => name.endsWith('.js'))
+  .sort()
+  .map(name => read(`assets/renderer/${name}`))
+  .join('\n');
+const pageCode = `${indexHtml}\n${rendererCode}`;
 
 async function main() {
   assert(!/wavesurfer/i.test(indexHtml), 'renderer still references WaveSurfer');
@@ -69,13 +78,13 @@ async function main() {
 
   assert(!/function apiUrl|function wsUrl|function drawBarWaveform|new ResizeObserver|window\.devicePixelRatio/.test(indexHtml), 'extracted renderer core remains inline');
   assert(!/function getSecretUpdateForInput|function getAiSecretUpdates/.test(indexHtml), 'secret-intent core remains inline');
-  assert(indexHtml.includes('rendererWaveform.renderMain(canvas'), 'main waveform is not rendered by the cached module');
-  assert(indexHtml.includes('rendererAudio.resolvePlaybackSource(sound'), 'playback-source selection is not wired');
-  assert(indexHtml.includes('r.metadata?.file_id'), 'AI results do not preserve stable file IDs');
-  assert(indexHtml.includes('selectAndPlaySound(soundObj);'), 'AI result playback is not an explicit select-and-play action');
+  assert(pageCode.includes('rendererWaveform.renderMain(canvas'), 'main waveform is not rendered by the cached module');
+  assert(pageCode.includes('rendererAudio.resolvePlaybackSource(sound'), 'playback-source selection is not wired');
+  assert(pageCode.includes('r.metadata?.file_id'), 'AI results do not preserve stable file IDs');
+  assert(pageCode.includes('selectAndPlaySound(soundObj);'), 'AI result playback is not an explicit select-and-play action');
   assert(indexHtml.includes('rendererSearch.buildPayload({'), 'search payload module is not wired');
   assert(indexHtml.includes("rendererApi.post('/api/v1/search', searchRequest)"), 'project-scoped search request is not wired');
-  assert(indexHtml.includes('rendererProjects.listFiles('), 'cursor file API is not wired');
+  assert(pageCode.includes('rendererProjects.listFiles('), 'cursor file API is not wired');
   assert(indexHtml.includes('loadFilesFromDatabase({ reset: false })'), 'cursor continuation is not wired');
   assert(indexHtml.includes('id="audioIndexStatus"') && indexHtml.includes('id="textIndexStatus"'), 'project index status UI is missing');
   assert(indexHtml.includes("runProjectIndexAction('reconcile')"), 'reconcile action is not wired');
@@ -110,7 +119,7 @@ async function main() {
   assert(mainJs.includes('updateBackendEndpoint(Number(match[1]))'), 'announced backend port is not authoritative');
   assert(mainJs.includes("payload?.status === 'healthy'"), 'health polling can accept an unrelated HTTP service');
   assert(preloadJs.includes("cancelRequest: (requestId) => ipcRenderer.invoke('backend-api-cancel'"), 'preload cancellation API is missing');
-  assert(indexHtml.includes('cancelActiveWaveformRequest();'), 'main waveform does not cancel stale HTTP requests');
+  assert(pageCode.includes('cancelActiveWaveformRequest();'), 'main waveform does not cancel stale HTTP requests');
   assert(mainJs.includes('safeStorage.encryptString'), 'safeStorage secret encryption is missing');
   assert(preloadJs.includes('secrets: {'), 'secret API is not exposed by preload');
 

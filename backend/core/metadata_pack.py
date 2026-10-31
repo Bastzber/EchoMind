@@ -256,6 +256,9 @@ def apply(
         updates: List[tuple] = []
 
         def _write_batch() -> None:
+            # 内层函数要改外层的 skipped：少了 nonlocal 就会变成 UnboundLocalError，
+            # 异常被下面的 except 吞掉 → 整批一条都写不进去（导入描述包显示应用 0 条）。
+            nonlocal skipped
             with db.get_cursor() as cursor:
                 rows = cursor.execute(
                     f"SELECT file_uuid, path, ai_description, tags FROM files "

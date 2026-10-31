@@ -200,3 +200,4 @@ dist-v11-build/
 dist-*/
 *.zip
 asar-stage/
+tmp/

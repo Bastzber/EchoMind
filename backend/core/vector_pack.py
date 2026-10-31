@@ -257,17 +257,25 @@ def import_pack(
     # 命中的文件标 ready；没命中的保持原状（pending 的继续等本地补索引）。
     # 分批更新：6 万行一条大事务会把 WAL 撑到上百 MB，还长时间持有写锁。
     try:
+        from core.db_retry import run_with_retry
+
         updated = 0
         for offset in range(0, len(ids_all), 4000):
             chunk = ids_all[offset:offset + 4000]
             marks = ",".join("?" for _ in chunk)
-            with db_manager.get_cursor() as cursor:
-                cursor.execute(
-                    "UPDATE file_artifacts SET state=? WHERE project_id=? AND kind=? "
-                    f"AND file_uuid IN ({marks}) AND state IN ('pending','failed','stale')",
-                    ('ready', project_id, kind, *chunk),
-                )
-                updated += cursor.rowcount
+            box = {"n": 0}
+
+            def _mark(chunk=chunk, marks=marks, box=box) -> None:
+                with db_manager.get_cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE file_artifacts SET state=? WHERE project_id=? AND kind=? "
+                        f"AND file_uuid IN ({marks}) AND state IN ('pending','failed','stale')",
+                        ('ready', project_id, kind, *chunk),
+                    )
+                    box["n"] = cursor.rowcount
+
+            run_with_retry(_mark, label="向量包标记就绪")
+            updated += int(box["n"] or 0)
         logger.info("[VectorPack] artifact 标 ready %d 条", updated)
     except Exception as exc:
         logger.warning('向量包导入后更新 artifact 状态失败: %s', exc)

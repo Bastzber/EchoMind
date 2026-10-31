@@ -452,7 +452,9 @@ class DatabaseManager:
                 # 索引任务与描述包写入同时跑时会撞写锁：默认 5 秒内自动重试，
                 # 而不是立刻抛 database is locked（B6 的一半）。
                 try:
-                    conn.execute("PRAGMA busy_timeout=5000")
+                    # 15 秒：批量写（描述包 800 条一批、向量包 4000 条一批）
+                    # 的单个事务可能超过原来的 5 秒阈值。
+                    conn.execute("PRAGMA busy_timeout=15000")
                 except sqlite3.Error:
                     pass
                 self._local.conn = conn

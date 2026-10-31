@@ -254,7 +254,8 @@ def apply(
         chunk = ids[start:start + batch_size]
         placeholders = ",".join("?" for _ in chunk)
         updates: List[tuple] = []
-        try:
+
+        def _write_batch() -> None:
             with db.get_cursor() as cursor:
                 rows = cursor.execute(
                     f"SELECT file_uuid, path, ai_description, tags FROM files "
@@ -281,6 +282,12 @@ def apply(
                         updates,
                     )
                     cursor.connection.commit()
+
+        try:
+            # 撞写锁时退避重试，而不是整批失败（B6）
+            from core.db_retry import run_with_retry
+
+            run_with_retry(_write_batch, label="描述包写库")
         except Exception as exc:
             logger.warning("描述包分批写库失败（%d 条）: %s", len(chunk), exc)
             continue

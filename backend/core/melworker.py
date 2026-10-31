@@ -150,12 +150,14 @@ def compute_mel_batch(paths, sample_rate, max_samples, model_path):
             _cost = time.time() - _t0
             if feats is None:
                 _diag(f'文件处理失败 {reason} 耗时{_cost:.1f}s: {p[:120]}')
-            elif _cost > 3:
-                _diag(f'文件处理慢 {_cost:.1f}s: {p[:100]}')
                 # 把失败原因带回去（父进程会写进日志/artifact），
                 # 否则只有一句「批量编码未产出向量」，根本不知道卡在哪一步。
                 result[p] = {"error": reason or "feats_none"}
                 continue
+            elif _cost > 3:
+                # 慢 ≠ 失败：只记诊断，继续 forward。这里原来误把
+                # {"error": ...} 写进 result，3 秒以上的正常文件会被判失败。
+                _diag(f'文件处理慢 {_cost:.1f}s: {p[:100]}')
             vec = _forward_one(model, feats)
             result[p] = vec if vec is not None else {"error": "forward_none"}
         return result
@@ -229,14 +231,22 @@ def _main() -> None:
         sample_rate, max_samples = _resolve_window(req, sample_rate, max_samples)
         results = {}
         for path in req.get("paths", []):
-            feats = _process_one(
+            # _process_one 返回 (features, reason) 二元组。曾经这里直接
+            # `feats = _process_one(...)` 把整个元组当 features 交给
+            # _forward_one，后者内部 features.get() 抛 AttributeError 被
+            # `except Exception: return None` 吞掉，于是**每个文件都返回
+            # None**：父进程只看到「批量编码未产出向量（原因: unknown）」，
+            # 长 ID3 的配乐 MP3 因此永远编不出向量。必须解包。
+            feats, reason = _process_one(
                 service, processor, path, sample_rate, max_samples
             )
             if feats is None:
-                results[path] = None
+                # 带上具体原因（decode_timeout / processor_error / ...），
+                # 父进程会记进 _MEL_FAIL_REASONS 并写进 artifact.error_message。
+                results[path] = {"error": reason or "feats_none"}
                 continue
             vec = _forward_one(model, feats)
-            results[path] = vec if vec is not None else None
+            results[path] = vec if vec is not None else {"error": "forward_none"}
         try:
             sys.stdout.buffer.write(pickle.dumps(results))
             sys.stdout.buffer.flush()

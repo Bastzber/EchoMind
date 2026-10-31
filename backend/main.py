@@ -7804,14 +7804,21 @@ async def _repair_index_task_locked(
                                 )
                         else:
                             failures["audio_vector"] += 1
-                            # 失败原因要能定位：带上错误类型、时长、采样率、声道，
-                            # 否则只看「批量编码未产出向量」根本分不清是损坏、
-                            # 超时还是格式不支持（B5 / B9）。
+                            # 失败原因要能定位：带上 worker 回报的具体原因、时长、
+                            # 采样率、声道，否则只看「批量编码未产出向量」根本分不清
+                            # 是损坏、超时、被黑名单拦住还是格式不支持（B5 / B9）。
+                            try:
+                                from core.embedder import _MEL_FAIL_REASONS
+
+                                _why = str(_MEL_FAIL_REASONS.get(str(_path3 or "")) or "")
+                            except Exception:
+                                _why = ""
                             _detail = (
-                                "%s｜%s｜%ss｜%sHz｜%sch"
+                                "%s｜%s%s｜%ss｜%sHz｜%sch"
                                 % (
                                     os.path.basename(str(_path3 or "")),
                                     _last_error or "批量编码未产出向量",
+                                    ("（%s）" % _why) if _why else "（原因未知）",
                                     (_meta3 or {}).get("duration", 0),
                                     (_meta3 or {}).get("sample_rate", 0),
                                     (_meta3 or {}).get("channels", 0),

@@ -845,6 +845,11 @@ class CLIPEmbedder:
         # 且崩溃会污染整个 GPU 上下文导致后续批次全部失败。跳过它们。
         _BAD_BLACKLIST = _load_blacklist()
         if _BAD_BLACKLIST:
+            for blocked in [p for p in paths if p in _BAD_BLACKLIST]:
+                # 被黑名单拦截时原来只返回 None，调用方只能报
+                # 「批量编码未产出向量（unknown）」，看不出是"拦掉了"而不是
+                # "解不出来"——2026-10-31 就因此把一个正常配乐误判成编码失败。
+                _MEL_FAIL_REASONS[blocked] = "blacklisted"
             paths = [p for p in paths if p not in _BAD_BLACKLIST]
             if not paths:
                 return {orig: None for orig in audio_paths}
@@ -876,6 +881,8 @@ class CLIPEmbedder:
         pending_paths = list(paths)
         with _mel_runtime_blacklist_lock:
             skip = _mel_runtime_blacklist
+        for blocked in [p for p in pending_paths if p in skip]:
+            _MEL_FAIL_REASONS[blocked] = "runtime_blacklisted"
         pending_paths = [p for p in pending_paths if p not in skip]
         if not pending_paths:
             return {p: None for p in paths}

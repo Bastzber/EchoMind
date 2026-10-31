@@ -917,9 +917,16 @@ class DatabaseManager:
         backup_path = f"{self.db_path}.pre-v{current_version}-to-v{SCHEMA_VERSION}.bak"
         if os.path.exists(backup_path):
             return backup_path
+        connection = self._get_connection()
+        # sqlite3 的 backup() 需要对源库拿共享锁。源连接上还有未提交的写事务时，
+        # 它会一直重试 SQLITE_BUSY —— Windows 上表现为**永久挂起**（实测 20s+ 不动，
+        # CPU 为 0）。迁移前那几个幂等的补列 / 补表 / 种子数据本来就该落盘，
+        # 先提交再快照不改变"迁移前保底"的语义。
+        if connection.in_transaction:
+            connection.commit()
         destination = sqlite3.connect(backup_path)
         try:
-            self._get_connection().backup(destination)
+            connection.backup(destination)
         finally:
             destination.close()
         return backup_path

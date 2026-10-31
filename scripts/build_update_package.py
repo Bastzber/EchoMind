@@ -45,7 +45,11 @@ def walk_files(root: Path) -> dict:
     """返回 {相对路径(正斜杠): (绝对路径, 大小)}。"""
     result = {}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d.lower() not in EXCLUDE_DIRS]
+        # 只跳过安装根目录下的用户数据 / 日志目录。包内深层同名目录
+        # （torch/utils/data、transformers/data 之类）是真代码，
+        # 按名字一律剪掉会让增量包静默少发这些文件。
+        if os.path.normcase(dirpath) == os.path.normcase(str(root)):
+            dirnames[:] = [d for d in dirnames if d.lower() not in EXCLUDE_DIRS]
         for name in filenames:
             if Path(name).suffix.lower() in EXCLUDE_SUFFIXES:
                 continue

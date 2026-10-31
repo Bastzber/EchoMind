@@ -56,7 +56,7 @@ class AudioServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             set(AUDIO_FORMAT_CAPABILITIES),
-            {'.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac', '.wma', '.caf'},
+            {'.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac', '.wma', '.caf', '.ape'},
         )
         self.assertEqual(AUDIO_FORMAT_CAPABILITIES, manifest["formats"])
 
@@ -105,7 +105,10 @@ class AudioServiceTests(unittest.TestCase):
             service.decode(self.source, mono=True)
 
         self.assertEqual(caught.exception.code, 'audio_decode_failed')
-        self.assertEqual(caught.exception.details['decoder'], 'pyav')
+        # pyav 失败后还有打包进来的 miniaudio 兜底，标签会是 pyav 或 pyav+miniaudio。
+        # 这条用例要守的是"不回退到系统编解码器"，所以只认这两个值。
+        decoder = caught.exception.details['decoder']
+        self.assertIn(decoder, ('pyav', 'pyav+miniaudio'))
 
     def test_missing_pyav_is_a_structured_runtime_error(self) -> None:
         service = AudioService(self.cache)

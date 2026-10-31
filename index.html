@@ -15393,7 +15393,13 @@
                             properties: ['openFile'],
                         });
                         const filePath = picked?.filePaths?.[0] || picked?.filePath;
-                        if (filePath) await importKnowledgePack(filePath);
+                        if (filePath) {
+                            if (typeof window.importKnowledgePack === 'function') {
+                                await window.importKnowledgePack(filePath);
+                            } else {
+                                showNotification('知识包导入尚未就绪，请稍后重试', 'error');
+                            }
+                        }
                     } catch (error) {
                         showNotification('选择知识包失败: ' + (error?.message || error), 'error');
                     }
@@ -15536,6 +15542,8 @@
                     return false;
                 }
             }
+            // 顶部导航的按钮和设置页不在同一个作用域，挂到 window 供顶部调用
+            window.importKnowledgePack = importKnowledgePack;
 
             // 知识包导入/导出的进度卡片：底部固定，带进度条，完成或失败自动关闭
             function showPackProgress(title) {

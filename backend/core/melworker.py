@@ -52,20 +52,21 @@ def _process_one(service, processor, path, sample_rate, max_samples):
         t = threading.Thread(target=_decode, daemon=True)
         t.start()
         t.join(DECODE_TIMEOUT)
-        if t.is_alive() or "d" not in box:
-            # decode 超时：返回 None，父进程单文件重试超时后记入黑名单跳过
-            return None
+        if t.is_alive():
+            return None, "decode_timeout"
+        if "d" not in box:
+            return None, ("decode_error:" + str(box.get("e", "unknown"))[:60])
         decoded = box["d"]
         audio = np.asarray(decoded.samples, dtype=np.float32).reshape(-1)
         if audio.size == 0:
-            return None
+            return None, "decode_empty"
         # 极端值防护：CLAP 的 log-mel 对超大样本会触发 CUDA device-side assert
         max_abs = float(np.max(np.abs(audio)))
         if max_abs > 1.0:
             audio = audio / max_abs
         win = audio[:max_samples] if audio.size > max_samples else audio
         if win.size == 0:
-            return None
+            return None, "window_empty"
         if not np.all(np.isfinite(win)):
             win = np.where(np.isfinite(win), win, 0.0).astype(np.float32)
         try:
@@ -86,11 +87,11 @@ def _process_one(service, processor, path, sample_rate, max_samples):
                 padding="repeatpad",
                 return_tensors="pt",
             )
-        except Exception:
-            return None
-        return {k: v.numpy() for k, v in out.items()}
-    except Exception:
-        return None
+        except Exception as exc:
+            return None, "processor_error:" + str(exc)[:60]
+        return {k: v.numpy() for k, v in out.items()}, ""
+    except Exception as exc:
+        return None, "process_exception:" + str(exc)[:60]
 
 
 def _forward_one(model, features):
@@ -143,15 +144,17 @@ def compute_mel_batch(paths, sample_rate, max_samples, model_path):
         model.eval()
         result = {}
         for p in paths:
-            feats = _process_one(service, processor, p, sample_rate, max_samples)
+            feats, reason = _process_one(service, processor, p, sample_rate, max_samples)
             if feats is None:
-                result[p] = None
+                # 把失败原因带回去（父进程会写进日志/artifact），
+                # 否则只有一句「批量编码未产出向量」，根本不知道卡在哪一步。
+                result[p] = {"error": reason or "feats_none"}
                 continue
             vec = _forward_one(model, feats)
-            result[p] = vec if vec is not None else None
+            result[p] = vec if vec is not None else {"error": "forward_none"}
         return result
-    except Exception:
-        return {p: None for p in paths}
+    except Exception as exc:
+        return {p: {"error": "batch_exception:" + str(exc)[:60]} for p in paths}
 
 
 def _resolve_window(req, sample_rate, max_samples):

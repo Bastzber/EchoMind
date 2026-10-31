@@ -128,6 +128,8 @@ MEL_CHUNK_SIZE = 8
 # 正常块 <15s，30s 足够；超时即 kill 重启，让卡死的块快速进入二分/黑名单。
 MEL_BATCH_TIMEOUT = 30.0
 _mel_runtime_blacklist: set = set()
+# path -> 最近一次失败原因（诊断用，父进程日志里能看到 decode_timeout / forward_none 等）
+_MEL_FAIL_REASONS: Dict[str, str] = {}
 _mel_runtime_blacklist_lock = threading.Lock()
 
 
@@ -408,7 +410,11 @@ def _process_chunks(pending_paths, sample_rate, max_samples, sink,
         result = _mel_round_trip(chunk, sample_rate, max_samples, batch_timeout)
         for path in chunk:
             vec = result.get(path)
-            if vec is not None:
+            if isinstance(vec, dict) and vec.get("error"):
+                # worker 明确回了原因：记下来，别只留一句「未产出向量」
+                logger.warning("[mel] %s 失败原因: %s", path, vec.get("error"))
+                _MEL_FAIL_REASONS[path] = str(vec.get("error"))
+            if vec is not None and not isinstance(vec, dict):
                 sink[path] = vec
             else:
                 deferred.append(path)

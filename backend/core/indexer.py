@@ -646,16 +646,29 @@ class AudioIndexer:
             for file_path, file_id, metadata in batch:
                 embedding = embedding_map.get(file_path)
                 if embedding is None:
-                    logger.error("批量编码未产出向量 %s", file_path)
+                    # 带上 worker 回报的失败原因（decode_timeout / forward_none / ...）
+                    try:
+                        from core.embedder import _MEL_FAIL_REASONS
+
+                        reason = _MEL_FAIL_REASONS.get(file_path) or "unknown"
+                    except Exception:
+                        reason = "unknown"
+                    logger.error("批量编码未产出向量 %s（原因: %s）", file_path, reason)
                     # 明确落 failed：不落的话这条一直是 processing，
                     # 而 failed 已不再被对账捡起 → 计数永远不收敛（用户看到「处理中」卡住）。
                     try:
                         from core.database import get_db_manager
 
+                        try:
+                            from core.embedder import _MEL_FAIL_REASONS
+
+                            _reason = _MEL_FAIL_REASONS.get(file_path) or "unknown"
+                        except Exception:
+                            _reason = "unknown"
                         get_db_manager().set_artifact_state(
                             self.project_id, file_id, 'audio_vector', 'failed',
                             error_code='encode_failed',
-                            error_message='解码/编码未产出向量（文件可能损坏）',
+                            error_message=f'编解码未产出向量（{_reason}）',
                         )
                     except Exception as exc:
                         logger.debug("标记失败状态失败 %s: %s", file_path, exc)

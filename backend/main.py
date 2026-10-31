@@ -6030,6 +6030,61 @@ async def _knowledge_export_task(
         logger.error("[KnowledgePack] 导出异常: %s", exc)
 
 
+@app.post("/api/v1/maintenance/prune-collections")
+async def prune_empty_collections(
+    project_id: str = Query(default="default"),
+    dry_run: bool = Query(default=False),
+):
+    """删除「没有被 manifest 引用、且里面 0 条向量」的集合（空壳清理）。
+
+    重建索引时会不断产生新的 shadow 集合，旧的那代被切走后如果是空的，
+    就永远不会再被用到，只会占着目录。
+    """
+    from core.indexer import get_chroma_client, safe_project_chroma_path
+
+    db_manager = get_db_manager()
+    if not db_manager.get_project(project_id):
+        raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
+
+    with db_manager.get_cursor() as cursor:
+        active = {
+            str(row[0])
+            for row in cursor.execute(
+                "SELECT collection_name FROM index_manifests WHERE project_id=? AND state='ready'",
+                (project_id,),
+            ).fetchall()
+        }
+
+    client = get_chroma_client(str(safe_project_chroma_path(project_id, create=False)))
+    removed, kept = [], []
+    for item in client.list_collections():
+        name = getattr(item, "name", str(item))
+        if name in active:
+            kept.append({"name": name, "reason": "active"})
+            continue
+        try:
+            count = client.get_collection(name).count()
+        except Exception as exc:
+            kept.append({"name": name, "reason": f"read_failed: {exc}"})
+            continue
+        if count > 0:
+            kept.append({"name": name, "reason": f"has {count} vectors"})
+            continue
+        removed.append(name)
+        if not dry_run:
+            try:
+                client.delete_collection(name)
+            except Exception as exc:
+                logger.warning("[Prune] 删除集合 %s 失败: %s", name, exc)
+    logger.info("[Prune] 删除空集合 %d 个，保留 %d 个", len(removed), len(kept))
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "removed": removed,
+        "kept": kept,
+    }
+
+
 @app.get("/api/v1/db/stats")
 async def get_db_stats():
     """

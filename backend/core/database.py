@@ -3507,6 +3507,27 @@ class DatabaseManager:
                 error_code="job_stalled",
                 error_message=message[:400],
             )
+            # 任务卡死时不会走到索引流程的 finally，它认领的 processing 工件
+            # 就永远没人接手（界面「处理中」数字冻结）。这里替它回滚。
+            project_id = job.get("project_id") or "default"
+            try:
+                with self.get_cursor() as cursor:
+                    fixed = cursor.execute(
+                        """
+                        UPDATE file_artifacts
+                        SET state='pending', error_code='job_stalled',
+                            error_message='索引任务卡死，已退回待处理', updated_at=?
+                        WHERE project_id=? AND state='processing'
+                        """,
+                        (_dt.now().isoformat(), project_id),
+                    ).rowcount
+                if fixed:
+                    _get_logger().warning(
+                        "[Watchdog] 任务 %s 判定卡死，%d 条 processing 退回 pending",
+                        job["id"], fixed,
+                    )
+            except Exception as exc:
+                _get_logger().debug("[Watchdog] 回滚 processing 失败: %s", exc)
             job["state"] = "failed"
             job["error_message"] = message
             stalled.append(job)

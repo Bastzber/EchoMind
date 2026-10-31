@@ -32,7 +32,7 @@ class RuntimeCapabilitiesTests(unittest.TestCase):
             mock.patch.object(audio_service_module, "_AV_IMPORT_ERROR", private_error),
             mock.patch.object(main, "is_embedder_loaded", return_value=False),
         ):
-            health = asyncio.run(main.health_check())
+            health = main.health_check()  # 同步接口（FastAPI 两种都支持）
             capabilities = asyncio.run(main.get_runtime_capabilities())
 
         self.assertEqual(health.status, "degraded")
@@ -54,7 +54,7 @@ class RuntimeCapabilitiesTests(unittest.TestCase):
             mock.patch.object(audio_service_module, "_av", FakeAV()),
             mock.patch.object(main, "is_embedder_loaded", return_value=False),
         ):
-            health = asyncio.run(main.health_check())
+            health = main.health_check()  # 同步接口
             capabilities = asyncio.run(main.get_runtime_capabilities())
 
         self.assertEqual(health.status, "healthy")

@@ -397,8 +397,10 @@ class APIContractTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
                 await asyncio.sleep(0)
 
-            repair.assert_awaited_once()
-            job_id, project_id, kinds, mode = repair.await_args.args
+            # 数据跑完还有积压时会「链式」再排下一批（mock 不消化积压，所以可能多调一次），
+            # 这里校验首轮：一个 job、两种 kind、reconcile 模式。
+            repair.assert_awaited()
+            job_id, project_id, kinds, mode = repair.await_args_list[0].args
             self.assertEqual(project_id, "default")
             self.assertEqual(kinds, ["audio_vector", "text_vector"])
             self.assertEqual(mode, "reconcile")

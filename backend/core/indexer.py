@@ -647,6 +647,18 @@ class AudioIndexer:
                 embedding = embedding_map.get(file_path)
                 if embedding is None:
                     logger.error("批量编码未产出向量 %s", file_path)
+                    # 明确落 failed：不落的话这条一直是 processing，
+                    # 而 failed 已不再被对账捡起 → 计数永远不收敛（用户看到「处理中」卡住）。
+                    try:
+                        from core.database import get_db_manager
+
+                        get_db_manager().set_artifact_state(
+                            self.project_id, file_id, 'audio_vector', 'failed',
+                            error_code='encode_failed',
+                            error_message='解码/编码未产出向量（文件可能损坏）',
+                        )
+                    except Exception as exc:
+                        logger.debug("标记失败状态失败 %s: %s", file_path, exc)
                     continue
                 try:
                     audio_info = self._build_audio_info(file_path, metadata)

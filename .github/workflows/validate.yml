@@ -49,7 +49,19 @@ jobs:
         run: python tests/build/verify_repository_hygiene.py
 
       - name: Run Python contracts
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s tests -p 'test_*.py' -v > python-contracts.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -n 60 python-contracts.log
+            # Actions 的运行日志要登录才能下载；失败用例名挂到注解上，公开可读
+            grep -E '^(FAIL|ERROR): ' python-contracts.log | head -n 10 | while IFS= read -r line; do
+              echo "::error title=failed test::${line:0:400}"
+            done
+          fi
+          exit "$status"
 
       - name: Run Electron and renderer contracts
         run: |

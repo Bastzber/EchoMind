@@ -108,7 +108,10 @@ def build_asar() -> Path:
             raise SystemExit('缺少运行时依赖: node_modules/%s' % package)
         shutil.copytree(source, modules_dir / package)
     out = REPO / 'dist-package-app.asar'
-    node = os.environ.get('ECHOMIND_NODE') or r'C:\Users\cj\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+    node = os.environ.get('ECHOMIND_NODE') or str(
+        Path.home() / '.dsh' / 'dsh-runtimes' / 'dsh-primary-runtime'
+        / 'dependencies' / 'node' / 'bin' / ('node.exe' if os.name == 'nt' else 'node')
+    )
     run([node, str(REPO / 'node_modules' / '@electron' / 'asar' / 'bin' / 'asar.js'),
          'pack', str(stage), str(out)])
     log('app.asar: %.2f MB' % (out.stat().st_size / 1024 / 1024))

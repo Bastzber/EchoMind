@@ -71,7 +71,7 @@
 
 ```
 程序：你解压的那个文件夹（删掉 = 卸载）
-数据：C:\Users\你的用户名\AppData\Roaming\EchoMind
+数据：%APPDATA%\EchoMind
   ├─ db\soundmind.db        ← 数据库（标签/描述/索引状态）
   ├─ chroma_projects\       ← 向量库
   └─ logs\                  ← 日志

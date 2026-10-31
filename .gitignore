@@ -109,8 +109,8 @@ jspm_packages/
 .vscode-test
 
 # 模型权重（体积大，走 Release 分发，不进仓库）
-models/
-backend/models/
+# 只忽略仓库根目录的权重目录；backend/models/ 是 Python 包（schemas.py），必须入库
+/models/
 
 # Python
 __pycache__/

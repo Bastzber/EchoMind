@@ -81,13 +81,21 @@
             const meta = document.createElement('div');
             meta.className = 'text-[10px] opacity-40 shrink-0 text-right mr-2';
             meta.textContent = (f.format || '').toUpperCase() + '\n' + fmtSize(f.file_size);
+            // 「重新检测」：先别删，重读一次元数据——读得出来就退回索引队列
+            const recheckBtn = document.createElement('button');
+            recheckBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium shrink-0 mr-2 transition-colors hover:opacity-80';
+            recheckBtn.style.background = 'rgba(59,130,246,.15)';
+            recheckBtn.style.color = '#60a5fa';
+            recheckBtn.textContent = '重新检测';
+            recheckBtn.title = '重新读一次元数据（含 MP3 帧头兜底）：读得出来就自动退回索引队列，不删任何东西';
+            recheckBtn.addEventListener('click', () => recheckOne(f));
             const rmBtn = document.createElement('button');
             rmBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium shrink-0 transition-colors hover:opacity-80';
             rmBtn.style.background = 'rgba(239,68,68,.15)';
             rmBtn.style.color = '#ef4444';
             rmBtn.textContent = '移除';
             rmBtn.addEventListener('click', () => removeOne(f));
-            row.appendChild(icon); row.appendChild(info); row.appendChild(meta); row.appendChild(rmBtn);
+            row.appendChild(icon); row.appendChild(info); row.appendChild(meta); row.appendChild(recheckBtn); row.appendChild(rmBtn);
             // 界面上显示成 0 KB 的（实际 <1KB）就是彻底坏的文件，
             // 给一个「连源文件一起删」的入口
             if (Number(f.file_size || 0) < 1024) {
@@ -113,6 +121,26 @@
         } catch (e) {
             const st = document.getElementById('brokenFilesStatus');
             if (st) st.textContent = '加载失败: ' + e.message;
+        }
+    }
+
+    async function recheckOne(f) {
+        const status = document.getElementById('brokenFilesStatus');
+        if (status) status.textContent = '正在重新检测: ' + f.filename;
+        try {
+            const url = '/api/v1/db/broken/recheck?path=' + encodeURIComponent(f.path);
+            const resp = await apiFetch(url, { method: 'POST' });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(data.detail || '检测失败');
+            if (data.ok) {
+                if (status) status.textContent = '✅ ' + f.filename + ' 其实能读出来（'
+                    + Number(data.duration || 0).toFixed(1) + ' 秒），已退回索引队列，没有删除任何文件';
+                await refresh();
+            } else {
+                if (status) status.textContent = '❌ ' + f.filename + ' 仍然读不出来: ' + (data.error || '未知原因');
+            }
+        } catch (e) {
+            if (status) status.textContent = '检测失败: ' + e.message;
         }
     }
 
@@ -143,9 +171,11 @@
     async function cleanupAll() {
         if (cleaningAll) return;
         if (!currentList.length) return;
-        const message = `确定一键清理全部 ${currentList.length} 个损坏文件？\n`
-            + '仅从软件库移除，磁盘上的原始文件不会被删除。\n'
-            + '清理过的文件会被记住，以后「重读目录」不会再补录回来。';
+        const message = `确定一键清理全部 ${currentList.length} 个损坏文件？\n\n`
+            + '· 会先**重新检测**一遍：读得出来的文件不会清理，而是退回索引队列\n'
+            + '· 其余只从软件库移除，磁盘上的原始文件不会被删除\n'
+            + '· 清理过的文件会被记住，以后「重读目录」不会再补录回来\n\n'
+            + '想先逐条确认，用每行的「重新检测」。';
         if (!confirm(message)) return;
         cleaningAll = true;
         const status = document.getElementById('brokenFilesStatus');

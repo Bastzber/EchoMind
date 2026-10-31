@@ -5785,6 +5785,18 @@ async def delete_broken_file(path: str, delete_source: bool = Query(default=Fals
     if not delete_source:
         return await delete_db_file(path)
 
+    # 删源文件前先重探一次：能读出来的文件一律不删（F1 的兜底，
+    # 面板可能是旧状态，别让误判把有效音频送进回收站）
+    from core import broken_files as _broken_files
+
+    _project = getattr(config, "CURRENT_PROJECT_ID", "default")
+    _probe = await asyncio.to_thread(_broken_files.heal, get_db_manager(), _project, path)
+    if _probe.get("ok"):
+        raise HTTPException(
+            status_code=409,
+            detail=("这个文件其实能读出来（%.1f 秒），已重新排队索引，没有删除" % float(_probe.get("duration") or 0.0)),
+        )
+
     source = Path(path)
     removed_source = False
     if source.is_file():
@@ -5825,6 +5837,18 @@ async def delete_broken_file(path: str, delete_source: bool = Query(default=Fals
     return result
 
 
+@app.post("/api/v1/db/broken/recheck")
+async def recheck_broken_file(path: str = Query(..., description="文件完整路径")):
+    """重新探测一个「损坏文件」：读得出来就退回 pending 等索引，什么都不删。"""
+    from core import broken_files as _broken_files
+
+    project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+    result = await asyncio.to_thread(
+        _broken_files.heal, get_db_manager(), project_id, path
+    )
+    return {"success": bool(result.get("ok")), **result}
+
+
 @app.post("/api/v1/db/broken/cleanup")
 async def cleanup_broken_files(background_tasks: BackgroundTasks):
     """一键清理全部损坏文件：仅从软件库移除记录，保留磁盘原文件。
@@ -5860,10 +5884,27 @@ async def _broken_cleanup_task(job_id: str, project_id: str, entries: List[Dict[
     """
     db_manager = get_db_manager()
     ws_manager = get_ws_manager()
-    db_manager.update_job(job_id, state="running", stage="removing")
+    db_manager.update_job(job_id, state="running", stage="rechecking")
     removed = 0
     failed = 0
+    healed = 0
     try:
+        # 先重探一遍：读得出来的文件不删，退回 pending 重新索引（F1/F2）
+        from core import broken_files as _broken_files
+
+        kept_uuids = set()
+        for entry in entries:
+            probe = await asyncio.to_thread(
+                _broken_files.heal, db_manager, project_id, entry.get("path") or ""
+            )
+            if probe.get("ok"):
+                kept_uuids.add(entry.get("file_uuid"))
+                healed += 1
+        if kept_uuids:
+            entries = [e for e in entries if e.get("file_uuid") not in kept_uuids]
+            logger.info("[Broken] 重探后保留 %d 个其实可读的文件（已退回 pending）", healed)
+        db_manager.update_job(job_id, stage=f"removing healed={healed}")
+
         uuids = [str(entry.get("file_uuid") or "") for entry in entries]
         uuids = [u for u in uuids if u]
         job = db_manager.get_job(job_id)
@@ -5879,7 +5920,7 @@ async def _broken_cleanup_task(job_id: str, project_id: str, entries: List[Dict[
         db_manager.update_job(
             job_id,
             state="completed",
-            stage=f"done removed={removed} failed={failed}",
+            stage=f"done removed={removed} failed={failed} healed={healed}",
             processed=len(uuids),
         )
     except Exception as exc:

@@ -88,6 +88,18 @@
             rmBtn.textContent = '移除';
             rmBtn.addEventListener('click', () => removeOne(f));
             row.appendChild(icon); row.appendChild(info); row.appendChild(meta); row.appendChild(rmBtn);
+            // 界面上显示成 0 KB 的（实际 <1KB）就是彻底坏的文件，
+            // 给一个「连源文件一起删」的入口
+            if (Number(f.file_size || 0) < 1024) {
+                const delSrcBtn = document.createElement('button');
+                delSrcBtn.className = 'px-2.5 py-1.5 rounded-md text-xs font-medium shrink-0 ml-2 transition-colors hover:opacity-80';
+                delSrcBtn.style.background = 'rgba(239,68,68,.85)';
+                delSrcBtn.style.color = '#fff';
+                delSrcBtn.textContent = '删除源文件';
+                delSrcBtn.title = '这个文件不足 1KB，播放不出声音，可连同磁盘文件一起删（进回收站）';
+                delSrcBtn.addEventListener('click', () => removeOne(f, true));
+                row.appendChild(delSrcBtn);
+            }
             box.appendChild(row);
         });
         if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
@@ -104,16 +116,24 @@
         }
     }
 
-    async function removeOne(f) {
-        if (!confirm(`确定从软件库移除「${f.filename}」？\n磁盘上的原始文件不会被删除。`)) return;
+    async function removeOne(f, deleteSource) {
+        const size = Number(f.file_size || 0);
+        const message = deleteSource
+            ? `确定删除「${f.filename}」的源文件？\n`
+                + `文件只有 ${size} 字节，播放不出声音，属于彻底损坏。\n`
+                + '删除后进回收站（可找回），同时从软件库移除。'
+            : `确定从软件库移除「${f.filename}」？\n磁盘上的原始文件不会被删除。`;
+        if (!confirm(message)) return;
         const status = document.getElementById('brokenFilesStatus');
         try {
-            const resp = await apiFetch('/api/v1/db/broken/' + encodeURIComponent(f.path), { method: 'DELETE' });
+            const url = '/api/v1/db/broken/' + encodeURIComponent(f.path)
+                + (deleteSource ? '?delete_source=true' : '');
+            const resp = await apiFetch(url, { method: 'DELETE' });
             if (!resp.ok) {
                 const data = await resp.json().catch(() => ({}));
                 throw new Error(data.detail || '移除失败');
             }
-            if (status) status.textContent = '已移除: ' + f.filename;
+            if (status) status.textContent = (deleteSource ? '已删除源文件并移除: ' : '已移除: ') + f.filename;
             await refresh();
         } catch (e) {
             if (status) status.textContent = '移除失败: ' + e.message;
@@ -123,7 +143,10 @@
     async function cleanupAll() {
         if (cleaningAll) return;
         if (!currentList.length) return;
-        if (!confirm(`确定一键清理全部 ${currentList.length} 个损坏文件？\n仅从软件库移除，磁盘上的原始文件不会被删除。`)) return;
+        const message = `确定一键清理全部 ${currentList.length} 个损坏文件？\n`
+            + '仅从软件库移除，磁盘上的原始文件不会被删除。\n'
+            + '清理过的文件会被记住，以后「重读目录」不会再补录回来。';
+        if (!confirm(message)) return;
         cleaningAll = true;
         const status = document.getElementById('brokenFilesStatus');
         renderList();

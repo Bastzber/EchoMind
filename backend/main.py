@@ -3675,6 +3675,13 @@ async def _run_library_rescan(project_id: str, roots: List[str]) -> None:
             for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (project_id,)):
                 if path:
                     known.add(canonicalize_path(str(path)))
+        # 用户主动移除过的文件不再自动补录：否则「一键清理损坏文件」之后
+        # 一重读目录又全冒出来，用户会以为是软件出了问题。
+        excluded = {
+            canonicalize_path(str(item))
+            for item in db_manager.list_excluded_paths(project_id)
+        }
+        skipped = 0
 
         added = 0
         scanned = 0
@@ -3688,7 +3695,11 @@ async def _run_library_rescan(project_id: str, roots: List[str]) -> None:
                 scanned += 1
                 _rescan_state["scanned"] = scanned
                 try:
-                    if canonicalize_path(str(entry)) in known:
+                    normalized = canonicalize_path(str(entry))
+                    if normalized in known:
+                        continue
+                    if normalized in excluded:
+                        skipped += 1
                         continue
                     stat = entry.stat()
                     record = AudioFileRecord(
@@ -3703,7 +3714,11 @@ async def _run_library_rescan(project_id: str, roots: List[str]) -> None:
                     logger.debug("补录失败 %s: %s", entry, exc)
                 if scanned % 500 == 0:
                     await _asyncio.sleep(0.05)
-        logger.info("[Rescan] 扫描 %d 个音频，补录 %d 个", scanned, added)
+        _rescan_state["skipped"] = skipped
+        logger.info(
+            "[Rescan] 扫描 %d 个音频，补录 %d 个，跳过 %d 个已移除文件",
+            scanned, added, skipped,
+        )
         if added:
             await _run_hash_backfill(project_id)
     except Exception as exc:
@@ -5621,6 +5636,11 @@ async def delete_db_file(path: str):
         record = db_manager.get_file(file_path, current_project_id)
         if not record:
             raise HTTPException(status_code=404, detail="文件不存在")
+        # 记住这个路径：以后「重读目录」不要再把它当新文件补录回来
+        try:
+            db_manager.add_excluded_paths(current_project_id, [file_path], reason="removed")
+        except Exception as exc:
+            logger.debug("[Delete] 记录排除路径失败: %s", exc)
         try:
             await _run_model_work(
                 _get_active_audio_indexer(current_project_id).remove_audio,
@@ -5703,6 +5723,22 @@ async def get_folder_stats(project_id: str = Query(default="default")):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/v1/db/excluded")
+async def list_excluded(project_id: str = Query(default="default")):
+    """列出「已从库里移除、重读目录不会再补录」的文件。"""
+    db_manager = get_db_manager()
+    paths = db_manager.list_excluded_paths(project_id)
+    return {"success": True, "count": len(paths), "paths": paths}
+
+
+@app.delete("/api/v1/db/excluded")
+async def clear_excluded(project_id: str = Query(default="default")):
+    """清空排除列表：之后重读目录又会把这些文件补录回来。"""
+    db_manager = get_db_manager()
+    removed = db_manager.clear_excluded_paths(project_id)
+    return {"success": True, "cleared": removed}
+
+
 @app.get("/api/v1/db/broken-files")
 async def list_broken_files():
     """列出所有损坏/无法索引的文件（仅从软件库移除，保留磁盘原文件）。"""
@@ -5718,9 +5754,53 @@ async def list_broken_files():
 
 
 @app.delete("/api/v1/db/broken/{path:path}")
-async def delete_broken_file(path: str):
-    """清理单个损坏文件：仅从软件库移除记录（保留磁盘原文件）。"""
-    return await delete_db_file(path)
+async def delete_broken_file(path: str, delete_source: bool = Query(default=False)):
+    """清理单个损坏文件。
+
+    - 默认只从软件库移除记录（保留磁盘原文件）
+    - delete_source=true 时连磁盘上的文件一起删（给 0 字节/彻底损坏的文件用）
+    """
+    if not delete_source:
+        return await delete_db_file(path)
+
+    source = Path(path)
+    removed_source = False
+    if source.is_file():
+        # 优先丢回收站（用户还能找回），失败再直接删
+        try:
+            if os.name == "nt":
+                import ctypes
+
+                class _SHFILEOPSTRUCTW(ctypes.Structure):
+                    _fields_ = [
+                        ("hwnd", ctypes.c_void_p),
+                        ("wFunc", ctypes.c_uint),
+                        ("pFrom", ctypes.c_wchar_p),
+                        ("pTo", ctypes.c_wchar_p),
+                        ("fFlags", ctypes.c_ushort),
+                        ("fAnyOperationsAborted", ctypes.c_bool),
+                        ("hNameMappings", ctypes.c_void_p),
+                        ("lpszProgressTitle", ctypes.c_wchar_p),
+                    ]
+
+                op = _SHFILEOPSTRUCTW(
+                    None, 3, str(source) + "\0\0", None, 0x0040 | 0x0010, False, None, None
+                )
+                if ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0:
+                    removed_source = True
+            else:
+                source.unlink()
+                removed_source = True
+        except Exception as exc:
+            logger.warning("[Broken] 回收站失败，直接删除: %s", exc)
+            try:
+                source.unlink()
+                removed_source = True
+            except Exception as exc2:
+                logger.error("[Broken] 删除源文件失败: %s", exc2)
+    result = await delete_db_file(path)
+    result["source_deleted"] = removed_source
+    return result
 
 
 @app.post("/api/v1/db/broken/cleanup")

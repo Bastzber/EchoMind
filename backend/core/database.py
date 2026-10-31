@@ -3240,6 +3240,56 @@ class DatabaseManager:
             ready.update(str(row["file_uuid"]) for row in rows)
         return ready
 
+    def ensure_excluded_table(self) -> None:
+        """记录「用户主动从库里移除」的路径，重读目录时跳过它们。
+
+        没有这张表时，用户清掉的损坏文件会在下一次重读目录时被当成
+        「磁盘上有、库里没有的新文件」重新补录，用户会误会是软件又出问题。
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS excluded_files (
+                    project_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    reason TEXT,
+                    created_at TEXT,
+                    PRIMARY KEY (project_id, path)
+                )
+                """
+            )
+
+    def add_excluded_paths(self, project_id: str, paths: Iterable[str], reason: str = "removed") -> int:
+        self.ensure_excluded_table()
+        items = [str(p) for p in dict.fromkeys(paths) if p]
+        if not items:
+            return 0
+        stamp = datetime.now().isoformat()
+        with self.get_cursor() as cursor:
+            cursor.executemany(
+                "INSERT OR REPLACE INTO excluded_files(project_id, path, reason, created_at) "
+                "VALUES (?,?,?,?)",
+                [(str(project_id), p, reason, stamp) for p in items],
+            )
+        return len(items)
+
+    def list_excluded_paths(self, project_id: str) -> List[str]:
+        self.ensure_excluded_table()
+        with self.get_cursor() as cursor:
+            return [
+                str(row[0])
+                for row in cursor.execute(
+                    "SELECT path FROM excluded_files WHERE project_id=?", (str(project_id),)
+                ).fetchall()
+            ]
+
+    def clear_excluded_paths(self, project_id: str) -> int:
+        self.ensure_excluded_table()
+        with self.get_cursor() as cursor:
+            return cursor.execute(
+                "DELETE FROM excluded_files WHERE project_id=?", (str(project_id),)
+            ).rowcount
+
     def list_artifacts_for_work(
         self,
         project_id: str,

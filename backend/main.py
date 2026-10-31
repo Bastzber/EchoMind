@@ -6316,6 +6316,62 @@ async def _backfill_durations_task(job_id: str, project_id: str) -> None:
         logger.error("[Backfill] 异常: %s", exc)
 
 
+@app.post("/api/v1/maintenance/decode-test")
+async def decode_test(path: str = Query(...)):
+    """诊断：对一个文件跑完整解码链路，返回每层的结果/异常。
+
+    PyAV 失败时用 miniaudio 兜底，但打包环境里兜底是否生效看不出来——
+    这个接口把每层的异常原样返回，省得靠猜。
+    """
+    from core.audio_service import get_audio_service
+
+    from pathlib import Path as _Path
+
+    source = _Path(path)
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    service = get_audio_service()
+    report: Dict[str, Any] = {'path': str(source), 'steps': {}}
+
+    try:
+        info = await asyncio.to_thread(service.probe, str(source))
+        report['steps']['probe'] = {'ok': True, 'duration': info.duration, 'codec': info.codec}
+    except Exception as exc:
+        report['steps']['probe'] = {'ok': False, 'error': repr(exc)[:200]}
+
+    try:
+        decoded = await asyncio.to_thread(service.decode, str(source))
+        report['steps']['decode'] = {'ok': True, 'duration': decoded.duration, 'samples': int(decoded.samples.size)}
+    except Exception as exc:
+        report['steps']['decode'] = {'ok': False, 'error': repr(exc)[:200]}
+
+    try:
+        wave = await asyncio.to_thread(service.waveform, str(source))
+        report['steps']['waveform'] = {'ok': True, 'peaks': len(wave.peaks), 'duration': wave.duration}
+    except Exception as exc:
+        report['steps']['waveform'] = {'ok': False, 'error': repr(exc)[:200]}
+
+    try:
+        import miniaudio
+
+        report['miniaudio_import'] = getattr(miniaudio, '__version__', 'ok')
+        direct = service._decode_with_miniaudio(source, None, True)
+        report['steps']['miniaudio_direct'] = bool(direct)
+        stripped = service._strip_id3_tail(source)
+        report['steps']['id3_stripped'] = bool(stripped)
+        if stripped is not None:
+            via_strip = service._decode_with_miniaudio(stripped, None, True)
+            report['steps']['miniaudio_stripped'] = {'ok': bool(via_strip), 'samples': int(via_strip.samples.size) if via_strip else 0}
+            try:
+                stripped.unlink()
+            except OSError:
+                pass
+    except Exception as exc:
+        report['miniaudio_error'] = repr(exc)[:200]
+
+    return report
+
+
 @app.get("/api/v1/db/stats")
 async def get_db_stats():
     """

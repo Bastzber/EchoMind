@@ -341,8 +341,13 @@ class AudioService:
         但 miniaudio（自带的 dr_mp3）能正常解出 79.8 秒。两套解码器互补。
         """
         try:
+            # miniaudio 依赖 cffi；必须显式导入，否则 PyInstaller 静态分析
+            # 看不到 _cffi_backend，打包后运行时报 ModuleNotFoundError。
+            import cffi  # noqa: F401
+
             import miniaudio
-        except Exception:
+        except Exception as exc:
+            logger.warning('[Audio] miniaudio 不可用: %s', exc)
             return None
         try:
             rate = int(target_sample_rate or 48000)

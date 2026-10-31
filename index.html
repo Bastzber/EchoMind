@@ -15625,22 +15625,37 @@
                     );
                     const jobId = res?.job_id;
                     if (!jobId) { setStatus('导出提交失败'); return; }
-                    for (let i = 0; i < 900; i += 1) {
-                        await new Promise((r) => setTimeout(r, 1500));
-                        let job = null;
-                        try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
-                        if (!job) continue;
-                        if (job.state === 'completed') {
-                            setStatus('✅ 已导出: ' + outPath);
-                            showNotification('知识包已导出到 ' + outPath, 'success');
-                            return;
+                    const progress = showPackProgress('正在导出知识包');
+                    try {
+                        for (let i = 0; i < 900; i += 1) {
+                            await new Promise((r) => setTimeout(r, 1500));
+                            let job = null;
+                            try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
+                            if (!job) continue;
+                            if (job.state === 'completed') {
+                                progress.set('完成', 1);
+                                setStatus('✅ 已导出: ' + outPath);
+                                showNotification('知识包已导出到 ' + outPath, 'success');
+                                setTimeout(() => progress.close(), 1500);
+                                return;
+                            }
+                            if (job.state === 'failed' || job.state === 'cancelled') {
+                                progress.set('失败：' + (job.error_message || job.stage || ''), 0);
+                                setStatus('导出失败: ' + (job.error_message || job.stage || ''));
+                                showNotification('知识包导出失败: ' + (job.error_message || job.stage || ''), 'error');
+                                setTimeout(() => progress.close(), 3000);
+                                return;
+                            }
+                            const done = Number(job.processed || 0);
+                            const total = Number(job.total || res.files || 0);
+                            const label = job.stage === 'metadata' ? '打包描述和标签'
+                                : (job.stage === 'audio_vector' ? '导出音频向量' : '导出文本向量');
+                            const ratio = total > 0 ? Math.min(1, done / total) : 0;
+                            progress.set(total > 0 ? label + ' ' + done + '/' + total : label + '…', ratio);
+                            setStatus('导出中（' + label + ' ' + done + '）');
                         }
-                        if (job.state === 'failed' || job.state === 'cancelled') {
-                            setStatus('导出失败: ' + (job.error_message || job.stage || ''));
-                            showNotification('知识包导出失败: ' + (job.error_message || job.stage || ''), 'error');
-                            return;
-                        }
-                        setStatus('导出中（' + (job.stage || '...') + ' ' + (job.processed || 0) + '）');
+                    } finally {
+                        setTimeout(() => progress.close(), 6000);
                     }
                 } catch (error) {
                     setStatus('导出失败: ' + (error?.message || error));
@@ -15676,22 +15691,37 @@
                     );
                     const jobId = res?.job_id;
                     if (!jobId) { setStatus('提交失败'); return; }
-                    for (let i = 0; i < 900; i += 1) {
-                        await new Promise((r) => setTimeout(r, 1500));
-                        let job = null;
-                        try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
-                        if (!job) continue;
-                        if (job.state === 'completed') {
-                            setStatus('✅ 增量包已导出: ' + outPath);
-                            showNotification('增量包已导出到 ' + outPath, 'success');
-                            return;
+                    const progress = showPackProgress('正在导出增量包');
+                    try {
+                        for (let i = 0; i < 900; i += 1) {
+                            await new Promise((r) => setTimeout(r, 1500));
+                            let job = null;
+                            try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
+                            if (!job) continue;
+                            if (job.state === 'completed') {
+                                progress.set('完成', 1);
+                                setStatus('✅ 增量包已导出: ' + outPath);
+                                showNotification('增量包已导出到 ' + outPath, 'success');
+                                setTimeout(() => progress.close(), 1500);
+                                return;
+                            }
+                            if (job.state === 'failed' || job.state === 'cancelled') {
+                                progress.set('失败：' + (job.error_message || job.stage || ''), 0);
+                                setStatus('导出失败: ' + (job.error_message || job.stage || ''));
+                                showNotification('增量包导出失败: ' + (job.error_message || job.stage || ''), 'error');
+                                setTimeout(() => progress.close(), 3000);
+                                return;
+                            }
+                            const done = Number(job.processed || 0);
+                            const total = Number(job.total || res.files || 0);
+                            const label = job.stage === 'metadata' ? '打包描述和标签'
+                                : (job.stage === 'audio_vector' ? '导出音频向量' : '导出文本向量');
+                            const ratio = total > 0 ? Math.min(1, done / total) : 0;
+                            progress.set(total > 0 ? label + ' ' + done + '/' + total : label + '…', ratio);
+                            setStatus('导出中（' + label + ' ' + done + '）');
                         }
-                        if (job.state === 'failed' || job.state === 'cancelled') {
-                            setStatus('导出失败: ' + (job.error_message || job.stage || ''));
-                            showNotification('增量包导出失败: ' + (job.error_message || job.stage || ''), 'error');
-                            return;
-                        }
-                        setStatus('导出中（' + (job.stage || '...') + ' ' + (job.processed || 0) + '）');
+                    } finally {
+                        setTimeout(() => progress.close(), 6000);
                     }
                 } catch (error) {
                     setStatus('导出失败: ' + (error?.message || error));

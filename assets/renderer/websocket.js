@@ -1,6 +1,15 @@
 /* websocket.js —— WEB SOCKET 管理
  * 从 index.html 原样搬出的完整顶层函数。
+ *
+ * 扫描/导入的共享状态放在 window.importRuntime：以前这三个变量声明在 index.html 的
+ * DOMContentLoaded 闭包里，本模块读到的其实是「未声明的全局」——第一次读就抛
+ * ReferenceError，被 try/catch 吞掉，WS 从来没连上过（一直靠轮询兜底）。
  */
+const importRuntime = window.importRuntime = window.importRuntime || {
+    scanProgressModal: null,
+    currentScanTaskId: null,
+    scanWebSocket: null,
+};
 function connectScanWebSocket(clientId) {
     const endpoint = rendererApi.wsUrl(`/ws/scan/${clientId}`);
     console.log('[DEBUG] 正在连接 WebSocket:', endpoint);
@@ -15,14 +24,14 @@ function connectScanWebSocket(clientId) {
         };
         const timeout = setTimeout(() => {
             if (socket && socket.readyState !== WebSocket.OPEN) socket.close();
-            if (scanWebSocket === socket) scanWebSocket = null;
+            if (importRuntime.scanWebSocket === socket) importRuntime.scanWebSocket = null;
             finish(false);
         }, 3000);
 
         try {
-            if (scanWebSocket) scanWebSocket.close();
+            if (importRuntime.scanWebSocket) importRuntime.scanWebSocket.close();
             socket = new WebSocket(endpoint);
-            scanWebSocket = socket;
+            importRuntime.scanWebSocket = socket;
 
             socket.onopen = () => {
                 clearTimeout(timeout);
@@ -49,7 +58,7 @@ function connectScanWebSocket(clientId) {
 
             socket.onclose = () => {
                 console.log('[DEBUG] WebSocket 连接已关闭');
-                if (scanWebSocket === socket) scanWebSocket = null;
+                if (importRuntime.scanWebSocket === socket) importRuntime.scanWebSocket = null;
             };
         } catch (error) {
             clearTimeout(timeout);
@@ -73,7 +82,7 @@ async function monitorImportJobWithoutWebSocket(jobId) {
                 ))
             })
         });
-        if (currentScanTaskId !== jobId) return;
+        if (importRuntime.currentScanTaskId !== jobId) return;
         if (job?.state === 'completed') {
             const processed = Number(job.processed || 0);
             const total = Number(job.total || processed);
@@ -84,7 +93,7 @@ async function monitorImportJobWithoutWebSocket(jobId) {
             });
         }
     } catch (error) {
-        if (currentScanTaskId === jobId) {
+        if (importRuntime.currentScanTaskId === jobId) {
             handleScanError({ error: error?.message || '无法读取导入任务状态' });
         }
     }
@@ -126,9 +135,9 @@ function handleScanMessage(message) {
             if (message.data && message.data.message) {
                 showNotification(message.data.message, 'info');
             }
-            if (!scanProgressModal) {
-                scanProgressModal = createScanProgressModal();
-                document.body.appendChild(scanProgressModal);
+            if (!importRuntime.scanProgressModal) {
+                importRuntime.scanProgressModal = createScanProgressModal();
+                document.body.appendChild(importRuntime.scanProgressModal);
             }
             break;
         case 'scan_log':
@@ -218,16 +227,16 @@ function convertBackendFolderToFrontend(backendNode) {
 
 function finishScanModal(modal) {
     document.getElementById('scanMiniBadge')?.remove();
-    const target = modal || scanProgressModal;
+    const target = modal || importRuntime.scanProgressModal;
     if (target && target.parentNode) target.parentNode.removeChild(target);
-    if (scanProgressModal === target) scanProgressModal = null;
+    if (importRuntime.scanProgressModal === target) importRuntime.scanProgressModal = null;
 }
 
 function requestScanCancel(taskId) {
     if (!taskId) return false;
     try {
-        if (scanWebSocket && scanWebSocket.readyState === WebSocket.OPEN) {
-            scanWebSocket.send(JSON.stringify({ type: 'cancel', task_id: taskId }));
+        if (importRuntime.scanWebSocket && importRuntime.scanWebSocket.readyState === WebSocket.OPEN) {
+            importRuntime.scanWebSocket.send(JSON.stringify({ type: 'cancel', task_id: taskId }));
             return true;
         }
     } catch (error) {
@@ -237,11 +246,11 @@ function requestScanCancel(taskId) {
 }
 
 function maybeCancelPendingScan() {
-    if (!scanCancelRequested || !currentScanTaskId) return;
+    if (!scanCancelRequested || !importRuntime.currentScanTaskId) return;
     scanCancelRequested = false;
-    requestScanCancel(currentScanTaskId);
+    requestScanCancel(importRuntime.currentScanTaskId);
     finishScanModal(null);
-    currentScanTaskId = null;
+    importRuntime.currentScanTaskId = null;
 }
 
 function createScanProgressModal() {
@@ -312,9 +321,9 @@ function createScanProgressModal() {
         mini.textContent = '导入进行中 · 点击查看';
         mini.onclick = () => {
             mini.remove();
-            if (scanProgressModal) {
-                scanProgressModal.style.display = '';
-                document.body.appendChild(scanProgressModal);
+            if (importRuntime.scanProgressModal) {
+                importRuntime.scanProgressModal.style.display = '';
+                document.body.appendChild(importRuntime.scanProgressModal);
             }
         };
         document.body.appendChild(mini);
@@ -331,7 +340,7 @@ function createScanProgressModal() {
         btn.textContent = '正在取消…';
         scanCancelRequested = true;
 
-        const taskId = currentScanTaskId;
+        const taskId = importRuntime.currentScanTaskId;
         if (taskId) {
             requestScanCancel(taskId);
             showNotification('已取消导入（已扫描的文件会留在库里）', 'info');
@@ -347,14 +356,14 @@ function createScanProgressModal() {
 }
 
 function updateScanProgress(data) {
-    if (!scanProgressModal) {
-        scanProgressModal = createScanProgressModal();
-        document.body.appendChild(scanProgressModal);
+    if (!importRuntime.scanProgressModal) {
+        importRuntime.scanProgressModal = createScanProgressModal();
+        document.body.appendChild(importRuntime.scanProgressModal);
     }
 
-    const progressBar = scanProgressModal.querySelector('.progress-bar');
-    const progressText = scanProgressModal.querySelector('.progress-text');
-    const currentFileText = scanProgressModal.querySelector('.current-file');
+    const progressBar = importRuntime.scanProgressModal.querySelector('.progress-bar');
+    const progressText = importRuntime.scanProgressModal.querySelector('.progress-text');
+    const currentFileText = importRuntime.scanProgressModal.querySelector('.current-file');
 
     const total = Number(data.total || 0);
     const scanned = Number(data.scanned ?? data.processed ?? 0);
@@ -390,11 +399,11 @@ function handleScanComplete(data) {
     if (scanCompletionHandled) return;
     scanCompletionHandled = true;
     setTimeout(() => { scanCompletionHandled = false; }, 5000);
-    if (scanProgressModal) {
-        scanProgressModal.remove();
-        scanProgressModal = null;
+    if (importRuntime.scanProgressModal) {
+        importRuntime.scanProgressModal.remove();
+        importRuntime.scanProgressModal = null;
     }
-    currentScanTaskId = null;
+    importRuntime.currentScanTaskId = null;
 
     if (data.error) {
         showNotification(`导入失败: ${data.error}`, 'error');
@@ -463,11 +472,11 @@ async function maybeHintDuplicates() {
 }
 
 function handleScanError(data) {
-    if (scanProgressModal) {
-        scanProgressModal.remove();
-        scanProgressModal = null;
+    if (importRuntime.scanProgressModal) {
+        importRuntime.scanProgressModal.remove();
+        importRuntime.scanProgressModal = null;
     }
-    currentScanTaskId = null;
+    importRuntime.currentScanTaskId = null;
 
     showNotification(`导入错误: ${data.error || '未知错误'}`, 'error');
 }

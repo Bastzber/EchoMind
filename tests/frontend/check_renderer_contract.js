@@ -101,12 +101,12 @@ async function main() {
   assert(indexHtml.includes('id="waveformStatus"'), 'waveform loading/error status is missing');
   assert(indexHtml.includes('id="waveformRetryBtn"'), 'waveform retry control is missing');
   assert(!/伪随机 fallback|备用假数据/.test(indexHtml), 'generated waveform fallback remains');
-  assert(indexHtml.includes("importFiles(\n                        filePaths"), 'file import is not routed to the backend job');
+  assert(/importFiles\(\s*\n\s*filePaths/.test(pageCode), 'file import is not routed to the backend job');
   assert(mainJs.includes("case 'import-files':"), 'main-process import-files proxy is missing');
   assert(preloadJs.includes('importFiles: (filePaths'), 'preload import-files API is missing');
   assert(mainJs.includes('/projects/${encodeURIComponent(requireProjectId(data.projectId))}/imports'), 'project-scoped import proxy is missing');
-  assert(indexHtml.includes('const importProjectId = currentProject?.id;'), 'imports do not capture an explicit active project');
-  assert(indexHtml.includes('monitorImportJobWithoutWebSocket(currentScanTaskId)'), 'imports have no job-polling fallback');
+  assert(/const (importProjectId|projectId) = currentProject\?\.id;/.test(pageCode), 'imports do not capture an explicit active project');
+  assert(/monitorImportJobWithoutWebSocket\((state\.|importRuntime\.)?currentScanTaskId\)/.test(pageCode), 'imports have no job-polling fallback');
   assert(!indexHtml.includes('handleBrowserFiles'), 'browser-only import fallback still masks a failed Electron bridge');
   assert(!moduleSources.search.includes("options.projectId || 'default'"), 'renderer search still silently falls back to the default project');
   assert(!/top_k\s*:\s*10000|searchAudio\([^\n]*10000/.test(indexHtml + mainJs + preloadJs), 'legacy top_k=10000 remains');

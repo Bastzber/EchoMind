@@ -1038,6 +1038,7 @@
     <script src="./assets/renderer/mixer.js"></script>
     <script src="./assets/renderer/theme.js"></script>
     <script src="./assets/renderer/source-tree.js"></script>
+    <script src="./assets/renderer/import-flow.js"></script>
     <script src="./assets/renderer/websocket.js"></script>
     <script src="./assets/renderer/ai-chat.js"></script>
     <script src="./assets/renderer/settings-modal.js"></script>
@@ -2762,8 +2763,6 @@
 
 
         // ==================== WEB SOCKET 管理 ====================
-        let scanWebSocket = null;
-        let currentScanTaskId = null;
 
         // 连接到 WebSocket 获取扫描进度
 
@@ -2783,14 +2782,13 @@
         // 将后端 FolderNode 转换为前端 importedFolderData 格式
 
         // 扫描进度弹窗
-        let scanProgressModal = null;
 
         // 「等一下再取消」：弹窗取消了但任务 id 还没回来时用
         let scanCancelRequested = false;
 
 
 
-        // 每次把 currentScanTaskId 赋好之后都调一下：如果用户已经点过取消，立刻补发
+        // 每次把 importRuntime.currentScanTaskId 赋好之后都调一下：如果用户已经点过取消，立刻补发
 
 
 
@@ -5124,70 +5122,7 @@
             // ==================== 文件导入功能 ====================
             
             // ===== 拖拽导入（文件夹 / 音频文件） =====
-            async function importDroppedPaths(paths) {
-                const projectId = currentProject?.id;
-                if (!projectId) {
-                    showNotification('当前工程尚未就绪，请稍后重试', 'error');
-                    return;
-                }
-                let items = [];
-                try {
-                    items = (await window.electronAPI?.classifyPaths?.(paths)) || [];
-                } catch (error) {
-                    console.warn('[Drop] 路径识别失败:', error);
-                }
-                const dirs = items.filter(i => i.isDirectory).map(i => i.path);
-                const files = items.filter(i => !i.isDirectory && !i.missing).map(i => i.path);
-                if (!dirs.length && !files.length) {
-                    showNotification('没有可导入的文件或文件夹', 'error');
-                    return;
-                }
-                if (dirs.length) {
-                    const clientId = 'drop_' + Date.now();
-                    if (!scanProgressModal) {
-                        scanProgressModal = createScanProgressModal();
-                        document.body.appendChild(scanProgressModal);
-                    }
-                    const wsOk = await connectScanWebSocket(clientId);
-                    for (const dir of dirs) {
-                        try {
-                            const res = await window.electronAPI.backendAPI.importFolderAsync(
-                                dir, true, clientId, projectId
-                            );
-                            if (res && res.task_id) {
-                                currentScanTaskId = res.task_id;
-                                maybeCancelPendingScan();
-                                monitorImportJobWithoutWebSocket(res.task_id);  // 与 WS 并行兜底，handleScanComplete 内部去重
-                            }
-                        } catch (error) {
-                            showNotification('导入文件夹失败: ' + error.message, 'error');
-                        }
-                    }
-                }
-                if (files.length) {
-                    await handleImportedFiles(files.map(p => ({ path: p })), projectId);
-                }
-            }
 
-            (function initDropImport() {
-                const zone = document.getElementById('folderPanelSection');
-                const mark = (on) => { if (zone) zone.style.outline = on ? '2px solid #3b82f6' : ''; };
-                ['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, (e) => {
-                    if (!e.dataTransfer) return;
-                    const types = Array.from(e.dataTransfer.types || []);
-                    if (!types.includes('Files')) return;
-                    e.preventDefault();
-                    mark(true);
-                }));
-                ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, () => mark(false)));
-                document.addEventListener('drop', async (e) => {
-                    const dropped = Array.from(e.dataTransfer?.files || []);
-                    if (!dropped.length) return;
-                    e.preventDefault();
-                    const paths = dropped.map(f => f.path).filter(Boolean);
-                    if (paths.length) await importDroppedPaths(paths);
-                });
-            })();
 
             // 导入单个音频文件
             document.getElementById('importFileBtn').addEventListener('click', async () => {
@@ -5288,9 +5223,9 @@
                         console.log('[DEBUG] 生成 clientId:', clientId);
 
                         // 立即显示进度弹窗（不依赖后端 WebSocket 消息）
-                        if (!scanProgressModal) {
-                            scanProgressModal = createScanProgressModal();
-                            document.body.appendChild(scanProgressModal);
+                        if (!importRuntime.scanProgressModal) {
+                            importRuntime.scanProgressModal = createScanProgressModal();
+                            document.body.appendChild(importRuntime.scanProgressModal);
                         }
 
                         const websocketConnected = await connectScanWebSocket(clientId);
@@ -5307,11 +5242,11 @@
                             console.log('[DEBUG] importFolderAsync 返回:', result);
 
                             if (result && result.task_id) {
-                                currentScanTaskId = result.task_id;
+                                importRuntime.currentScanTaskId = result.task_id;
                                 maybeCancelPendingScan();
                                 showNotification('正在导入音频文件...', 'info');
                                 // 与 WebSocket 并行兜底：WS 丢消息时也能拿到完成事件
-                                monitorImportJobWithoutWebSocket(currentScanTaskId);
+                                monitorImportJobWithoutWebSocket(importRuntime.currentScanTaskId);
                             } else {
                                 throw new Error('启动导入任务失败：后端未返回任务 ID');
                             }
@@ -5319,16 +5254,16 @@
                             console.error('[DEBUG] importFolderAsync 异常:', error);
                             showNotification('导入启动失败: ' + error.message, 'error');
 
-                            if (scanProgressModal) {
-                                scanProgressModal.remove();
-                                scanProgressModal = null;
+                            if (importRuntime.scanProgressModal) {
+                                importRuntime.scanProgressModal.remove();
+                                importRuntime.scanProgressModal = null;
                             }
-                            currentScanTaskId = null;
+                            importRuntime.currentScanTaskId = null;
 
                             // 关闭 WebSocket
-                            if (scanWebSocket) {
-                                scanWebSocket.close();
-                                scanWebSocket = null;
+                            if (importRuntime.scanWebSocket) {
+                                importRuntime.scanWebSocket.close();
+                                importRuntime.scanWebSocket = null;
                             }
                         }
                     } else if (!folderResult.canceled) {
@@ -5384,53 +5319,6 @@
             }
 
             // 处理导入的文件
-            async function handleImportedFiles(files, importProjectId) {
-                try {
-                    if (!window.electronAPI?.backendAPI?.importFiles) {
-                        throw new Error(i18n.t('import.backend.unavailable'));
-                    }
-
-                    const filePaths = (files || []).map(file => file?.path).filter(Boolean);
-                    if (filePaths.length === 0) {
-                        throw new Error(i18n.t('import.path.required'));
-                    }
-                    if (!importProjectId) {
-                        throw new Error('当前工程尚未就绪，请稍后重试');
-                    }
-
-                    const clientId = `files_${Date.now()}`;
-                    if (!scanProgressModal) {
-                        scanProgressModal = createScanProgressModal();
-                        document.body.appendChild(scanProgressModal);
-                    }
-                    const websocketConnected = await connectScanWebSocket(clientId);
-
-                    const result = await window.electronAPI.backendAPI.importFiles(
-                        filePaths,
-                        clientId,
-                        importProjectId
-                    );
-                    currentScanTaskId = result?.job_id || null;
-                    if (!currentScanTaskId) {
-                        throw new Error(i18n.t('import.job.invalid'));
-                    }
-
-                    showNotification(i18n.t('import.started', { count: result.total ?? filePaths.length }), 'info');
-                    // 与 WebSocket 并行兜底（handleScanComplete 内部去重）
-                    monitorImportJobWithoutWebSocket(currentScanTaskId);
-                } catch (error) {
-                    console.error('处理导入文件时出错:', error);
-                    if (scanProgressModal) {
-                        scanProgressModal.remove();
-                        scanProgressModal = null;
-                    }
-                    if (scanWebSocket) {
-                        scanWebSocket.close();
-                        scanWebSocket = null;
-                    }
-                    showNotification(i18n.t('import.failed') + ': ' + error.message, 'error');
-                }
-            }
 
         });
     </script>

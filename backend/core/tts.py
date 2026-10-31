@@ -28,6 +28,40 @@ SAMPLE_RATE = 24000
 DEFAULT_VOICE_STYLE = '一个十六七岁的少女，声音清亮甜美，语速自然'
 
 
+def prune_cache(max_files: int = 300, max_bytes: int = 120 * 1024 * 1024) -> int:
+    """清理合成的 wav 缓存，按修改时间保留最新的。
+
+    每段朗读都会落一个 wav，长期对话下来会一直涨（实测 287 个 / 51 MB 且从不清理）。
+    这里按「文件数 + 总字节」两个上限裁剪，超出的按最旧优先删。
+    """
+    try:
+        files = sorted(
+            (f for f in cache_dir().glob('breeze-*.wav') if f.is_file()),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        return 0
+    removed = 0
+    total = 0
+    for index, path in enumerate(files):
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        total += size
+        if index < max_files and total <= max_bytes:
+            continue
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        logger.info('[TTS] 清理语音缓存 %d 个', removed)
+    return removed
+
+
 def cache_dir() -> Path:
     try:
         import config
@@ -324,6 +358,8 @@ def breeze_speak(
     digest = hashlib.sha1((content + str(time.time())).encode('utf-8')).hexdigest()[:16]
     target = cache_dir() / f'breeze-{digest}.wav'
     target.write_bytes(wav)
+    # 每写一个就顺手裁剪，避免长期对话把磁盘吃满
+    prune_cache()
     return {'ok': True, 'path': str(target), 'provider': 'breeze', 'seconds': round(len(pcm) / 2 / SAMPLE_RATE, 2)}
 
 

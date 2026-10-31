@@ -6846,6 +6846,13 @@ async def _run_automatic_reconcile(
         current = _automatic_index_tasks.get(project_id)
         if current and current.get("job_id") == job_id:
             _automatic_index_tasks.pop(project_id, None)
+        # 一次只认领 512 条，跑完如果还有积压就接着排下一批（链式），
+        # 这样大批量导入照样能连续跑完，但单次中断的损失被限制在 512 条。
+        if not _shutting_down and project_id not in _projects_deleting:
+            try:
+                _schedule_project_reconcile(project_id, kinds, reason="chain")
+            except Exception as exc:
+                logger.debug("[Index] 链式续跑调度失败: %s", exc)
 
 
 def _schedule_project_reconcile(
@@ -6869,8 +6876,11 @@ def _schedule_project_reconcile(
     current = _automatic_index_tasks.get(project_id)
     if current and not current["task"].done():
         return str(current["job_id"])
+    # 单次任务最多认领 512 条：中断时只丢这一批，不再出现
+    # 「一次认领 9.8 万条 → 被打断 → 全部卡在 processing」。
+    # 512 = 64 块 × 8，足够喂满 mel worker 的流水线。
     work = db_manager.list_artifacts_for_work(
-        project_id, valid_kinds, limit=100000
+        project_id, valid_kinds, limit=512
     )
     if not work:
         return None
@@ -7075,6 +7085,20 @@ async def reconcile_project_index(
     request: schemas.IndexActionRequest,
     background_tasks: BackgroundTasks,
 ):
+    # 同一工程只允许一个索引任务：已经在跑就直接复用，别新建一个把它打断
+    # （之前就是这个「新建即取消旧任务」导致 processing 反复卡住）。
+    current = _automatic_index_tasks.get(project_id)
+    if current and not current["task"].done():
+        logger.info(
+            "[Index] %s 已有任务 %s 在跑，复用而不是新建",
+            project_id, str(current.get("job_id"))[:8],
+        )
+        return {
+            "job_id": str(current["job_id"]),
+            "project_id": project_id,
+            "state": "running",
+            "reused": True,
+        }
     return await _start_index_job(project_id, request.kinds, "reconcile", background_tasks)
 
 

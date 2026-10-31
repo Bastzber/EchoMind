@@ -3244,7 +3244,10 @@ class DatabaseManager:
         self,
         project_id: str,
         kinds: Iterable[str] = ARTIFACT_KINDS,
-        states: Iterable[str] = ("pending", "failed", "stale"),
+        # 默认不再把 failed 当作待办：失败的文件反复重试只会空转，
+        # 还会让「处理中/失败」永远收敛不到 0（实测 48 条毒 MP3 就是这种）。
+        # 需要重试时由「修复索引」显式传入 states=("failed",)。
+        states: Iterable[str] = ("pending", "stale"),
         limit: int = 500,
     ) -> List[Dict[str, Any]]:
         selected_kinds = tuple(kind for kind in kinds if kind in ARTIFACT_KINDS)

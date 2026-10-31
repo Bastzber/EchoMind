@@ -14,6 +14,7 @@
 - **长 ID3 配乐 MP3 编不出音频向量**：`melworker._main()` 把 `_process_one()` 返回的 `(features, reason)` 当成 features 传给 `_forward_one()`，内部 `AttributeError` 被吞掉，worker 对任何文件都返回 None；修复后实测 `audio_vector` ready 64,873 / failed 1 → ready 64,874 / failed 0 / **Long-ID3 tracks had no audio vector**: the mel worker passed the `(features, reason)` tuple straight to `_forward_one()`, whose swallowed `AttributeError` made every encode return None; the live library went from 64,873 ready / 1 failed to 64,874 ready / 0 failed.
 - **失败原因写不出来**：artifact 的 `error_message` 现在带 worker 回报的具体原因（`blacklisted` / `decode_timeout` / `forward_none` / `processor_error`），不再只有一句「批量编码未产出向量（原因: unknown）」 / **Failure reasons are now recorded**: artifact `error_message` carries the worker-reported cause (`blacklisted`, `decode_timeout`, `forward_none`, `processor_error`) instead of a bare unknown.
 - **`compute_mel_batch()` 误判**：特征提取超过 3 秒的正常文件会被写成 `error`，现在只记诊断并继续 forward / **Slow files were misreported**: files taking more than 3 s in feature extraction were written as `error`; they are now only logged and still encoded.
+- **全新安装的文件列表会报错**：全新数据库在表还不存在时就尝试补列，异常被吞掉，导致缺 `is_favorite` / `sha256` / `source`，文件列表接口直接抛 `no such column`；现在建表后立即补列，已用全新库实测通过 / **Fresh installs had a broken file list**: the column top-up ran before the tables existed and its exception was swallowed, leaving `is_favorite`, `sha256` and `source` missing; it now runs right after table creation and a brand-new database passes.
 
 ### Changed / 变更
 

@@ -835,6 +835,13 @@ class DatabaseManager:
                         f"database initialization quick_check failed: {integrity}"
                     )
                 schema_version_pending = True
+                # 上面那三个 _ensure_*（内容哈希列 / 用户文件夹表 / 双层标签）
+                # 在表还不存在时静默失败过，全新库必须在这里再补一遍——
+                # 否则新装用户缺 is_favorite / sha256 / hash_state / source，
+                # 文件列表接口会直接抛 no such column: f.is_favorite。
+                self._ensure_content_hash_columns(cursor)
+                self._ensure_user_folder_files_table(cursor)
+                self._ensure_tag_layers(cursor)
                 _get_logger().info("数据库初始化完成：创建新表")
             else:
                 cursor.execute(

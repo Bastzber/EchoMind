@@ -28,6 +28,11 @@
   `forward_none` / `processor_error`
 - 被毒文件名单拦掉的路径也会标明 `blacklisted`，而不是静默返回空
 
+### 全新安装不再报错
+
+- 全新数据库以前在表创建前就补列，异常被吞 → 缺 `is_favorite` / `sha256` / `source`，
+  文件列表接口直接 `no such column: f.is_favorite`；现在建表后立即补列，全新库实测通过。
+
 ### 慢文件不再被判失败
 
 - 特征提取超过 3 秒的正常文件以前会被写成 `error`，现在只记诊断、继续编码

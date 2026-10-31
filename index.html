@@ -15537,34 +15537,70 @@
                 }
             }
 
+            // 知识包导入/导出的进度卡片：底部固定，带进度条，完成或失败自动关闭
+            function showPackProgress(title) {
+                document.getElementById('packProgressCard')?.remove();
+                const card = document.createElement('div');
+                card.id = 'packProgressCard';
+                card.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:950;width:320px;'
+                    + 'background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;'
+                    + 'box-shadow:0 8px 24px rgba(0,0,0,.18);padding:12px 14px;font-size:12px';
+                card.innerHTML = ''
+                    + '<div style="font-weight:600;margin-bottom:6px">' + title + '</div>'
+                    + '<div style="height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden">'
+                    + '  <div id="packProgressBar" style="height:100%;width:0%;background:#6b8afd;transition:width .3s"></div>'
+                    + '</div>'
+                    + '<div id="packProgressText" style="opacity:.7;margin-top:6px">准备中…</div>';
+                document.body.appendChild(card);
+                return {
+                    set(text, ratio) {
+                        const t = card.querySelector('#packProgressText');
+                        const b = card.querySelector('#packProgressBar');
+                        if (t) t.textContent = text;
+                        if (b && Number.isFinite(ratio)) b.style.width = Math.max(0, Math.min(100, ratio * 100)) + '%';
+                    },
+                    close() { card.remove(); },
+                };
+            }
+
             async function pollKnowledgeImport(jobId, setStatus) {
-                {
+                const progress = showPackProgress('正在导入知识包');
+                try {
                     for (let i = 0; i < 600; i += 1) {
-                        await new Promise((r) => setTimeout(r, 2000));
+                        await new Promise((r) => setTimeout(r, 1500));
                         let job = null;
                         try {
                             job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId));
                         } catch (_) { continue; }
                         if (!job) continue;
                         if (job.state === 'completed') {
+                            progress.set('完成', 1);
                             setStatus('✅ 导入完成');
                             showNotification('知识包导入完成，索引已就绪', 'success');
                             await refreshProjectIndexStatus();
                             loadFilesFromDatabase();
+                            setTimeout(() => progress.close(), 1500);
                             return;
                         }
                         if (job.state === 'failed' || job.state === 'cancelled') {
+                            progress.set('失败：' + (job.error_message || job.stage || ''), 0);
                             setStatus('导入失败: ' + (job.error_message || job.stage || ''));
                             showNotification('知识包导入失败: ' + (job.error_message || job.stage || ''), 'error');
+                            setTimeout(() => progress.close(), 3000);
                             return;
                         }
                         const done = Number(job.processed || 0);
                         const total = Number(job.total || 0);
-                        setStatus(total
-                            ? `${job.stage === 'metadata' ? '写描述标签' : '导入向量'} ${done}/${total}`
-                            : `导入中（${job.stage || '...'}）`);
+                        const isMeta = job.stage === 'metadata';
+                        const label = isMeta ? '写描述和标签' : (job.stage === 'audio_vector' ? '导入音频向量' : '导入文本向量');
+                        const ratio = total > 0 ? Math.min(1, done / total) : 0;
+                        progress.set(total > 0 ? `${label} ${done}/${total}` : `${label}…`, ratio);
+                        setStatus(total > 0 ? `${label} ${done}/${total}` : `导入中（${job.stage || '...'}）`);
                     }
+                    progress.set('仍在后台进行，可在任务列表查看', 0);
                     setStatus('仍在后台进行，可在任务列表查看');
+                } finally {
+                    setTimeout(() => progress.close(), 6000);
                 }
             }
 

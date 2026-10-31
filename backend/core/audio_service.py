@@ -373,7 +373,9 @@ class AudioService:
                 duration=duration,
             )
         except Exception as exc:
-            logger.debug('[Audio] miniaudio 解码失败 %s: %s', source.name, exc)
+            # 打到 warning：子进程（mel worker）里的失败在 debug 级看不到，
+            # 排查时完全瞎猜。
+            logger.warning('[Audio] miniaudio 解码失败 %s: %r', source.name, exc)
             return None
     @staticmethod
     def _strip_id3_tail(source: Path) -> Optional[Path]:

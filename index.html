@@ -15370,12 +15370,6 @@
             let descBatchRunning = false;
             // ===== 描述包快捷入口（顶部按钮 + 导入菜单） =====
             const wireDescPackShortcuts = () => {
-                const triggerImport = () => document.getElementById('importDescPackBtn')?.click();
-                const triggerExport = () => document.getElementById('exportDescPackBtn')?.click();
-                document.getElementById('importDescPackBtn2')?.addEventListener('click', () => {
-                    document.getElementById('importDropdown')?.classList.add('hidden');
-                    triggerImport();
-                });
                 // 顶部这颗按钮现在直接导「知识包」：先找安装目录里的包，
                 // 找不到就弹文件选择框让用户挑 zip。
                 document.getElementById('descPackMenuBtn')?.addEventListener('click', async () => {
@@ -15394,8 +15388,9 @@
                         });
                         const filePath = picked?.filePaths?.[0] || picked?.filePath;
                         if (filePath) {
-                            if (typeof window.importKnowledgePack === 'function') {
-                                await window.importKnowledgePack(filePath);
+                            const mod = window.EchoMindKnowledgePack;
+                            if (mod && typeof mod.importPack === 'function') {
+                                await mod.importPack(filePath);
                             } else {
                                 showNotification('知识包导入尚未就绪，请稍后重试', 'error');
                             }
@@ -15407,348 +15402,17 @@
             };
             wireDescPackShortcuts();
 
-            // ===== 描述包：导出 / 导入 =====
-            document.getElementById('exportDescPackBtn')?.addEventListener('click', async () => {
-                const statusEl = document.getElementById('descPackStatus');
-                try {
-                    if (statusEl) statusEl.textContent = '正在导出…';
-                    const projectId = currentProject?.id || 'default';
-                    const pack = await rendererApi.get(
-                        '/api/v1/descriptions/export?project_id=' + encodeURIComponent(projectId)
-                    );
-                    if (!pack || !pack.items || !pack.items.length) {
-                        if (statusEl) statusEl.textContent = '没有可导出的描述';
-                        return;
-                    }
-                    const saved = await window.electronAPI?.descriptions?.exportPack(pack);
-                    if (saved?.success) {
-                        if (statusEl) statusEl.textContent = '已导出 ' + pack.count + ' 条 → ' + saved.path;
-                        showNotification('已导出 ' + pack.count + ' 条描述', 'success');
-                    } else if (!saved?.canceled) {
-                        if (statusEl) statusEl.textContent = '导出失败: ' + (saved?.error || '未知错误');
-                    } else if (statusEl) {
-                        statusEl.textContent = '已取消';
-                    }
-                } catch (error) {
-                    console.error('[DescPack] 导出失败:', error);
-                    showNotification('导出失败: ' + error.message, 'error');
-                }
-            });
-
-            document.getElementById('importDescPackBtn')?.addEventListener('click', async () => {
-                const statusEl = document.getElementById('descPackStatus');
-                try {
-                    const picked = await window.electronAPI?.descriptions?.importPack();
-                    if (!picked?.success) {
-                        if (!picked?.canceled && statusEl) statusEl.textContent = '读取失败: ' + (picked?.error || '');
-                        return;
-                    }
-                    const projectId = currentProject?.id || 'default';
-                    if (statusEl) statusEl.textContent = '正在匹配…';
-
-                    // 先预览：按 sha256 → 全路径 → 反向路径 → 唯一文件名 四级匹配
-                    const preview = await rendererApi.post(
-                        '/api/v1/metadata/preview?project_id=' + encodeURIComponent(projectId),
-                        { items: picked.data.items || [], include_pairs: true }
-                    );
-                    const kinds = preview?.by_kind || {};
-                    const summary = `匹配 ${preview.matched} / ${preview.pack} 条`
-                        + `（哈希 ${kinds.sha256 || 0}｜路径 ${kinds.path || 0}｜`
-                        + `反向路径 ${kinds.reverse_path || 0}｜文件名 ${kinds.filename || 0}）`
-                        + `，多义 ${preview.ambiguous}，未匹配 ${preview.unmatched}`;
-                    const missingItems = preview?.missing || [];
-                    const exportMissing = async () => {
-                        if (!missingItems.length) return;
-                        try {
-                            const header = '\uFEFF文件名,相对路径,未匹配原因,描述';
-                            const escape = (value) => '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
-                            const lines = missingItems.map((item) =>
-                                [item.filename || '', item.rel || '', item.reason || '', item.description || '']
-                                    .map(escape).join(',')
-                            );
-                            const saved = await window.electronAPI?.dialogs?.showSaveDialog({
-                                title: '导出未匹配清单',
-                                defaultPath: '未匹配清单.csv',
-                                filters: [{ name: 'CSV', extensions: ['csv'] }],
-                            });
-                            if (!saved || saved.canceled || !saved.filePath) return;
-                            const content = [header, ...lines].join('\r\n');
-                            const written = await window.electronAPI?.files?.writeText(saved.filePath, content);
-                            if (written?.success !== false) {
-                                showNotification('已导出 ' + missingItems.length + ' 条未匹配记录', 'success');
-                            }
-                        } catch (error) {
-                            showNotification('导出失败: ' + (error?.message || error), 'error');
-                        }
-                    };
-                    if (missingItems.length) {
-                        const exportBtn = document.createElement('button');
-                        exportBtn.className = 'ml-2 px-2 py-0.5 rounded text-xs border';
-                        exportBtn.style.borderColor = 'var(--border-color)';
-                        exportBtn.textContent = '导出未匹配清单 (' + missingItems.length + ')';
-                        exportBtn.addEventListener('click', exportMissing);
-                        if (statusEl) { statusEl.textContent = summary + ' '; statusEl.appendChild(exportBtn); }
-                    }
-
-                    if (!preview || !preview.matched) {
-                        if (statusEl && !missingItems.length) statusEl.textContent = summary;
-                        showNotification('没有匹配到任何音效，请确认音效库已导入', 'error');
-                        return;
-                    }
-                    if (!confirm(summary + '\n\n是否应用？（默认只补空白描述，不覆盖已有内容）')) {
-                        if (statusEl) statusEl.textContent = '已取消';
-                        return;
-                    }
-
-                    if (statusEl) statusEl.textContent = '正在写入…';
-                    const res = await rendererApi.post(
-                        '/api/v1/metadata/apply?project_id=' + encodeURIComponent(projectId),
-                        { pairs: preview.pairs || [], overwrite: false }
-                    );
-                    const text = `已应用 ${res?.applied ?? 0} 条，跳过 ${res?.skipped ?? 0} 条（已有描述）`;
-                    if (statusEl) statusEl.textContent = text;
-                    showNotification(text, 'success');
-                } catch (error) {
-                    console.error('[DescPack] 导入失败:', error);
-                    showNotification('导入失败: ' + error.message, 'error');
-                }
-            });
 
 
-            // ===== 知识包导入（描述 + 标签 + 两套向量，一个任务） =====
-            // 返回 true = 已经开始导入（调用方不用再选文件）；false = 没找到包/提交失败
-            async function importKnowledgePack(filePath) {
-                const statusEl = document.getElementById('knowledgePackStatus');
-                const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
-                try {
-                    setStatus('正在检查知识包…');
-                    const res = await rendererApi.post(
-                        '/api/v1/knowledge/import',
-                        { path: filePath || '', project_id: currentProject?.id || 'default' },
-                        { timeoutMs: 120000 }
-                    );
-                    const jobId = res?.job_id;
-                    if (!jobId) { setStatus('提交失败'); return false; }
-                    setStatus(`已开始：${res.files ?? 0} 条，${res.size_mb ?? '?'} MB`);
-                    showNotification('开始导入知识包，请稍候（约 1~2 分钟）', 'info');
-                    void pollKnowledgeImport(jobId, setStatus);
-                    return true;
-                } catch (error) {
-                    const message = String(error?.message || error);
-                    setStatus('导入失败: ' + message);
-                    if (!/没找到知识包|404/.test(message)) {
-                        showNotification('知识包导入失败: ' + message, 'error');
-                    }
-                    return false;
-                }
-            }
-            // 顶部导航的按钮和设置页不在同一个作用域，挂到 window 供顶部调用
-            window.importKnowledgePack = importKnowledgePack;
-
-            // 知识包导入/导出的进度卡片：底部固定，带进度条，完成或失败自动关闭
-            function showPackProgress(title) {
-                document.getElementById('packProgressCard')?.remove();
-                const card = document.createElement('div');
-                card.id = 'packProgressCard';
-                card.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:950;width:320px;'
-                    + 'background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;'
-                    + 'box-shadow:0 8px 24px rgba(0,0,0,.18);padding:12px 14px;font-size:12px';
-                card.innerHTML = ''
-                    + '<div style="font-weight:600;margin-bottom:6px">' + title + '</div>'
-                    + '<div style="height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden">'
-                    + '  <div id="packProgressBar" style="height:100%;width:0%;background:#6b8afd;transition:width .3s"></div>'
-                    + '</div>'
-                    + '<div id="packProgressText" style="opacity:.7;margin-top:6px">准备中…</div>';
-                document.body.appendChild(card);
-                return {
-                    set(text, ratio) {
-                        const t = card.querySelector('#packProgressText');
-                        const b = card.querySelector('#packProgressBar');
-                        if (t) t.textContent = text;
-                        if (b && Number.isFinite(ratio)) b.style.width = Math.max(0, Math.min(100, ratio * 100)) + '%';
-                    },
-                    close() { card.remove(); },
-                };
-            }
-
-            async function pollKnowledgeImport(jobId, setStatus) {
-                const progress = showPackProgress('正在导入知识包');
-                try {
-                    for (let i = 0; i < 600; i += 1) {
-                        await new Promise((r) => setTimeout(r, 1500));
-                        let job = null;
-                        try {
-                            job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId));
-                        } catch (_) { continue; }
-                        if (!job) continue;
-                        if (job.state === 'completed') {
-                            progress.set('完成', 1);
-                            setStatus('✅ 导入完成');
-                            showNotification('知识包导入完成，索引已就绪', 'success');
-                            await refreshProjectIndexStatus();
-                            loadFilesFromDatabase();
-                            setTimeout(() => progress.close(), 1500);
-                            return;
-                        }
-                        if (job.state === 'failed' || job.state === 'cancelled') {
-                            progress.set('失败：' + (job.error_message || job.stage || ''), 0);
-                            setStatus('导入失败: ' + (job.error_message || job.stage || ''));
-                            showNotification('知识包导入失败: ' + (job.error_message || job.stage || ''), 'error');
-                            setTimeout(() => progress.close(), 3000);
-                            return;
-                        }
-                        const done = Number(job.processed || 0);
-                        const total = Number(job.total || 0);
-                        const isMeta = job.stage === 'metadata';
-                        const label = isMeta ? '写描述和标签' : (job.stage === 'audio_vector' ? '导入音频向量' : '导入文本向量');
-                        const ratio = total > 0 ? Math.min(1, done / total) : 0;
-                        progress.set(total > 0 ? `${label} ${done}/${total}` : `${label}…`, ratio);
-                        setStatus(total > 0 ? `${label} ${done}/${total}` : `导入中（${job.stage || '...'}）`);
-                    }
-                    progress.set('仍在后台进行，可在任务列表查看', 0);
-                    setStatus('仍在后台进行，可在任务列表查看');
-                } finally {
-                    setTimeout(() => progress.close(), 6000);
-                }
-            }
-
-
-            // ===== 知识包：导出 / 导入（设置页按钮） =====
-            document.getElementById('exportKnowledgePackBtn')?.addEventListener('click', async () => {
-                const statusEl = document.getElementById('knowledgePackStatus');
-                const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
-                try {
-                    const saved = await window.electronAPI?.dialogs?.showSaveDialog({
-                        title: '导出知识包',
-                        defaultPath: 'EchoMind-知识包.zip',
-                        filters: [{ name: '知识包', extensions: ['zip'] }],
-                    });
-                    const outPath = saved?.filePath || saved?.filePaths?.[0];
-                    if (!outPath) { setStatus('已取消'); return; }
-                    setStatus('正在导出…');
-                    const res = await rendererApi.post(
-                        '/api/v1/knowledge/export',
-                        { out_path: outPath, project_id: currentProject?.id || 'default' },
-                        { timeoutMs: 60000 }
-                    );
-                    const jobId = res?.job_id;
-                    if (!jobId) { setStatus('导出提交失败'); return; }
-                    const progress = showPackProgress('正在导出知识包');
-                    try {
-                        for (let i = 0; i < 900; i += 1) {
-                            await new Promise((r) => setTimeout(r, 1500));
-                            let job = null;
-                            try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
-                            if (!job) continue;
-                            if (job.state === 'completed') {
-                                progress.set('完成', 1);
-                                setStatus('✅ 已导出: ' + outPath);
-                                showNotification('知识包已导出到 ' + outPath, 'success');
-                                setTimeout(() => progress.close(), 1500);
-                                return;
-                            }
-                            if (job.state === 'failed' || job.state === 'cancelled') {
-                                progress.set('失败：' + (job.error_message || job.stage || ''), 0);
-                                setStatus('导出失败: ' + (job.error_message || job.stage || ''));
-                                showNotification('知识包导出失败: ' + (job.error_message || job.stage || ''), 'error');
-                                setTimeout(() => progress.close(), 3000);
-                                return;
-                            }
-                            const done = Number(job.processed || 0);
-                            const total = Number(job.total || res.files || 0);
-                            const label = job.stage === 'metadata' ? '打包描述和标签'
-                                : (job.stage === 'audio_vector' ? '导出音频向量' : '导出文本向量');
-                            const ratio = total > 0 ? Math.min(1, done / total) : 0;
-                            progress.set(total > 0 ? label + ' ' + done + '/' + total : label + '…', ratio);
-                            setStatus('导出中（' + label + ' ' + done + '）');
-                        }
-                    } finally {
-                        setTimeout(() => progress.close(), 6000);
-                    }
-                } catch (error) {
-                    setStatus('导出失败: ' + (error?.message || error));
-                    showNotification('知识包导出失败: ' + (error?.message || error), 'error');
-                }
-            });
-
-
-            // 导出增量包：先选基线包，再选保存位置，只导出基线里没有的新文件
-            document.getElementById('exportDeltaPackBtn')?.addEventListener('click', async () => {
-                const statusEl = document.getElementById('knowledgePackStatus');
-                const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
-                try {
-                    const base = await window.electronAPI?.dialogs?.showOpenDialog({
-                        title: '选择基线知识包（只导出它里面没有的新文件）',
-                        filters: [{ name: '知识包', extensions: ['zip'] }],
-                        properties: ['openFile'],
-                    });
-                    const basePath = base?.filePaths?.[0] || base?.filePath;
-                    if (!basePath) { setStatus('已取消'); return; }
-                    const saved = await window.electronAPI?.dialogs?.showSaveDialog({
-                        title: '导出增量包',
-                        defaultPath: 'EchoMind-知识包-增量.zip',
-                        filters: [{ name: '知识包', extensions: ['zip'] }],
-                    });
-                    const outPath = saved?.filePath || saved?.filePaths?.[0];
-                    if (!outPath) { setStatus('已取消'); return; }
-                    setStatus('正在对比基线…');
-                    const res = await rendererApi.post(
-                        '/api/v1/knowledge/export',
-                        { out_path: outPath, base_pack: basePath, project_id: currentProject?.id || 'default' },
-                        { timeoutMs: 60000 }
-                    );
-                    const jobId = res?.job_id;
-                    if (!jobId) { setStatus('提交失败'); return; }
-                    const progress = showPackProgress('正在导出增量包');
-                    try {
-                        for (let i = 0; i < 900; i += 1) {
-                            await new Promise((r) => setTimeout(r, 1500));
-                            let job = null;
-                            try { job = await rendererApi.get('/api/v1/jobs/' + encodeURIComponent(jobId)); } catch (_) { continue; }
-                            if (!job) continue;
-                            if (job.state === 'completed') {
-                                progress.set('完成', 1);
-                                setStatus('✅ 增量包已导出: ' + outPath);
-                                showNotification('增量包已导出到 ' + outPath, 'success');
-                                setTimeout(() => progress.close(), 1500);
-                                return;
-                            }
-                            if (job.state === 'failed' || job.state === 'cancelled') {
-                                progress.set('失败：' + (job.error_message || job.stage || ''), 0);
-                                setStatus('导出失败: ' + (job.error_message || job.stage || ''));
-                                showNotification('增量包导出失败: ' + (job.error_message || job.stage || ''), 'error');
-                                setTimeout(() => progress.close(), 3000);
-                                return;
-                            }
-                            const done = Number(job.processed || 0);
-                            const total = Number(job.total || res.files || 0);
-                            const label = job.stage === 'metadata' ? '打包描述和标签'
-                                : (job.stage === 'audio_vector' ? '导出音频向量' : '导出文本向量');
-                            const ratio = total > 0 ? Math.min(1, done / total) : 0;
-                            progress.set(total > 0 ? label + ' ' + done + '/' + total : label + '…', ratio);
-                            setStatus('导出中（' + label + ' ' + done + '）');
-                        }
-                    } finally {
-                        setTimeout(() => progress.close(), 6000);
-                    }
-                } catch (error) {
-                    setStatus('导出失败: ' + (error?.message || error));
-                    showNotification('增量包导出失败: ' + (error?.message || error), 'error');
-                }
-            });
-
-            document.getElementById('importKnowledgePackBtn')?.addEventListener('click', async () => {
-                try {
-                    const picked = await window.electronAPI?.dialogs?.showOpenDialog({
-                        title: '选择知识包（EchoMind-知识包.zip）',
-                        filters: [{ name: '知识包', extensions: ['zip'] }],
-                        properties: ['openFile'],
-                    });
-                    const filePath = picked?.filePaths?.[0] || picked?.filePath;
-                    if (filePath) await importKnowledgePack(filePath);
-                } catch (error) {
-                    showNotification('选择知识包失败: ' + (error?.message || error), 'error');
-                }
+            // 知识包逻辑已抽到 assets/renderer/knowledge-pack.js；这里只注入依赖
+            window.EchoMindKnowledgePack?.mount({
+                api: rendererApi,
+                notify: showNotification,
+                getProject: () => currentProject?.id || "default",
+                onImported: async () => {
+                    await refreshProjectIndexStatus();
+                    loadFilesFromDatabase();
+                },
             });
             document.getElementById('batchDescBtn')?.addEventListener('click', async () => {
                 if (descBatchRunning) return;
@@ -17724,6 +17388,7 @@
     <script src="./assets/renderer/sfx.js"></script>
     <script src="./assets/renderer/broken.js"></script>
     <script src="./assets/renderer/panels.js"></script>
+    <script src="./assets/renderer/knowledge-pack.js"></script>
 
     <!-- 助理形象启动：顶栏小精灵位置，说话/思考时驱动表情 -->
     <script>

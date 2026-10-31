@@ -301,6 +301,112 @@ class AudioService:
         return info
 
     @staticmethod
+    def _waveform_with_miniaudio(source: Path, origin: Optional[Path] = None) -> Optional['WaveformResult']:
+        """用 miniaudio 的采样自算 2000 个峰值（PyAV 解不开时的兜底）。"""
+        decoded = AudioService._decode_with_miniaudio(source, None, True)
+        if decoded is None or decoded.samples.size == 0:
+            return None
+        mono = np.asarray(decoded.samples, dtype=np.float32).reshape(-1)
+        import numpy as _np
+
+        peaks = _np.zeros(WAVEFORM_PEAK_COUNT, dtype=_np.float32)
+        if mono.size < WAVEFORM_PEAK_COUNT:
+            peaks[: mono.size] = _np.abs(mono)
+        else:
+            step = mono.size / float(WAVEFORM_PEAK_COUNT)
+            for i in range(WAVEFORM_PEAK_COUNT):
+                start = int(i * step)
+                end = max(start + 1, int((i + 1) * step))
+                peaks[i] = float(_np.max(_np.abs(mono[start:end])))
+        top = float(peaks.max()) or 1.0
+        normalized = (peaks / top).tolist()
+        return WaveformResult(
+            peaks=normalized,
+            duration=decoded.duration,
+            sample_rate=decoded.sample_rate,
+            fingerprint=AudioService._fingerprint_for(origin or source),
+        )
+
+    @staticmethod
+    def _fingerprint_for(source: Path) -> 'FileFingerprint':
+        """按文件 size/mtime 生成指纹，和 PyAV 路径保持一致。"""
+        stat = source.stat()
+        return FileFingerprint(size=int(stat.st_size), mtime_ns=int(stat.st_mtime_ns))
+
+    @staticmethod
+    def _decode_with_miniaudio(source: Path, target_sample_rate: Optional[int], mono: bool) -> Optional['DecodedAudio']:
+        """miniaudio 兜底解码。
+
+        实测那批 170KB ID3 标签的配乐：PyAV 剥标签后仍报 InvalidData，
+        但 miniaudio（自带的 dr_mp3）能正常解出 79.8 秒。两套解码器互补。
+        """
+        try:
+            import miniaudio
+        except Exception:
+            return None
+        try:
+            rate = int(target_sample_rate or 48000)
+            decoded = miniaudio.decode_file(
+                str(source),
+                output_format=miniaudio.SampleFormat.SIGNED16,
+                nchannels=1 if mono else 2,
+                sample_rate=rate,
+            )
+            samples = np.asarray(decoded.samples, dtype=np.int16)
+            if samples.size == 0:
+                return None
+            if not mono and decoded.nchannels > 1:
+                samples = samples.reshape(-1, decoded.nchannels)
+            else:
+                samples = samples.reshape(-1, 1)
+            float_samples = samples.astype(np.float32) / 32768.0
+            duration = float(float_samples.shape[0]) / float(rate or 1)
+            return DecodedAudio(
+                samples=float_samples,
+                sample_rate=rate,
+                channels=int(float_samples.shape[1]),
+                duration=duration,
+            )
+        except Exception as exc:
+            logger.debug('[Audio] miniaudio 解码失败 %s: %s', source.name, exc)
+            return None
+    @staticmethod
+    def _strip_id3_tail(source: Path) -> Optional[Path]:
+        """去掉 MP3 开头的 ID3v2 标签，写到临时文件并返回路径。
+
+        实测那批"解不开"的配乐：ID3 标签有 170 KB（内嵌封面），
+        两个解码器（PyAV / miniaudio）都会直接报错；
+        把标签剥掉后同一个文件能正常解出 79.8 秒音频。
+        """
+        try:
+            with open(source, 'rb') as fh:
+                head = fh.read(10)
+                if len(head) < 10 or head[:3] != b'ID3':
+                    return None
+                size = (
+                    ((head[6] & 0x7F) << 21)
+                    | ((head[7] & 0x7F) << 14)
+                    | ((head[8] & 0x7F) << 7)
+                    | (head[9] & 0x7F)
+                )
+                footer = 10 if (head[5] & 0x10) else 0
+                offset = 10 + size + footer
+                if offset <= 10:
+                    return None
+                fh.seek(offset)
+                data = fh.read()
+            if not data:
+                return None
+            import tempfile
+
+            tmp = Path(tempfile.gettempdir()) / ('echomind-noid3-' + os.urandom(6).hex() + source.suffix)
+            tmp.write_bytes(data)
+            return tmp
+        except Exception as exc:
+            logger.debug('[Audio] 剥离 ID3 失败: %s', exc)
+            return None
+
+    @staticmethod
     def _probe_mp3_fallback(source: Path) -> Optional[AudioMetadata]:
         """纯 Python 解析 MP3 帧头；不是 mp3 或解析失败返回 None。"""
         if source.suffix.lower() != '.mp3':
@@ -338,6 +444,35 @@ class AudioService:
         self._require_pyav()
         try:
             return self._decode_with_pyav(source, target_sample_rate, mono)
+        except Exception as exc0:
+            # 带大 ID3 标签的 MP3 会让解码器直接失败，剥掉标签通常就能解开
+            tmp = self._strip_id3_tail(source) if source.suffix.lower() == '.mp3' else None
+            if tmp is not None:
+                try:
+                    result = self._decode_with_pyav(tmp, target_sample_rate, mono)
+                    logger.info('[Audio] %s 去掉 ID3 标签后解码成功', source.name)
+                    return result
+                except Exception as exc2:
+                    logger.warning('[Audio] %s 去 ID3 后仍失败: %s', source.name, exc2)
+                    fallback = AudioService._decode_with_miniaudio(tmp, target_sample_rate, mono)
+                    if fallback is not None:
+                        logger.info('[Audio] %s 用 miniaudio 兜底解码成功（去 ID3）', source.name)
+                        return fallback
+                finally:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+            else:
+                fallback = AudioService._decode_with_miniaudio(source, target_sample_rate, mono)
+                if fallback is not None:
+                    logger.info('[Audio] %s 用 miniaudio 兜底解码成功', source.name)
+                    return fallback
+            raise AudioServiceError(
+                'audio_decode_failed',
+                f'Unable to decode audio: {source.name}',
+                details={'path': str(source), 'decoder': 'pyav+miniaudio'},
+            ) from exc0
         except Exception as exc:
             raise AudioServiceError(
                 'audio_decode_failed',
@@ -351,12 +486,29 @@ class AudioService:
         self._require_pyav()
         try:
             return self._waveform_with_pyav_streaming(source)
-        except Exception as exc:
+        except Exception as exc0:
+            tmp = self._strip_id3_tail(source) if source.suffix.lower() == '.mp3' else None
+            if tmp is not None:
+                try:
+                    result = self._waveform_with_pyav_streaming(tmp)
+                    logger.info('[Audio] %s 去掉 ID3 标签后波形生成成功', source.name)
+                    return result
+                except Exception as exc2:
+                    logger.warning('[Audio] %s 去 ID3 后波形仍失败: %s', source.name, exc2)
+                    fallback = AudioService._waveform_with_miniaudio(tmp, source)
+                    if fallback is not None:
+                        logger.info('[Audio] %s 用 miniaudio 兜底生成波形', source.name)
+                        return fallback
+                finally:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
             raise AudioServiceError(
                 'waveform_decode_failed',
                 f'Unable to build waveform: {source.name}',
                 details={'path': str(source), 'decoder': 'pyav'},
-            ) from exc
+            ) from exc0
 
     def _waveform_with_pyav_streaming(self, source: Path) -> WaveformResult:
         """Decode mono frames through a bounded temporary file.

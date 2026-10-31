@@ -385,22 +385,18 @@ python scripts/build.py --platform windows
 
 ### 发布门禁
 
-`.github/workflows/build.yml` 只有在全部检查通过后才创建预发布 Release：
+本仓库只有一个 CI 工作流：`.github/workflows/validate.yml`（main 推送触发）。它按顺序跑仓库卫生检查 → 全量 Python 契约 → 渲染层契约 → `git diff --check`，任何一步不过就不会有「看起来发成功了」的包。
 
-- `package.json`、`package-lock.json`、`backend/config.py`、tag、双语 changelog 版本同步；
-- 模型配置只有一个版本控制来源；在打包前生成并校验固定 commit revision、逐文件 manifest、Apache-2.0 说明和 `models.zip.sha256`，再把同一模型树内置到两个平台的应用资源；
-- macOS arm64 和 Windows x64 分别在原生 runner 冻结后端并打包；
-- 冻结包必须包含正确架构的后端、PyAV 扩展、wheel 内 FFmpeg 动态库和第三方许可证；
-- 两个平台的最终应用必须重新通过内置模型 ID、revision、许可说明和 manifest 逐文件哈希校验；五个 Release 资产中任一个达到 2 GiB 时直接拒绝发布；
-- Windows 在干净 `PATH`、无系统 FFmpeg 下覆盖 WAV、MP3、FLAC、AIFF、AIF、OGG、M4A、AAC、WMA，包含空格、中文、`%`、`_`、`#`、`+` 和括号路径；
-- 同一 Windows smoke test 检查 2,000 点波形、SQLite artifact、CLAP、Chroma cosine collection、混合搜索分项得分和 WMA 按需 WAV；
-- `win-unpacked` 内后端再次启动并执行真实波形测试；随后静默安装真实 NSIS 到包含空格和中文的路径，启动已安装的 Electron，通过生产 preload/IPC 让应用自身启动冻结后端，验证文件与文件夹原生选择器真实弹出、WAV/WMA 导入、SQLite 列表、三份 2,000 点波形、WMA 播放转码、内置 CLAP 加载、双索引和语义搜索；
-- macOS DMG、应用内 arm64 后端和 `app.asar` 资源必须通过完整性检查，应用资源中的固定 CLAP 必须在离线模式下真实加载；
-- 任一功能 smoke test 失败，Release 作业不会运行。
+上游那套 NSIS / DMG / GitHub Release 流水线（原 `build.yml`）**已删除**：本仓库走**网盘 + Gitee `update.json`** 分发，没有代码签名证书，也不在 CI 上生成 Windows/macOS 原生安装包。
 
-Release 工作流只接受 annotated `v*` 版本标签的推送，不提供手动触发入口。发布标签必须事先存在，且对应提交必须可从默认分支达到；所有 job 都绑定同一 tag commit，并在打包前重跑全量源码与渲染层契约。工作流先创建草稿 Release，上传模型包及校验、DMG、EXE 和统一 `SHA256SUMS.txt`，核对远端名称、大小、SHA-256 与上传状态，并生成 provenance attestation 后才公开；若该 tag 已有 Release 或草稿则拒绝覆盖，避免重跑混入旧资产。不可变的 v0.2.0 保留为历史预发布；当前 v0.2.1-beta.3 及后续带 SemVer 预发布后缀的版本进入预发布渠道，稳定版本自动进入正式渠道。
+实际发版步骤：
 
-最短发布顺序：先运行 `python scripts/bump_version.py --version X.Y.Z --write`，填完 changelog 占位内容并提交；等待 main 上的 `Validate / Source contracts` 通过后，执行 `git tag -a vX.Y.Z -m "SoundBot vX.Y.Z"` 和 `git push origin vX.Y.Z`。不要使用 lightweight tag。
+1. 版本号：`python scripts/bump_version.py --version X.Y.Z --write`（CHANGELOG 结构就绪时），或手工同步后跑 `python tests/build/verify_release_metadata.py`；
+2. 构建：`python scripts/build.py --platform windows`，产物在 `dist-electron/`；
+3. 完整包：把 `dist-v11-build\win-unpacked` 压成 `EchoMind测试版V<N>.zip`；
+4. 增量包：`python scripts/build_update_package.py delta --target <新版目录> --base-manifest <旧版 manifest> --version <新版> --base-version <旧版> --out <zip>`；
+5. 上传网盘，更新 `update.json`（Gitee 与 GitHub 各一份）里的 `version` / `notes` / `url` / `code`；
+6. 老用户：走 `update.json` 的完整包，或在应用内「关于与更新 → 导入本地更新包」导入增量包。
 
 ***
 

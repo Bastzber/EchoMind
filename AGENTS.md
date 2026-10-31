@@ -58,7 +58,10 @@ python scripts/check_code_size.py --strict   # 超硬上限返回 1
    - 至少确认：列表渲染条数、关键函数 `typeof === 'function'`
 3. **体积**：`python scripts/check_code_size.py`
 4. **数据**：涉及数据库的改动，**禁止在真实库上跑破坏性操作**，用副本或临时工程
-5. **记录**：写进 `docs/` 对应的实施记录
+5. **测试**：`.venv\Scripts\python.exe -m pytest tests -q`
+   （等价的 unittest 写法：`python -m unittest discover -s tests -t . -p 'test_*.py'`
+   —— `-t .` 不能省：少了它 `tests/__init__.py` 不会被导入，Windows 上临时目录清理会报 WinError 32）
+6. **记录**：写进 `docs/` 对应的实施记录
 
 ## 五、删除优先于新增
 

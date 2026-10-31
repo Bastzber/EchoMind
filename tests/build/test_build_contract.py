@@ -115,22 +115,9 @@ class NativeBuildContractTests(unittest.TestCase):
             attributes,
             r"(?m)^tests/build/licenses/CLAP_MODEL_NOTICE\.txt\s+text\s+eol=lf$",
         )
-        workflow = (root / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
-        self.assertNotIn("CLAP_MODEL_REVISION", workflow)
-        self.assertIn("--bundle-config config/model_bundle.json", workflow)
-        workflow_pyinstaller = re.search(r"PYINSTALLER_VERSION:\s*'([^']+)'", workflow)
-        self.assertIsNotNone(workflow_pyinstaller)
-        self.assertEqual(workflow_pyinstaller.group(1), soundbot_build.PYINSTALLER_VERSION)
-        self.assertIn("runs-on: macos-15", workflow)
-        self.assertIn("runs-on: windows-2025", workflow)
-        self.assertNotIn("runs-on: windows-latest", workflow)
-        self.assertIn("python scripts/build.py", workflow)
-        self.assertIn("--platform macos", workflow)
-        self.assertIn("--platform windows", workflow)
-        self.assertNotIn("softprops/action-gh-release", workflow)
-        self.assertRegex(workflow, r"uses: actions/checkout@[0-9a-f]{40}")
-        self.assertIn("SHA256SUMS.txt", workflow)
-        self.assertIn("gh release create", workflow)
+        # 上游的 NSIS/DMG 发布流水线（.github/workflows/build.yml）已按 K10 删除：
+        # 本仓库走网盘 + update.json 分发，没有签名证书也构建不了那两个平台的原生安装包。
+
 
         lock_text = (root / "package-lock.json").read_text(encoding="utf-8")
         self.assertNotIn("registry.npmmirror.com", lock_text)

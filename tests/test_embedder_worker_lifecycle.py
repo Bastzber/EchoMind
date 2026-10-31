@@ -218,6 +218,7 @@ class ResetWorkerConsoleTest(unittest.TestCase):
     and the user saw a blue cmd window flashing.
     """
 
+    @unittest.skipUnless(sys.platform == "win32", "taskkill / CREATE_NO_WINDOW 是 Windows 语义")
     def test_taskkill_runs_without_console_window(self):
         worker = _FakeWorker(4321)
         calls = []

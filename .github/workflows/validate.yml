@@ -55,10 +55,13 @@ jobs:
           python -m unittest discover -s tests -p 'test_*.py' -v > python-contracts.log 2>&1
           status=$?
           if [ "$status" -ne 0 ]; then
-            tail -n 60 python-contracts.log
-            # Actions 的运行日志要登录才能下载；失败用例名挂到注解上，公开可读
-            grep -E '^(FAIL|ERROR): ' python-contracts.log | head -n 10 | while IFS= read -r line; do
+            tail -n 80 python-contracts.log
+            # Actions 的运行日志要登录才能下载；失败用例名 + 异常行挂到注解上，公开可读
+            grep -E '^(FAIL|ERROR): ' python-contracts.log | head -n 6 | while IFS= read -r line; do
               echo "::error title=failed test::${line:0:400}"
+            done
+            grep -hE '^[A-Za-z_][A-Za-z0-9_.]*(Error|Exception): .+' python-contracts.log | sort -u | head -n 6 | while IFS= read -r line; do
+              echo "::error title=exception::${line:0:400}"
             done
           fi
           exit "$status"

@@ -3719,7 +3719,9 @@ class DatabaseManager:
         Returns:
             是否成功
         """
-        if project_id == "default" or not is_safe_project_id(project_id):
+        # B12：default 也允许删，调用方（API）删完会立刻重建一个空的默认工程，
+        # 所以这里不再特判。只挡非法 id。
+        if not is_safe_project_id(project_id):
             return False
         # 关掉外键级联，先把子表显式删干净再删主表。
         # 开着 FK 时 SQLite 每条 files 都要做一次级联检查：实测 100 个文件要 29.5 秒，

@@ -8633,10 +8633,8 @@ async def delete_project(project_id: str):
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     _projects_deleting.add(project_id)
     try:
-        if project_id == "default":
-            raise SoundBotAPIError(
-                "default_project_protected", "默认工程不能删除", status_code=400
-            )
+        # B12：默认工程也允许删。删完会立刻重建一个空的（见下方 ensure_default），
+        # 这样界面上就不会出现「显示着但删不掉」的工程。
         if not is_safe_project_id(project_id):
             raise SoundBotAPIError("invalid_project_id", "工程 ID 非法", status_code=400)
         db_manager = get_db_manager()
@@ -8684,8 +8682,19 @@ async def delete_project(project_id: str):
             if not index_deleted:
                 logger.warning(f"工程 {project_id} 已从 SQLite 删除；孤立索引目录稍后清理")
 
-        # 如果删除的是当前工程，清理缓存并切换到默认工程
-        if is_current_project:
+        # 删掉默认工程后立刻重建一个空的，避免「工程列表里没有 default、
+        # 但各处还在用它」的悬空状态（B12）。
+        recreated_default = False
+        if project_id == "default":
+            try:
+                if not db_manager.get_project("default"):
+                    recreated_default = db_manager.create_project("default", "默认工程")
+                    logger.info("[Projects] 默认工程已重建（空工程）")
+            except Exception as exc:
+                logger.warning("[Projects] 重建默认工程失败: %s", exc)
+
+        # 如果删除的是当前工程（含默认工程被删），切到默认工程
+        if is_current_project or project_id == "default":
             logger.info(f"删除的是当前工程 {project_id}，清理缓存并切换到默认工程")
 
             # 先切换到默认工程
@@ -8702,7 +8711,8 @@ async def delete_project(project_id: str):
             "message": "工程已删除",
             "index_deleted": index_deleted,
             "was_current_project": is_current_project,
-            "switched_to_default": is_current_project
+            "switched_to_default": is_current_project or project_id == "default",
+            "recreated_default": recreated_default,
         }
     except SoundBotAPIError:
         raise

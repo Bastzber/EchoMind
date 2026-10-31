@@ -146,6 +146,7 @@ def compute_mel_batch(paths, sample_rate, max_samples, model_path):
         for p in paths:
             feats, reason = _process_one(service, processor, p, sample_rate, max_samples)
             if feats is None:
+                _diag(f'文件处理失败 {reason}: {p[:120]}')
                 # 把失败原因带回去（父进程会写进日志/artifact），
                 # 否则只有一句「批量编码未产出向量」，根本不知道卡在哪一步。
                 result[p] = {"error": reason or "feats_none"}
@@ -173,7 +174,28 @@ def _resolve_window(req, sample_rate, max_samples):
     return sample_rate, max_samples
 
 
+def _diag(msg: str) -> None:
+    """把 worker 侧信息写到文件：子进程的 stderr 父进程通常看不到。"""
+    try:
+        import os
+        import time
+
+        base = os.path.join(os.environ.get('APPDATA', '.'), 'EchoMind', 'logs')
+        os.makedirs(base, exist_ok=True)
+        with open(os.path.join(base, 'melworker.log'), 'a', encoding='utf-8') as fh:
+            fh.write(f'{time.strftime("%Y-%m-%d %H:%M:%S")} {msg}\n')
+    except Exception:
+        pass
+
+
 def _main() -> None:
+    _diag('worker 启动')
+    for name in ('cffi', 'miniaudio'):
+        try:
+            mod = __import__(name)
+            _diag(f'{name} 导入成功 {getattr(mod, "__version__", "")}')
+        except Exception as exc:
+            _diag(f'{name} 导入失败: {exc!r}')
     from transformers import ClapModel, ClapProcessor
 
     from core.audio_service import get_audio_service

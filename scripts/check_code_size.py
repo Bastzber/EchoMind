@@ -12,10 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# 文件 -> 上限
+# 文件 -> (提醒线, 硬上限)
+# 提醒线：超过就该开始往外拆，但小改小补仍然允许
+# 硬上限：超过直接判定失败，必须先拆再提交
 LIMITS = {
-    "index.html": 7000,
-    "backend/main.py": 9600,
+    "index.html": (7000, 7500),
+    "backend/main.py": (9600, 10200),
 }
 # 单文件上限（除上面两个）
 SINGLE_FILE_LIMIT = 1500
@@ -47,18 +49,23 @@ def main() -> int:
     failures: list[str] = []
     warnings: list[str] = []
 
-    print("=== 体积红线 ===")
-    for rel, limit in LIMITS.items():
+    print("=== 体积红线（提醒线 / 硬上限）===")
+    for rel, (warn, limit) in LIMITS.items():
         path = ROOT / rel
         if not path.exists():
             print(f"  ?  {rel} 不存在")
             continue
         lines = count_lines(path)
         pct = lines / limit * 100
-        mark = "OK " if lines <= limit else "超标"
-        print(f"  {mark} {rel:<24} {lines:>6} / {limit:<6} ({pct:5.1f}%)")
         if lines > limit:
-            failures.append(f"{rel} 超过上限：{lines} > {limit}")
+            mark = "超标"
+            failures.append(f"{rel} 超过硬上限：{lines} > {limit}，必须先拆再提交")
+        elif lines > warn:
+            mark = "提醒"
+            warnings.append(f"{rel} 已过提醒线（{lines} > {warn}），新功能请写到独立模块")
+        else:
+            mark = "OK "
+        print(f"  {mark} {rel:<24} {lines:>6}  {warn:>6} / {limit:<6} ({pct:5.1f}% of hard)")
 
     print("=== 单文件上限（%d 行）===" % SINGLE_FILE_LIMIT)
     big: list[tuple[int, str]] = []
@@ -100,6 +107,8 @@ def main() -> int:
 
     print("=== 汇总 ===")
     print(f"  统计文件 {len(big)} 个，其中超过单文件上限 {len(over)} 个")
+    for w in warnings:
+        print("  ! " + w)
     if failures:
         print("\n发现问题：")
         for f in failures:

@@ -429,6 +429,22 @@ async def lifespan(app: FastAPI):
     file_count = db_manager.get_file_count()
     logger.info(f"SQLite 数据库已加载，当前文件数: {file_count}")
 
+    # 「找相似」的词表倒排要扫一遍全库（实测 64k 条约 3 秒）。放到后台线程预热，
+    # 用户第一次右键点「找相似」时就不用等这 3 秒了。
+    try:
+        import threading as _threading
+
+        from core import similar as _similar_core
+
+        _threading.Thread(
+            target=_similar_core.warm_index,
+            args=(db_manager, config.CURRENT_PROJECT_ID),
+            daemon=True,
+            name="similar-warmup",
+        ).start()
+    except Exception as exc:
+        logger.debug("[相似] 预热启动失败: %s", exc)
+
     # 上次进程被强杀时，artifacts 会停在 processing，之后 reconcile 只挑
     # pending/stale/failed，导致这些条目永远不再被处理（数字冻结）。
     # 启动时没有任务在跑，统一把它们退回 pending，让自动补索引能接手。
@@ -649,6 +665,12 @@ app = FastAPI(
     version=config.APP_VERSION,
     lifespan=lifespan
 )
+
+# 按域拆分的路由放在 backend/api/routers/（AGENTS.md：新接口别继续堆这个文件）。
+# 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
+from api.routers import similar as _similar_router  # noqa: E402
+
+app.include_router(_similar_router.router)
 
 
 @app.exception_handler(SoundBotAPIError)

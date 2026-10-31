@@ -470,6 +470,7 @@ async function withDbRetry(task, { attempts = 4, delayMs = 1200, label = '加载
 }
 
 async function loadFilesFromDatabase({ reset = true, tag = null } = {}) {
+    window.__similarOrder = false;   // 回到普通列表就别再按「相似」顺序渲染
     if (tag !== null) fileListTagFilter = String(tag || '');
     if ((fileListLoading && !reset) || (!reset && !fileListNextCursor)) return;
     const loadToken = reset ? ++fileListLoadToken : fileListLoadToken;

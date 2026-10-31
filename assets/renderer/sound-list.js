@@ -80,6 +80,8 @@ function currentSortMode() {
 }
 
 function sortSounds(list) {
+    // 「找相似」的结果顺序就是相关性顺序，别被列表排序器打乱
+    if (window.__similarOrder) return Array.isArray(list) ? list.slice() : list;
     const { field, order } = currentSortMode();
     if (!Array.isArray(list) || !list.length) return list;
     const copy = list.slice();

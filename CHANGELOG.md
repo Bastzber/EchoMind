@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### Added / 新增
+
+- **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
+
 ## [0.3.0-beta.13] - 2026-10-31
 
 > 测试版 V13。这一版把「索引到底为什么失败」讲清楚了：长 ID3 的配乐 MP3 一直编不出音频向量，根因是 mel 子进程少解一个包，不是解码器、也不是模型限制。 / Beta 13 makes indexing failures explainable: the long-ID3 tracks had no audio vector because the mel worker unpacked a two-tuple as features, so every encode returned None — not a decoder or model limitation.

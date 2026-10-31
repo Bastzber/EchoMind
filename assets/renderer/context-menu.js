@@ -202,6 +202,9 @@ function showSoundContextMenu(event, sound) {
 
     const multi = selectedSounds.size > 0 && selectedSounds.has(sound.id);
 
+    // 找相似：排在最前——右键一条音效，第一反应往往是「还有哪些跟它像」
+    menu.appendChild(makeMenuItem('找相似', 'search', () => findSimilarForSound(sound)));
+
     // 标签操作组
     menu.appendChild(makeMenuItem('添加/编辑标签', 'tag', () => showTagModal(sound)));
     menu.appendChild(makeMenuItem('复制标签', 'copy', () => {

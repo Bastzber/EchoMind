@@ -1433,6 +1433,18 @@ class DatabaseManager:
 
     # ========== CRUD 操作 ==========
 
+    def _invalidate_similar_cache(self, project_id: Optional[str] = None) -> None:
+        """文件集合或标签/描述变了：「找相似」的词表倒排要重建。
+
+        之前只靠 10 分钟 TTL，新导入的文件在 10 分钟内点「找相似」是搜不到的。
+        """
+        try:
+            from core import similar as _similar
+
+            _similar.invalidate(project_id)
+        except Exception:
+            pass
+
     def upsert_file(self, record: AudioFileRecord, project_id: str = "default") -> Optional[str]:
         """Insert/update metadata and return the stable project-scoped file UUID."""
         if not is_safe_project_id(project_id):
@@ -1553,6 +1565,8 @@ class DatabaseManager:
                         project_id,
                         file_uuid,
                     ))
+            # 新文件/元数据变了：让「找相似」的词表重建（签名检查也会兜住）
+            self._invalidate_similar_cache(project_id)
             return file_uuid
         except Exception as exc:
             _get_logger().error(f"写入文件失败 {record.path}: {exc}")
@@ -2293,6 +2307,8 @@ class DatabaseManager:
                     """, (now, canonical_path, project_id, project_id))
             if changed:
                 self._sync_fts_for_path(canonical_path, project_id)
+                # 标签/描述改了，「找相似」的词表要重建（签名检查也会兜住）
+                self._invalidate_similar_cache(project_id)
             return changed
         except Exception as e:
             _get_logger().error(f"更新标签失败 {path}: {e}")
@@ -2380,6 +2396,8 @@ class DatabaseManager:
                     """, (now, canonical_path, project_id, project_id))
             if changed:
                 self._sync_fts_for_path(canonical_path, project_id)
+                # 标签/描述改了，「找相似」的词表要重建（签名检查也会兜住）
+                self._invalidate_similar_cache(project_id)
             return changed
         except Exception as e:
             _get_logger().error(f"更新 AI 描述失败 {path}: {e}")
@@ -2608,6 +2626,7 @@ class DatabaseManager:
             是否成功删除
         """
         canonical_path = canonicalize_path(path)
+        self._invalidate_similar_cache(project_id)
         with self.get_cursor() as cursor:
             if project_id:
                 cursor.execute(
@@ -2618,7 +2637,7 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM files WHERE canonical_path = ?", (canonical_path,))
             return cursor.rowcount > 0
 
-    def delete_files_by_uuids(self, project_id: str, file_uuids: Iterable[str]) -> int:
+    def delete_files_by_uuids(self, project_id: str, file_uuids: Iterable[str]) -> int:  # noqa: D401
         """按 file_uuid 批量删记录（files + artifacts + FTS），返回删除行数。
 
         比 delete_file(path) 可靠：路径的规范形式（斜杠方向）和库里存的可能不一致，
@@ -2647,6 +2666,8 @@ class DatabaseManager:
                     (str(project_id), *batch),
                 )
                 removed += cursor.rowcount
+        if removed:
+            self._invalidate_similar_cache(project_id)
         return removed
 
     def get_broken_files(self, project_id: str = "default") -> List[Dict[str, Any]]:
@@ -2927,6 +2948,7 @@ class DatabaseManager:
                     )
             if changed:
                 self.update_fts_row(project_id, file_uuid)
+                self._invalidate_similar_cache(project_id)
             return changed
         except Exception as e:
             _get_logger().error(f"回写标签失败 {file_uuid}: {e}")

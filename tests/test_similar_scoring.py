@@ -92,5 +92,32 @@ class RankingTests(unittest.TestCase):
         self.assertIn("猪", piglet["matched_terms"])
 
 
+    def test_index_rebuilds_after_new_file_is_imported(self):
+        source = similar._load_source(self.db, "default", self.source_uuid)
+        df, total, postings = similar._term_index(self.db, "default")
+        new_uuid = self._add("野猪2.wav", "野猪低沉的嚎叫", ["嚎叫"])
+        df2, total2, postings2 = similar._term_index(self.db, "default")
+        self.assertGreater(total2, total, "导入新文件后词表必须重建")
+        items = similar._term_matches(
+            self.db, "default", source, df2, total2, postings2, 20
+        )
+        self.assertIn(new_uuid, [item["file_uuid"] for item in items])
+
+    def test_index_rebuilds_after_tag_edit(self):
+        import json as _json
+
+        similar._term_index(self.db, "default")
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET tags=? WHERE file_uuid=?",
+                (_json.dumps(["味觉测试"], ensure_ascii=False), self.piglet_uuid),
+            )
+            cursor.connection.commit()
+        similar.invalidate("default")   # 与 update_tags 内部走的同一入口
+        df, total, postings = similar._term_index(self.db, "default")
+        self.assertIn("味", postings, "改标签后倒排里应出现新的字")
+        self.assertIn(self.piglet_uuid, postings["味"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -477,3 +477,32 @@ def warm_index(db_manager: Any, project_id: str) -> None:
         _term_index(db_manager, project_id)
     except Exception as exc:  # pragma: no cover - 预热失败不影响功能
         logger.debug("[相似] 预热失败: %s", exc)
+
+def invalidate(project_id: Optional[str] = None) -> None:
+    """丢掉词表倒排缓存。
+
+    导入文件、改标签/描述、删除文件之后调用：下一次「找相似」会立刻重建
+    （64k 条重建约 3.3 秒，不调用就要等 10 分钟 TTL）。
+    project_id 为空时清掉全部（DatabaseManager 有些写入拿不到工程 id）。
+    """
+    if not project_id:
+        _INDEX_CACHE.clear()
+        return
+    for key in [key for key in _INDEX_CACHE if key[1] == str(project_id)]:
+        _INDEX_CACHE.pop(key, None)
+
+def _file_signature(db_manager: Any, project_id: str) -> Tuple[int, str]:
+    """(文件数, 最近更新时间)。导入 / 改标签 / 改描述 / 删除都会让它变。
+
+    有了这个签名，就算某条写入路径没显式调 invalidate()（例如知识包用裸 SQL
+    写 files 表），下一次「找相似」也会立刻重建，不会拿旧倒排糊弄用户。
+    """
+    try:
+        with db_manager.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM files WHERE project_id=?",
+                (project_id,),
+            ).fetchone()
+        return int(row[0] or 0), str(row[1] or "")
+    except Exception:
+        return -1, ""

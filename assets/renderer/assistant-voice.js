@@ -88,6 +88,78 @@ function stopAssistantSpeech() {
     if (window.echoAvatar) { try { window.echoAvatar.stopTalk(); } catch (_) { } }
 }
 
+let _fishAudioCtx = null;
+function fishAudioContext() {
+    if (!_fishAudioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return null;
+        _fishAudioCtx = new Ctx();
+    }
+    if (_fishAudioCtx.state === 'suspended') {
+        try { _fishAudioCtx.resume(); } catch (_) { }
+    }
+    return _fishAudioCtx;
+}
+
+// 边合成边播：后端把 Breeze 的 PCM 流转发过来，这里按块解码排队，
+// 首帧约 0.5 秒就能出声，不用等整句念完。
+async function fishPlayPcmStream(text, options) {
+    const opts = options || {};
+    const ctx = fishAudioContext();
+    if (!ctx) throw new Error('AudioContext 不可用');
+    const res = await fetch('http://127.0.0.1:8000/api/v1/assistant/speak/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    });
+    if (!res.ok || !res.body) throw new Error('tts stream ' + res.status);
+    const rate = Number(res.headers.get('X-Sample-Rate') || 24000) || 24000;
+    const reader = res.body.getReader();
+    let carry = new Uint8Array(0);
+    let nextTime = ctx.currentTime + 0.05;
+    let started = false;
+    let scheduledFrames = 0;
+
+    const schedule = (bytes) => {
+        const frames = Math.floor(bytes.length / 2);
+        if (frames < 1) return;
+        const buffer = ctx.createBuffer(1, frames, rate);
+        const channel = buffer.getChannelData(0);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, frames * 2);
+        for (let i = 0; i < frames; i += 1) channel[i] = view.getInt16(i * 2, true) / 32768;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        const when = Math.max(nextTime, ctx.currentTime + 0.02);
+        source.start(when);
+        nextTime = when + buffer.duration;
+        scheduledFrames += frames;
+        if (!started) {
+            started = true;
+            if (typeof opts.onFirst === 'function') {
+                try { opts.onFirst(); } catch (_) { }
+            }
+        }
+    };
+
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (value && value.length) {
+            const merged = new Uint8Array(carry.length + value.length);
+            merged.set(carry, 0);
+            merged.set(value, carry.length);
+            const usable = merged.length - (merged.length % 2);
+            if (usable > 0) schedule(merged.subarray(0, usable));
+            carry = merged.subarray(usable);
+        }
+        if (done) break;
+    }
+    if (!scheduledFrames) throw new Error('没有收到音频数据');
+    const remain = Math.max(0, nextTime - ctx.currentTime);
+    await new Promise((r) => setTimeout(r, remain * 1000));
+    return scheduledFrames / rate;
+}
+
 async function fishSpeak(text, options) {
     const opts = options || {};
     if (!fishVoiceEnabled() || !text) {
@@ -132,15 +204,58 @@ async function fishSpeak(text, options) {
 
     for (let i = 0; i < chunks.length; i++) {
         if (gen !== fishSpeechGen) return;   // 有新回复插进来，放弃这一条
-        const path = await pending[i];
-        request(i + 2);
-        if (gen !== fishSpeechGen) return;
-        if (!path) {
+        const chunkText = String(chunks[i].text || '').slice(0, 400);
+        if (!chunkText.trim()) continue;
+        const started = performance.now();
+        highlightAssistantSentence(gen, chunks[i].start, chunks[i].end);
+        if (window.echoAvatar) window.echoAvatar.talk(chunkText);
+        let played = false;
+        try {
+            await fishPlayPcmStream(chunkText, {
+                onFirst: () => {
+                    if (!stats.firstAudio) stats.firstAudio = performance.now() - stats.t0;
+                    if (i === 0 && typeof opts.onFirstAudio === 'function') {
+                        try { opts.onFirstAudio(); } catch (_) { }
+                    }
+                },
+            });
+            played = true;
+        } catch (error) {
+            console.warn('[Fish] 流式合成失败:', error && error.message ? error.message : error);
+        }
+        if (!played) {
+            const path = await pending[i];
+            if (path) {
+                if (i === 0 && typeof opts.onFirstAudio === 'function') {
+                    try { await opts.onFirstAudio(); } catch (_) { }
+                }
+                await new Promise((resolve) => {
+                    const audio = new Audio('soundmind-audio://local/' + encodeURIComponent(path));
+                    audio.volume = 0.9;
+                    fishSpeechAudio = audio;
+                    if (!stats.firstAudio) stats.firstAudio = performance.now() - stats.t0;
+                    let finished = false;
+                    const finish = (reason) => {
+                        if (finished) return;
+                        finished = true;
+                        clearTimeout(watch);
+                        audio.onended = null;
+                        audio.onerror = null;
+                        if (reason !== 'ended') stats.log.push({ i, chars: chunkText.length, ok: false, reason });
+                        resolve();
+                    };
+                    const watch = setTimeout(() => finish('timeout'), 45000);
+                    audio.onended = () => finish('ended');
+                    audio.onerror = () => finish('error');
+                    audio.play().catch(() => finish('play-failed'));
+                });
+                played = true;
+            }
+        }
+        if (!played) {
             stats.failed += 1;
-            stats.log.push({ i, chars: chunks[i].text.length, ok: false });
+            stats.log.push({ i, chars: chunkText.length, ok: false });
             console.warn('[Fish] 第 ' + (i + 1) + ' 段语音合成失败，已跳过');
-            // B14：以前这种失败被 catch 吞掉，用户只觉得「没声音」。
-            // 第一次失败就明确提示一次，别每次都弹。
             if (!window.__fishSpeakWarned) {
                 window.__fishSpeakWarned = true;
                 try {
@@ -149,34 +264,8 @@ async function fishSpeak(text, options) {
             }
             continue;
         }
-        const started = performance.now();
-        if (i === 0 && typeof opts.onFirstAudio === 'function') {
-            try { await opts.onFirstAudio(); } catch (_) { }
-        }
-        highlightAssistantSentence(gen, chunks[i].start, chunks[i].end);
-        await new Promise((resolve) => {
-            const audio = new Audio('soundmind-audio://local/' + encodeURIComponent(path));
-            audio.volume = 0.9;
-            fishSpeechAudio = audio;
-            if (!stats.firstAudio) stats.firstAudio = performance.now() - stats.t0;
-            if (window.echoAvatar) window.echoAvatar.talk(chunks[i].text);
-            let finished = false;
-            const finish = (reason) => {
-                if (finished) return;
-                finished = true;
-                clearTimeout(watch);
-                audio.onended = null;
-                audio.onerror = null;
-                if (reason !== 'ended') stats.log.push({ i, chars: chunks[i].text.length, ok: false, reason });
-                resolve();
-            };
-            // 看门狗：音频一旦卡住（onended 不来）也要让队列继续，别把后面全堵死
-            const watch = setTimeout(() => finish('timeout'), 45000);
-            audio.onended = () => finish('ended');
-            audio.onerror = () => finish('error');
-            audio.play().catch(() => finish('play-failed'));
-        });
-        stats.log.push({ i, chars: chunks[i].text.length, ok: true, ms: Math.round(performance.now() - started) });
+        request(i + 1);
+        stats.log.push({ i, chars: chunkText.length, ok: true, ms: Math.round(performance.now() - started) });
     }
     stats.done = performance.now() - stats.t0;
     if (stats.failed === chunks.length && typeof opts.onGiveUp === 'function') {

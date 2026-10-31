@@ -4100,13 +4100,62 @@ async def assistant_chat(payload: AssistantChatRequest):
     result = await run_assistant(payload.messages[-12:], payload.project_id or "default")
     return {"success": True, **result}
 
-
 class AssistantSpeakRequest(BaseModel):
     text: str
     profile_id: str = ""
     provider: str = "auto"
     channels: int = 1
     sample_rate: int = 24000
+
+
+
+@app.post("/api/v1/assistant/speak/stream")
+async def assistant_speak_stream(payload: AssistantSpeakRequest):
+    """流式朗读：边合成边把 PCM 推给前端，首帧约 0.5 秒就能出声。
+
+    一次性合成要等整句念完（5~6 秒）才拿到文件；这里直接把 Breeze 的流转发出去。
+    """
+    import httpx
+
+    from core import tts
+
+    text = (payload.text or '').strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text 不能为空")
+    if not await asyncio.to_thread(tts.breeze_available, 1.0):
+        for _ in range(25):
+            await asyncio.sleep(1.0)
+            if await asyncio.to_thread(tts.breeze_available, 1.0):
+                break
+
+    loop = asyncio.get_running_loop()
+    parts = await asyncio.to_thread(
+        tts.breeze_request_parts,
+        text,
+        voice_id=await asyncio.to_thread(tts.assistant_voice_id),
+        instruction=await asyncio.to_thread(tts.voice_style),
+    )
+    if not parts:
+        raise HTTPException(status_code=422, detail="文本不能为空")
+    url, body, headers = parts
+
+    async def gen():
+        # Breeze 边生成边返回 PCM（实测首块 0.47s，整段 5.8s）
+        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0)) as client:
+            async with client.stream('POST', url, content=body, headers=headers) as resp:
+                if resp.status_code != 200:
+                    raise SoundBotAPIError("tts_failed", f"合成失败 {resp.status_code}", status_code=503)
+                async for chunk in resp.aiter_raw():
+                    if chunk:
+                        yield chunk
+
+    return StreamingResponse(
+        gen(),
+        media_type="application/octet-stream",
+        headers={"X-Sample-Rate": "24000", "X-Channels": "1", "Cache-Control": "no-store"},
+    )
+
+
 
 
 @app.post("/api/v1/assistant/speak")

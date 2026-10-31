@@ -243,6 +243,40 @@ def assistant_voice_id() -> Optional[str]:
         _breeze_voice_cache[target] = voice_id
     return voice_id
 
+def breeze_request_parts(
+    text: str,
+    *,
+    ref_audio: Optional[str] = None,
+    ref_text: Optional[str] = None,
+    instruction: Optional[str] = None,
+    cfg_scale: Optional[float] = None,
+    voice_id: Optional[str] = None,
+) -> Optional[tuple]:
+    """构造 Breeze 合成请求的 (url, body, headers)；文本为空返回 None。
+
+    流式端点和一次性合成都走这里，避免两处字段逻辑漂移。
+    """
+    content = (text or '').strip()
+    if not content:
+        return None
+    fields: Dict[str, str] = {'text': content}
+    files: Dict[str, tuple] = {}
+    if voice_id:
+        fields['voice_id'] = voice_id
+    elif ref_audio and ref_text:
+        try:
+            files['ref_audio'] = (Path(ref_audio).name, Path(ref_audio).read_bytes())
+            fields['ref_text'] = ref_text
+        except Exception as exc:
+            logger.warning('[TTS] 读取参考音频失败: %s', exc)
+    if instruction:
+        fields['instruction'] = instruction
+    if cfg_scale:
+        fields['cfg_scale'] = str(cfg_scale)
+    body, headers = _multipart(fields, files)
+    return breeze_url() + '/v1/audio/speech', body, headers
+
+
 def breeze_speak(
     text: str,
     ref_audio: Optional[str] = None,

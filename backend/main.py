@@ -360,6 +360,36 @@ def _load_sfx_config() -> None:
         logger.warning("加载创造音效配置失败: %s", exc)
 
 
+def _ensure_current_project(db_manager) -> str:
+    """启动时确保 CURRENT_PROJECT_ID 指向真实存在的工程（B13）。
+
+    旧版删工程不会回退指针，于是下次启动界面空白、所有查询都落到
+    一个不存在的 project_id 上。这里校验并从最近的工程里回退。
+    """
+    current_id = str(getattr(config, "CURRENT_PROJECT_ID", "default") or "default")
+    if db_manager.get_project(current_id):
+        logger.info("[Startup] 当前工程: %s", current_id)
+        return current_id
+
+    projects = db_manager.get_all_projects()
+    if not projects:
+        logger.warning("[Startup] 一个工程都没有，创建「默认工程」")
+        db_manager.create_project("default", "默认工程")
+        fallback = "default"
+    else:
+        fallback = str(projects[0]["id"])
+        logger.warning(
+            "[Startup] 当前工程 %s 不存在，回退到最近的工程 %s（共 %d 个）",
+            current_id, fallback, len(projects),
+        )
+    config.CURRENT_PROJECT_ID = fallback
+    try:
+        (config.get_user_data_dir() / "current_project.txt").write_text(fallback, encoding="utf-8")
+    except Exception as exc:
+        logger.debug("[Startup] 写 current_project.txt 失败: %s", exc)
+    return fallback
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -388,6 +418,14 @@ async def lifespan(app: FastAPI):
 
     # 初始化 SQLite 数据库
     db_manager = get_db_manager()
+
+    # 当前工程可能指向一个已经被删掉的 id（旧版删项目不会回退指针），
+    # 那样界面会空白、所有接口都查不到文件（B13）。启动时校验并回退。
+    try:
+        _ensure_current_project(db_manager)
+    except Exception as exc:
+        logger.warning("[Startup] 校验当前工程失败: %s", exc)
+
     file_count = db_manager.get_file_count()
     logger.info(f"SQLite 数据库已加载，当前文件数: {file_count}")
 

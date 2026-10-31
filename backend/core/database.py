@@ -3118,9 +3118,14 @@ class DatabaseManager:
             for kind in ARTIFACT_KINDS
         }
         with self.get_cursor() as cursor:
+            # 只统计仍然存在对应 files 行的工件。file_artifacts 里会残留孤儿行
+            # （files 行已删、cascade 没生效），把它们算进来会让界面永远显示
+            # 「待索引 N」而实际没有任何文件可索引（2026-10-31 实测 6/8/1 条）。
             rows = cursor.execute("""
-                SELECT kind, state, COUNT(*) AS count
-                FROM file_artifacts WHERE project_id=? GROUP BY kind, state
+                SELECT a.kind, a.state, COUNT(*) AS count
+                FROM file_artifacts a
+                JOIN files f ON f.file_uuid = a.file_uuid
+                WHERE a.project_id=? GROUP BY a.kind, a.state
             """, (project_id,)).fetchall()
         for row in rows:
             result[row["kind"]][row["state"]] = row["count"]

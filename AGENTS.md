@@ -93,7 +93,7 @@ python scripts/check_code_size.py --strict   # 超硬上限返回 1
 
 ```
 index.html        6,607 行   提醒 7,000 / 硬上限 7,500
-backend/main.py   9,825 行   提醒 9,600 / 硬上限 10,200   ← 已过提醒线
+backend/main.py   9,828 行   提醒 9,600 / 硬上限 10,200   ← 已过提醒线
 assets/renderer   33 个模块 / 16,603 行（无上限；早间口径，未重测）
 前端页面加载      380 ms（domComplete；早间口径，未重测）
 ```

@@ -7759,15 +7759,18 @@ async def _repair_index_task_locked(
                                 if _ok:
                                     ok_set.update(_ok)
                             except asyncio.TimeoutError:
-                                logger.error("[索引] 单文件编码超时，记入毒文件名单: %s", _single[0])
-                                try:
-                                    import config as _cfg
-                                    from core.embedder import _blacklist_file
-                                    path_file = _blacklist_file()
-                                    with open(path_file, "a", encoding="utf-8") as _fh:
-                                        _fh.write(f"{_single[0]}\t{int(time.time())}\t1\n")
-                                except Exception as _exc:
-                                    logger.debug("写入毒文件名单失败: %s", _exc)
+                                # 策略：编码超时**不**写毒文件名单（宁可漏封、不要误封）。
+                                # 这里原来写的是 `路径\t时间戳\t1` 三列，而
+                                # core.embedder._load_blacklist 只认两列（多出来的
+                                # \t1 让 float(ts) 抛异常 → 当成"无时间戳"忽略），
+                                # 所以这条写入从来没生效过。2026-10-31 有一条假名单
+                                # 把一个正常配乐卡了 3 天（见 docs/长ID3音频向量-*），
+                                # 因此保持"只记日志、不封禁"：超时本轮记 failed，
+                                # 下一轮还会重试，不会永久跳过。
+                                logger.warning(
+                                    "[索引] 单文件编码超时（>%ss），本轮记失败但不禁用: %s",
+                                    int(_single_timeout), _single[0],
+                                )
                             except Exception:
                                 pass
                     except Exception as exc:

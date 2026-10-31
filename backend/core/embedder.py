@@ -78,6 +78,12 @@ def _load_blacklist() -> frozenset:
                     try:
                         stamp = float(ts) if ts else 0.0
                     except ValueError:
+                        # 三列（路径\t时间戳\t标记）或脏行：本进程的写入端
+                        # 一律只写两列。多出来的列会让 float() 失败 →
+                        # 当成"没有时间戳"跳过。这是**有意的失败放开**：
+                        # 名单只该由 _note_bad_file（二分定位过两次）写，
+                        # 别为了"兼容"把超时也升级成封禁——2026-10-31 就有
+                        # 一条假名单把一个正常配乐卡了 3 天。
                         stamp = 0.0
                     # 没有时间戳（旧格式）或已过期：不信任，重新尝试
                     if stamp <= 0 or (now - stamp) > _BLACKLIST_MAX_AGE_SECONDS:

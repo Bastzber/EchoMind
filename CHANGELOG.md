@@ -15,6 +15,7 @@
 - **失败原因写不出来**：artifact 的 `error_message` 现在带 worker 回报的具体原因（`blacklisted` / `decode_timeout` / `forward_none` / `processor_error`），不再只有一句「批量编码未产出向量（原因: unknown）」 / **Failure reasons are now recorded**: artifact `error_message` carries the worker-reported cause (`blacklisted`, `decode_timeout`, `forward_none`, `processor_error`) instead of a bare unknown.
 - **`compute_mel_batch()` 误判**：特征提取超过 3 秒的正常文件会被写成 `error`，现在只记诊断并继续 forward / **Slow files were misreported**: files taking more than 3 s in feature extraction were written as `error`; they are now only logged and still encoded.
 - **全新安装的文件列表会报错**：全新数据库在表还不存在时就尝试补列，异常被吞掉，导致缺 `is_favorite` / `sha256` / `source`，文件列表接口直接抛 `no such column`；现在建表后立即补列，已用全新库实测通过 / **Fresh installs had a broken file list**: the column top-up ran before the tables existed and its exception was swallowed, leaving `is_favorite`, `sha256` and `source` missing; it now runs right after table creation and a brand-new database passes.
+- **导入知识包/描述包在手写描述面前会一条都写不进去**：`metadata_pack.apply()` 里的闭包写 `skipped += 1` 少了 `nonlocal`  ，只要库里有一条非 `[auto]` 的描述就抛 `UnboundLocalError`，异常被吞成一条 warning，整批 `continue`，界面显示「应用 0 条」  / **Pack imports silently applied nothing**: a missing `nonlocal` in `metadata_pack.apply()` raised `UnboundLocalError`  whenever the library already had a hand-written description, and the swallowed exception made the whole batch write nothing.
 
 ### Changed / 变更
 

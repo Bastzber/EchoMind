@@ -28,6 +28,11 @@
   `forward_none` / `processor_error`
 - 被毒文件名单拦掉的路径也会标明 `blacklisted`，而不是静默返回空
 
+### 导入知识包 / 描述包不再「应用 0 条」
+
+- `metadata_pack.apply()` 里的闭包写 `skipped += 1` 少了 `nonlocal`，库里有手写描述时
+  抛 `UnboundLocalError` 并被吞成一条 warning，整批一条都不写；已修。
+
 ### 全新安装不再报错
 
 - 全新数据库以前在表创建前就补列，异常被吞 → 缺 `is_favorite` / `sha256` / `source`，

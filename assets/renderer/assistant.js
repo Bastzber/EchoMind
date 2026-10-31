@@ -133,8 +133,8 @@ function showFishChat(anchor) {
                     fishChatSave(fishChat.messages);
                     paint();
                 };
-                // 兜底：语音 8 秒还没就绪就先显示文字，别让用户干等
-                const fallback = setTimeout(reveal, 8000);
+                // 兜底：语音 4 秒还没就绪就先显示文字（原来 8 秒，空白太久）
+                const fallback = setTimeout(reveal, 4000);
                 fishSpeak(replyText, {
                     onFirstAudio: () => {
                         clearTimeout(fallback);

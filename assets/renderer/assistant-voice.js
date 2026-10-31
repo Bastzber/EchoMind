@@ -109,7 +109,8 @@ async function fishSpeak(text, options) {
         pending[i] = (async () => {
             // 冷启动时 Breeze 可能还没起来（503），退避重试 4 次；
             // 第一段尤其重要——以前这里只重试一次就放弃了，用户听到的是「第一句没声音」。
-            const delays = [0, 800, 2000, 4000];
+            // 退避间隔减半：原来的 0/800/2000/4000 让首句最坏等 6.8 秒
+            const delays = [0, 400, 1000, 2000];
             for (let attempt = 0; attempt < delays.length; attempt += 1) {
                 if (delays[attempt]) {
                     await new Promise((r) => setTimeout(r, delays[attempt]));

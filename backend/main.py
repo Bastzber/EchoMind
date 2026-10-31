@@ -6154,7 +6154,7 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
 
 
 class KnowledgeExportRequest(BaseModel):
-    """导出知识包到指定路径。base_pack 给定时只导出该包里没有的新文件（增量包）。"""
+    """导出知识包到指定路径。base_pack 给定时只导出新增文件 + 描述/标签变更的条目（增量包）。"""
 
     out_path: str
     project_id: Optional[str] = None
@@ -6209,7 +6209,11 @@ async def _knowledge_export_task(
             knowledge_pack.export_pack, db_manager, project_id, out_path, progress, base_pack,
         )
         db_manager.update_job(
-            job_id, state="completed", stage="done",
+            job_id, state="completed",
+            stage="done new=%d changed=%d" % (
+                int(report.get("new_files") or 0),
+                int(report.get("changed_files") or 0),
+            ),
             processed=int(report.get("files") or 0),
             error_message=None,
         )

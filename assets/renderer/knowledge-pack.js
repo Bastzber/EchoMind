@@ -152,10 +152,14 @@
         try {
             await pollJob(jobId, progress, {
                 labels: EXPORT_LABELS,
-                done: () => {
+                done: (job) => {
+                    // 增量包的 job.stage 形如 "done new=3 changed=5"（A4：带上描述/标签变更）
+                    const detail = isDelta && job && /new=/i.test(job.stage || '')
+                        ? '（' + String(job.stage).replace(/^done\s*/i, '').replace(/\s+/g, ' ') + '）'
+                        : '';
                     progress.set('完成', 1);
-                    setStatus('✅ 已导出: ' + outPath);
-                    notify((isDelta ? '增量包' : '知识包') + '已导出到 ' + outPath, 'success');
+                    setStatus('✅ 已导出: ' + outPath + detail);
+                    notify((isDelta ? '增量包' : '知识包') + '已导出到 ' + outPath + detail, 'success');
                     setTimeout(() => progress.close(), 1500);
                 },
                 failed: (job) => {

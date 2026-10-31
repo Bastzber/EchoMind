@@ -174,11 +174,21 @@ def import_pack(
 
         shutil.rmtree(work_dir, ignore_errors=True)
 
-def _read_pack_shas(pack_path: Path) -> set:
-    """读一个已有知识包的 sha256 集合（生成增量包时用来排除已包含的文件）。"""
+def _meta_signature(description: str, tags: Any) -> str:
+    """描述+标签的稳定指纹：用来判断「这条文件的元数据变过没有」。"""
+    names = [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
+    return json.dumps(
+        {'description': str(description or '').strip(), 'tags': sorted(names)},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _read_pack_meta(pack_path: Path) -> Dict[str, Dict[str, Any]]:
+    """读一个已有知识包：sha256 -> {description, tags, signature}（生成增量包用）。"""
     import zipfile
 
-    shas = set()
+    meta: Dict[str, Dict[str, Any]] = {}
     with zipfile.ZipFile(pack_path) as zf:
         with zf.open('metadata.jsonl') as fh:
             for line in fh:
@@ -186,10 +196,25 @@ def _read_pack_shas(pack_path: Path) -> set:
                 if not line:
                     continue
                 try:
-                    shas.add(str(json.loads(line).get('sha256') or '').lower())
+                    item = json.loads(line)
                 except Exception:
                     continue
-    return shas
+                key = str(item.get('sha256') or '').lower()
+                if not key:
+                    continue
+                meta[key] = {
+                    'description': str(item.get('description') or ''),
+                    'tags': list(item.get('tags') or []),
+                    'signature': _meta_signature(
+                        item.get('description'), item.get('tags')
+                    ),
+                }
+    return meta
+
+
+def _read_pack_shas(pack_path: Path) -> set:
+    """读一个已有知识包的 sha256 集合（兼容旧调用）。"""
+    return set(_read_pack_meta(pack_path))
 
 
 def export_pack(
@@ -226,20 +251,27 @@ def export_pack(
 
         pack_mode = 'full'
         base_count = 0
+        new_count = 0
+        changed_count = 0
         if base_pack:
-            # 增量包：只带「基线包里没有的文件」（新增的），已存在的一律不动，
-            # 避免把对方手工改过的描述覆盖掉。
-            base_shas = _read_pack_shas(Path(base_pack))
-            base_count = len(base_shas)
+            # 增量包带两类文件：
+            #   1. 基线包里没有的（新增文件）；
+            #   2. 基线包里已有、但描述或标签变了的（A4）。
+            # 元数据没变的一律不动，避免把对方手工改过的内容覆盖掉。
+            base_meta = _read_pack_meta(Path(base_pack))
+            base_count = len(base_meta)
             before = len(rows)
-            rows = [r for r in rows if str(r['sha256']).lower() not in base_shas]
+            new_rows, changed_rows = _split_delta_rows(rows, base_meta)
+            rows = new_rows + changed_rows
+            new_count = len(new_rows)
+            changed_count = len(changed_rows)
             pack_mode = 'delta'
             logger.info(
-                '[KnowledgePack] 增量导出：基线 %d 条，本次新增 %d 条（总 %d）',
-                base_count, len(rows), before,
+                '[KnowledgePack] 增量导出：基线 %d 条，新增 %d 条，描述/标签变更 %d 条（总 %d）',
+                base_count, new_count, changed_count, before,
             )
             if not rows:
-                raise KnowledgePackError('对比基线包后没有新增文件，不需要增量包')
+                raise KnowledgePackError('对比基线包后没有新增或变更的文件，不需要增量包')
 
         paths = [str(r['path']) for r in rows]
         try:
@@ -278,6 +310,8 @@ def export_pack(
             'library_root': root,
             'pack_mode': pack_mode,
             'base_pack_files': base_count,
+            'new_files': new_count,
+            'changed_files': changed_count,
             'files': len(rows),
             'vocabulary': sorted(vocab.items(), key=lambda kv: -kv[1])[:4000],
             'kinds': {},
@@ -357,6 +391,9 @@ def export_pack(
         return {
             'path': str(out_path),
             'files': len(rows),
+            'new_files': new_count,
+            'changed_files': changed_count,
+            'pack_mode': pack_mode,
             'size_mb': round(out_path.stat().st_size / 1024 / 1024, 1),
             'kinds': list(manifest['kinds'].keys()),
             'seconds': round(time.time() - started, 1),
@@ -365,3 +402,22 @@ def export_pack(
         import shutil
 
         shutil.rmtree(work_dir, ignore_errors=True)
+
+def _split_delta_rows(
+    rows: List[Dict[str, Any]], base_meta: Dict[str, Dict[str, Any]]
+) -> tuple:
+    """按基线包把当前行分成「新增」和「描述/标签变更」两类（A4）。"""
+    new_rows: List[Dict[str, Any]] = []
+    changed_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        base_item = base_meta.get(str(row['sha256']).lower())
+        if base_item is None:
+            new_rows.append(row)
+            continue
+        try:
+            tags = json.loads(row['tags'] or '[]')
+        except Exception:
+            tags = []
+        if _meta_signature(row['ai_description'], tags) != base_item['signature']:
+            changed_rows.append(row)
+    return new_rows, changed_rows

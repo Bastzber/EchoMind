@@ -264,15 +264,61 @@ class AudioService:
 
     def probe(self, path: os.PathLike[str] | str) -> AudioMetadata:
         source = self._validate_source(path)
-        self._require_pyav()
         try:
-            return self._probe_with_pyav(source)
+            self._require_pyav()
+            info = self._probe_with_pyav(source)
         except Exception as exc:
+            # 有一批正常 MP3（ID3v2.3 + CBR）PyAV 会报「缺少采样率/声道」，
+            # 之前直接被判成损坏文件。这里用纯 Python 帧头解析兜底。
+            fallback = self._probe_mp3_fallback(source)
+            if fallback is not None:
+                logger.warning(
+                    '[Audio] %s PyAV 读取失败（%s），改用 MP3 帧头解析：%.1f 秒 %d Hz',
+                    source.name, exc, fallback.duration, fallback.sample_rate,
+                )
+                return fallback
             raise AudioServiceError(
                 'audio_probe_failed',
                 f'Unable to read audio metadata: {source.name}',
                 details={'path': str(source), 'decoder': 'pyav'},
             ) from exc
+
+        # PyAV 偶尔能打开但给不出时长（VBR / 异常头），也用帧头补一次
+        if info.duration <= 0:
+            fallback = self._probe_mp3_fallback(source)
+            if fallback is not None:
+                logger.info(
+                    '[Audio] %s PyAV 时长为 0，用 MP3 帧头补算：%.1f 秒',
+                    source.name, fallback.duration,
+                )
+                return AudioMetadata(
+                    duration=fallback.duration,
+                    sample_rate=info.sample_rate or fallback.sample_rate,
+                    channels=info.channels or fallback.channels,
+                    format=info.format,
+                    codec=info.codec or 'mp3',
+                )
+        return info
+
+    @staticmethod
+    def _probe_mp3_fallback(source: Path) -> Optional[AudioMetadata]:
+        """纯 Python 解析 MP3 帧头；不是 mp3 或解析失败返回 None。"""
+        if source.suffix.lower() != '.mp3':
+            return None
+        try:
+            from core.mp3_meta import read_mp3_meta
+        except ModuleNotFoundError:
+            from backend.core.mp3_meta import read_mp3_meta  # type: ignore
+        meta = read_mp3_meta(str(source))
+        if not meta or meta['duration'] <= 0:
+            return None
+        return AudioMetadata(
+            duration=float(meta['duration']),
+            sample_rate=int(meta['sample_rate']),
+            channels=int(meta['channels']),
+            format='mp3',
+            codec='mp3-frame-parse',
+        )
 
     def decode(
         self,

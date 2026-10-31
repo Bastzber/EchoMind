@@ -6085,6 +6085,108 @@ async def prune_empty_collections(
     }
 
 
+@app.post("/api/v1/maintenance/backfill-durations")
+async def backfill_durations(
+    project_id: str = Query(default="default"),
+    background_tasks: BackgroundTasks = None,
+):
+    """回填缺失的时长 / 采样率 / 声道。
+
+    历史库里有大量行这几列是 0（导入时没探测或从旧备份恢复），界面上显示 00:00。
+    这里用真正的音频探针重算一遍，按批写回。
+    """
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        missing = cursor.execute(
+            "SELECT COUNT(*) FROM files WHERE project_id=? AND (duration <= 0 OR sample_rate <= 0)",
+            (project_id,),
+        ).fetchone()[0]
+    if not missing:
+        return {"success": True, "missing": 0, "message": "没有需要回填的文件"}
+
+    job_id = db_manager.create_job(project_id, "backfill_durations", int(missing))
+    background_tasks.add_task(_backfill_durations_task, job_id, project_id)
+    return {"success": True, "job_id": job_id, "missing": int(missing)}
+
+
+async def _backfill_durations_task(job_id: str, project_id: str) -> None:
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    db_manager = get_db_manager()
+    from core.audio_service import get_audio_service
+
+    service = get_audio_service()
+    db_manager.update_job(job_id, state="running", stage="probe")
+
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            "SELECT file_uuid, path FROM files WHERE project_id=? AND (duration <= 0 OR sample_rate <= 0)",
+            (project_id,),
+        ).fetchall()
+
+    def work(row):
+        file_uuid, path = row[0], row[1]
+        try:
+            meta = service.probe(path)
+            if meta.duration <= 0:
+                return None
+            return (float(meta.duration), int(meta.sample_rate), int(meta.channels), file_uuid)
+        except Exception:
+            return None
+
+    done = 0
+    updated = 0
+    failed = 0
+    batch: list = []
+    loop = asyncio.get_running_loop()
+
+    def flush():
+        nonlocal updated
+        if not batch:
+            return
+        try:
+            with db_manager.get_cursor() as cursor:
+                cursor.executemany(
+                    "UPDATE files SET duration=?, sample_rate=?, channels=? WHERE file_uuid=?",
+                    batch,
+                )
+                cursor.connection.commit()
+            updated += len(batch)
+        except Exception as exc:
+            logger.warning("[Backfill] 写库失败 %d 条: %s", len(batch), exc)
+        batch.clear()
+
+    def handle(result):
+        nonlocal done, failed
+        done += 1
+        if result:
+            batch.append(result)
+        else:
+            failed += 1
+        if done % 2000 == 0:
+            flush()
+            try:
+                db_manager.update_job(job_id, processed=done)
+            except Exception:
+                pass
+
+    try:
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            futures = [loop.run_in_executor(pool, work, row) for row in rows]
+            for fut in asyncio.as_completed(futures):
+                handle(await fut)
+        flush()
+        db_manager.update_job(
+            job_id, state="completed", stage="done",
+            processed=done, error_message=None,
+        )
+        logger.info("[Backfill] 完成：探测 %d，回填 %d，失败 %d", done, updated, failed)
+    except Exception as exc:
+        db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
+        logger.error("[Backfill] 异常: %s", exc)
+
+
 @app.get("/api/v1/db/stats")
 async def get_db_stats():
     """

@@ -7222,9 +7222,19 @@ async def _repair_index_task(
                 job_id, state="cancelled", stage="project_deleting"
             )
             return
+        # 卡死时把全部线程栈打到日志里（faulthandler 在打包 exe 里也能用）。
+        # 没有这个，任务跑到 98/98 不动时完全看不到卡在哪。
+        import faulthandler
+        import sys as _sys
+
+        faulthandler.dump_traceback_later(120, repeat=True, file=_sys.stderr)
         try:
             await _repair_index_task_locked(job_id, project_id, kinds, mode)
         finally:
+            try:
+                faulthandler.cancel_dump_traceback_later()
+            except Exception:
+                pass
             # 任务异常/取消退出时，本轮标成 processing 的工件必须退回 pending，
             # 否则它们不会被任何对账再捡起来（数字冻结的典型成因）。
             # 只在任务不是正常完成时做，避免和正常流程抢写。

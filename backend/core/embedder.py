@@ -123,7 +123,10 @@ class EmbedderCudaError(RuntimeError):
 MEL_CHUNK_SIZE = 8
 # worker 在 _get_mel_worker 里已 warm 过模型，批量请求不需要再给冷启动留 150s；
 # 60s 足够正常 16 条块的 mel 计算（正常 <15s），毒文件也能更快进入二分定位。
-MEL_BATCH_TIMEOUT = 90.0
+# 实测卡死栈：调用方 join 在 _mel_round_trip_locked 上，worker 读不到结果。
+# 90s × 2 次重试 = 单块 3 分钟，98 条要卡十几分钟，界面上「处理中」就是不动。
+# 正常块 <15s，30s 足够；超时即 kill 重启，让卡死的块快速进入二分/黑名单。
+MEL_BATCH_TIMEOUT = 30.0
 _mel_runtime_blacklist: set = set()
 _mel_runtime_blacklist_lock = threading.Lock()
 

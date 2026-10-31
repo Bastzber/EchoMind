@@ -119,14 +119,18 @@ function showFishChat(anchor) {
             const replyText = String(res?.reply || '');
             if (fishVoiceEnabled() && replyText) {
                 const pendingMsg = fishChat.messages[fishChat.messages.length - 1];
-                // 等语音期间先显示占位，别留一个空气泡
-                pendingMsg.text = '正在准备语音…';
+                // 等语音期间不显示任何占位文案：气泡直接不出现，
+                // 第一段语音就绪时再连同文字一起冒出来（保持助手的人设，别露出"机器在准备"）。
+                fishChat.messages.pop();
+                fishChatSave(fishChat.messages);
                 paint();
                 let revealed = false;
                 const reveal = () => {
                     if (revealed) return;
                     revealed = true;
                     pendingMsg.text = replyText;
+                    fishChat.messages.push(pendingMsg);
+                    fishChatSave(fishChat.messages);
                     paint();
                 };
                 // 兜底：语音 8 秒还没就绪就先显示文字，别让用户干等

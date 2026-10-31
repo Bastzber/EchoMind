@@ -13,9 +13,9 @@
 >
 > 本地优先、AI 驱动的桌面音效管理器。
 
-当前源码版本为 **v0.3.0-beta.12（预发布）**。
+当前源码版本为 **v0.3.0-beta.13（预发布）**。
 
-测试版 V12 · [发布页](https://github.com/Bastzber/EchoMind/releases)
+测试版 V13 · [发布页](https://github.com/Bastzber/EchoMind/releases)
 
 > **本项目基于 [SoundBot](https://github.com/Huckrick/SoundBot) 修改而来**（原作者 Nagisa_Huckrick / 胡杨，GPL-3.0-or-later）。
 > 本仓库保留原许可证与署名，在其基础上做了中文本地化、检索链路与索引稳定性的调整，
@@ -27,11 +27,11 @@
 
 ## 📥 下载
 
-**网盘里的安装包：v0.3.0-beta.12（测试版 V12）· Windows x64**
+**网盘里的安装包：v0.3.0-beta.13（测试版 V13）· Windows x64**
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| **完整安装包（V12）**（6.67 GB） | 解压即用，**不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
+| **完整安装包（V13）** | 解压即用，**不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
 | 描述包（64,781 条） | 安装包根目录已带；也可单独下载 | `EchoMind-描述包.json` |
 | 标签包（64,983 条） | 系统标签 + 用户标签 + 3,993 词表 | `EchoMind-标签包.json` |
 
@@ -90,7 +90,7 @@
 
 ## ✨ 功能特性
 
-| 能力 | v0.3.0-beta.12 行为 |
+| 能力 | v0.3.0-beta.13 行为 |
 | --- | --- |
 | 文件导入 | 沙箱化 preload 通过最小 IPC bridge 调用原生文件/文件夹选择器并只提交绝对路径；后端先写入 SQLite，再由可取消、可轮询的持久化作业生成波形和两个向量 |
 | 音频解码 | 固定版本 `av==18.0.0`（PyAV）及其 wheel 内 FFmpeg 动态库统一解码，不依赖系统 `ffmpeg` 命令 |

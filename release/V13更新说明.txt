@@ -1,0 +1,71 @@
+# 回声 EchoMind 测试版 V13 · 更新说明
+
+**版本**：v0.3.0-beta.13（测试版 V13）
+**上一版**：V12（v0.3.0-beta.12）
+
+---
+
+## 一句话
+
+这一版是**索引可靠性**收尾：长 ID3 的配乐 MP3 一直编不出音频向量，根因找到并修好了；
+索引失败现在会写明原因，工件计数也和文件数对齐了。
+
+---
+
+## 修复
+
+### 长 ID3 配乐 MP3 编不出音频向量（本次主项）
+
+- 现象：`F:\CJ音效库整合包V1\音乐与乐器\完整配乐\` 下的一批 MP3 永远 `audio_index_failed`
+- 根因：mel 编码子进程的主循环把 `_process_one()` 返回的 `(features, reason)` 当成 features
+  交给 `_forward_one()`，内部 `AttributeError` 被吞掉 —— **worker 对任何文件都返回 None**
+- 不是签名 / ID3 / 解码器 / 模型限制：同一路径在主进程里能正常得到 512 维向量
+- 实测：`audio_vector` ready 64,873 / failed 1 → **ready 64,874 / failed 0**
+
+### 失败原因不再「未知」
+
+- 索引失败写进 artifact 的原因现在带具体值：`blacklisted` / `decode_timeout` /
+  `forward_none` / `processor_error`
+- 被毒文件名单拦掉的路径也会标明 `blacklisted`，而不是静默返回空
+
+### 慢文件不再被判失败
+
+- 特征提取超过 3 秒的正常文件以前会被写成 `error`，现在只记诊断、继续编码
+
+---
+
+## 变更
+
+- **毒文件名单保持「漏封」**：单文件编码超时不再写名单（原来那三列格式读取端从来不认，
+  实际从未生效），改为一条 warning 日志；名单只由二分定位失败两次的文件写入
+- **工件计数只看仍然存在的文件**：`get_artifact_counts` 改为 JOIN files，无主工件不再让界面
+  永远显示「待索引 N」
+
+---
+
+## 清理
+
+- 删除 24 行孤儿工件（音频 pending 6 / ready 2、文本 pending 8、波形 pending 1 / ready 7），
+  删除前已把整行备份到 `%APPDATA%\EchoMind\db\orphan-artifacts-*.json`
+- 新增 `scripts/prune_orphan_artifacts.py`（默认 dry-run），以后可复查
+
+清完之后三个 kind 的 ready 首次与文件总数完全一致：**各 64,872**。
+
+---
+
+## 升级方式
+
+**方式一（推荐）**：解压新版完整包，覆盖到原目录（描述包、标签包、音效库都不受影响）
+
+**方式二**：只替换下面三样，体积小得多
+- `win-unpacked\resources\app.asar`
+- `win-unpacked\resources\backend\soundbot-backend\`（整个目录）
+- `win-unpacked\更新说明.txt` / `安装指南.txt`
+
+> 升级前建议备份 `%APPDATA%\EchoMind`。
+> 升级后打开界面等 1 分钟：上一版失败的那条音频向量会在这轮自动补上（也可以在
+> 常用条点「修复音频向量」立刻触发）。
+
+---
+
+**许可证**：GPL-3.0-or-later

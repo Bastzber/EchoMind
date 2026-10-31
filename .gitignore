@@ -4,11 +4,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build output
+# Build output（只忽略仓库根目录的 electron-builder 资源目录；
+# tests/build/ 是 CI 用的校验脚本，必须入库）
 dist/
 dist-electron/
 dist-electron*/
-build/
+/build/
 !build/icon.icns
 !build/icon.ico
 !build/icon.png

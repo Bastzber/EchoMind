@@ -194,8 +194,11 @@ function showSoundContextMenu(event, sound) {
     menu.className = 'fixed z-[200] rounded-lg shadow-xl py-1 w-52';
     menu.style.backgroundColor = 'var(--bg-secondary)';
     menu.style.border = '1px solid var(--border-color)';
-    menu.style.left = `${Math.min(event.clientX, window.innerWidth - 230)}px`;
-    menu.style.top = `${Math.min(event.clientY, window.innerHeight - 340)}px`;
+    // 先隐藏挂载、量出真实尺寸再定位：菜单项数量会变，写死 340px 会在
+    // 靠下的行上溢出屏幕（看起来像被截断）。
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    menu.style.visibility = 'hidden';
 
     const multi = selectedSounds.size > 0 && selectedSounds.has(sound.id);
 
@@ -301,7 +304,31 @@ function showSoundContextMenu(event, sound) {
     };
     setTimeout(() => document.addEventListener('click', closeMenu), 100);
     document.body.appendChild(menu);
+    placeMenuWithinViewport(menu, event);
+    menu.style.visibility = 'visible';
     lucide.createIcons();
+}
+
+// 让弹出菜单完整落在窗口内：下方放不下就往上翻，右侧放不下就向左翻
+function placeMenuWithinViewport(menu, event) {
+    const gap = 8;
+    const rect = menu.getBoundingClientRect();
+    const w = rect.width || 208;
+    const h = rect.height || 300;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = event.clientX;
+    if (left + w + gap > vw) left = Math.max(gap, vw - w - gap);
+
+    let top = event.clientY;
+    if (top + h + gap > vh) {
+        // 优先往上翻（在鼠标上方展开），上方也不够就贴底
+        top = event.clientY - h;
+        if (top < gap) top = Math.max(gap, vh - h - gap);
+    }
+    menu.style.left = Math.round(left) + 'px';
+    menu.style.top = Math.round(top) + 'px';
 }
 
 // 把选中的音效加入某个用户文件夹（常用/收藏等）

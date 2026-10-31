@@ -6258,6 +6258,15 @@
                     <div class="mb-6">
                         <h4 class="text-sm font-medium mb-1">批量生成一句话描述</h4>
                         <p class="text-xs opacity-60 mb-4">为库中音效批量生成 AI 一句话描述。描述写入后会同步进文本索引，之后搜索时描述也能被直接命中（无需每次调用 AI）。可断点续跑：中途停止后再次点击会继续处理剩余文件；完成后自动重建文本索引。</p>
+                        <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+                            <div class="text-xs font-medium mb-1">🪄 同时自动打上「系统标签」</div>
+                            <p class="text-xs opacity-60">
+                                每生成一条描述，AI 会同时分析音频内容，产出 4~8 个描述性标签
+                                （如「呼啸声 / 电子 / 快速 / 长尾 / 高频」），写入该音效的<b>系统标签</b>。
+                                这就是列表里音效标签的来源——<b>不需要单独操作</b>，跟着描述一起生成。
+                                你手动加的标签叫「我的标签」，两者分开存放、互不影响。
+                            </p>
+                        </div>
                         <div class="flex items-center gap-3 mb-4">
                             <button id="batchDescBtn"
                                     class="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors hover:opacity-90"

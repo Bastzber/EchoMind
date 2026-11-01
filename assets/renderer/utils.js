@@ -203,9 +203,12 @@ function maybeShowIndexBacklogCard(status, busy, job) {
     const textBacklog = num(text.pending) + num(text.stale);
     const backlog = audioBacklog + textBacklog;
     const dismissed = sessionStorage.getItem('echomind.indexBacklogDismissed') === '1';
-    // 同样的位置只放一张卡：导入中 / 知识包提示在 / 用户关过 → 都不显示
+    // 同样的位置只放一张卡：导入中 / 知识包提示在 / 知识包正在导 / 用户关过 → 都不显示
     const knowledgeCard = document.getElementById('knowledgeOfferCard');
-    if (busy || importOrScanRunning() || knowledgeCard || backlog < 1000 || dismissed) {
+    // 知识包导入进度卡（packProgressCard）也占 right:20px;bottom:20px，
+    // 不排除它就会像 11-01 16:5x 那样整张盖住这张卡。
+    const packBusy = document.getElementById('packProgressCard');
+    if (busy || importOrScanRunning() || knowledgeCard || packBusy || backlog < 1000 || dismissed) {
         if (existing) existing.remove();
         return;
     }

@@ -31,6 +31,10 @@
     // 有导入弹窗时把这张卡往上挪 130px。
     function showProgress(title) {
         document.getElementById('packProgressCard')?.remove();
+        // 右下角是同一块地：导包过程中把「索引还没建完」「检测到知识包」都收掉，
+        // 否则三个卡片叠在一起（11-01 16:5x 用户截图）。
+        document.getElementById('indexBacklogCard')?.remove();
+        document.getElementById('knowledgeOfferCard')?.remove();
         const stack = window.importRuntime && window.importRuntime.scanProgressModal
             && window.importRuntime.scanProgressModal.isConnected;
         const bottom = stack ? 130 : 20;

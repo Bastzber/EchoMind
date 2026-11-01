@@ -246,6 +246,7 @@ def import_pack(
 
     import numpy as np
 
+    seen_ids: set = set()
     for sha_hex, raw_vec in _iter_records(bin_path, header['count'], dim):
         if cancelled and cancelled():
             raise VectorPackError('已取消导入')
@@ -255,9 +256,18 @@ def import_pack(
         if row is None:
             missing += 1
             continue
+        # 包内两条记录可能命中同一个本地文件（reverse_path 一条 + filename 一条），
+        # Chroma 按 id upsert 会合并成一条，写入计数却按两条累加 →
+        # 最后校验 expected=64575 actual=64574 直接判失败，整包作废
+        # （用户 11-01 22:5x 公司电脑实测：两个 kind 都栽在这 1 条差上）。
+        file_id = str(row['file_uuid'])
+        if file_id in seen_ids:
+            continue
+        seen_ids.add(file_id)
+
         matched += 1
         vec = np.frombuffer(raw_vec, dtype=np.float16).astype(np.float32)
-        ids.append(str(row['file_uuid']))
+        ids.append(file_id)
         ids_all.append(str(row['file_uuid']))
         vectors.append(vec.tolist())
         metadatas.append(_metadata_for(row, kind, fingerprint, str(row.get('path') or '')))

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tempfile
 import time
 import zipfile
@@ -129,11 +130,34 @@ def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dic
         )
         applied = int(result.get('applied') or 0)
         fts_ids = result.get('fts_pending') or []
+    # 没匹配上的条目导出成 CSV：公司库有新增音效时，这些就是「包里没有 / 路径变了」的那批，
+    # 用户拿这个清单去核对，或者直接让它在后台自己建索引。
+    missing_csv = ''
+    missing_items = preview.get('missing') or []
+    if missing_items:
+        try:
+            import csv as _csv
+            from datetime import datetime as _dt
+            logs_dir = Path(os.environ.get('APPDATA') or tempfile.gettempdir()) / 'EchoMind' / 'logs'
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            csv_path = logs_dir / f'knowledge-unmatched-{_dt.now():%Y%m%d-%H%M%S}.csv'
+            with open(csv_path, 'w', encoding='utf-8-sig', newline='') as fh:
+                writer = _csv.writer(fh)
+                writer.writerow(['包内相对路径', '文件名', '原因', '包内描述'])
+                for row in missing_items:
+                    writer.writerow([row.get('rel', ''), row.get('filename', ''),
+                                     row.get('reason', ''), row.get('description', '')])
+            missing_csv = str(csv_path)
+            logger.info('[KnowledgePack] 未匹配 %d 条，清单: %s', len(missing_items), csv_path)
+        except Exception as exc:
+            logger.debug('[KnowledgePack] 写未匹配清单失败: %s', exc)
+
     return {
         'matched': matched,
         'missing': missing,
         'applied': applied,
         'by_kind': preview.get('by_kind') or {},
+        'missing_csv': missing_csv,
         'pairs': pairs,
         'fts_pending': fts_ids if pairs else [],
     }

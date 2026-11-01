@@ -2196,8 +2196,27 @@ ipcMain.handle('dialog-save', async (event, options) => {
     try {
       const result = await updaterApply.apply(zipPath, installRoot, backupRoot);
       if (result && result.needsRestart) {
-        // app.asar 之类正在被占用的文件：退出后再换
+        // app.asar / soundbot-backend.exe 正在被占用：留 .updating，等退出后换。
+        // 关键：cmd 生成后必须真的执行 —— 11-01 那版只写了 .finish-update.cmd 从没启动过，
+        // 结果公司电脑连装 r26/r27/r28 三次，backend 一直停在 r25，界面还报「更新成功」。
         updaterApply.schedulePendingSwap(installRoot, process.execPath);
+        const pendingBat = path.join(installRoot, '.finish-update.cmd');
+        if (fsSync.existsSync(pendingBat)) {
+          try {
+            spawn('cmd.exe', ['/c', pendingBat], {
+              detached: true, stdio: 'ignore', windowsHide: true,
+            }).unref();
+            // cmd 里的 timeout 等本进程退出，这里主动退出让它接管替换与重启
+            setTimeout(() => { try { app.exit(0); } catch (_) { } }, 1500);
+          } catch (spawnError) {
+            return { ...result, ok: false, error: '需要重启才能完成替换，但替换脚本启动失败: ' + (spawnError?.message || spawnError) };
+          }
+        } else {
+          return {
+            ...result, ok: false,
+            error: '有 ' + result.pendingCount + ' 个文件被占用，替换脚本没有生成，请完全退出程序后重装更新包',
+          };
+        }
       }
       return result;
     } catch (error) {

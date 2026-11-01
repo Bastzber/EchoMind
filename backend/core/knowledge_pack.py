@@ -68,43 +68,32 @@ def _prepare_kind_manifests(manifest: Dict[str, Any], work_dir: Path) -> None:
         )
 
 
-def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dict[str, int]:
-    """按 sha256 把描述/标签写进库；没命中的只统计不报错。"""
+def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dict[str, Any]:
+    """把包里的描述/标签写进库。
+
+    匹配走 metadata_pack 的四级规则（sha256 → 全路径 → 父目录+文件名 → 唯一文件名），
+    **不是只有 sha256**。新工程刚导完音效库时哈希还在后台补算，只按 sha256 匹配
+    会一条都对不上（用户 11-01 16:4x 遇到的就是这个：明明文件都在，却要等哈希）。
+    """
     from core import metadata_pack
 
-    sha_to_row: Dict[str, Dict[str, Any]] = {}
-    with db.get_cursor() as cursor:
-        for row in cursor.execute(
-            'SELECT file_uuid, sha256 FROM files WHERE project_id=? AND sha256 IS NOT NULL',
-            (project_id,),
-        ):
-            data = dict(row)
-            sha_to_row[str(data['sha256']).lower()] = data
-
-    pairs: List[Dict[str, Any]] = []
-    matched = 0
-    missing = 0
+    items: List[Dict[str, Any]] = []
     with open(meta_path, 'r', encoding='utf-8') as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
             try:
-                item = json.loads(line)
+                items.append(json.loads(line))
             except Exception:
                 continue
-            row = sha_to_row.get(str(item.get('sha256') or '').lower())
-            if row is None:
-                missing += 1
-                continue
-            matched += 1
-            if progress and matched % 2000 == 0:
-                progress('metadata', matched, 0)
-            pairs.append({
-                'file_uuid': str(row['file_uuid']),
-                'description': str(item.get('description') or ''),
-                'tags': item.get('tags') or [],
-            })
+
+    if progress:
+        progress('metadata', 0, len(items))
+    preview = metadata_pack.preview(project_id, items, db)
+    pairs = preview.get('pairs') or []
+    matched = len(pairs)
+    missing = int(preview.get('unmatched') or 0) + int(preview.get('ambiguous') or 0)
     applied = 0
     if pairs:
         result = metadata_pack.apply(
@@ -112,7 +101,12 @@ def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dic
             progress=(lambda stage, done, total: progress('metadata', done, total)) if progress else None,
         )
         applied = int(result.get('applied') or 0)
-    return {'matched': matched, 'missing': missing, 'applied': applied}
+    return {
+        'matched': matched,
+        'missing': missing,
+        'applied': applied,
+        'by_kind': preview.get('by_kind') or {},
+    }
 
 
 def import_pack(

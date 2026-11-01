@@ -59,6 +59,7 @@
 
     const STAGE_LABELS = {
         metadata: '写描述和标签',
+        apply: '写描述和标签',
         audio_vector: '导入音频向量',
         text_vector: '导入文本向量',
     };
@@ -91,47 +92,10 @@
         setStatus('仍在后台进行，可在任务列表查看');
     }
 
-    // 知识包按 sha256 匹配文件。刚导完音效库时哈希还在后台补算，
-    // 这时候导包会「应用 0 条」，看起来像导入失败。先等哈希算完再导。
-    async function ensureHashesReady(progress) {
-        const projectId = ctx.getProject();
-        const q = '/api/v1/index/hash?project_id=' + encodeURIComponent(projectId || 'default');
-        let pending = 0;
-        try {
-            const status = await ctx.api.get(q, { timeoutMs: 20000 });
-            pending = Number(status?.pending || 0);
-        } catch (_) {
-            return;
-        }
-        if (pending <= 0) return;
-        if (progress) progress.set('正在补算文件哈希（还剩 ' + pending + ' 条）…', 0.02);
-        try {
-            await ctx.api.post('/api/v1/index/hash?project_id=' + encodeURIComponent(projectId || 'default'), {}, { timeoutMs: 30000 });
-        } catch (_) { }
-        const deadline = Date.now() + 5 * 60 * 1000;
-        while (Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, 2000));
-            let left = 0;
-            try {
-                const s = await ctx.api.get(q, { timeoutMs: 20000 });
-                left = Number(s?.pending || 0);
-            } catch (_) { continue; }
-            if (progress) {
-                progress.set('正在补算文件哈希（还剩 ' + left + ' 条）…', left > 0 ? 0.02 : 0.05);
-            }
-            if (left <= 0) return;
-        }
-    }
-
     async function importPack(filePath) {
         try {
-            setStatus('正在准备（补算文件哈希）…');
-            const prep = showProgress('正在准备导入');
-            try {
-                await ensureHashesReady(prep);
-            } finally {
-                prep.close();
-            }
+            // 不再等哈希：后端改成四级匹配（哈希 → 全路径 → 父目录+文件名 → 唯一文件名），
+            // 文件已经在库里就能对上，不需要先算完 sha256。
             setStatus('正在检查知识包…');
             const res = await ctx.api.post(
                 '/api/v1/knowledge/import',

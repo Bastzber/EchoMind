@@ -41,6 +41,7 @@ def backfill(
     project_id: str,
     progress: Optional[Callable[[str, int, int], None]] = None,
     cancelled: Optional[Callable[[], bool]] = None,
+    pause_check: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """把 duration<=0 的文件补上时长，返回统计。"""
     with db_manager.get_cursor() as cursor:
@@ -58,9 +59,17 @@ def backfill(
 
     logger.info("[Duration] 开始补时长：%d 条", total)
     updated = failed = 0
+    import time as _time
+
     for start in range(0, total, BATCH):
         if cancelled and cancelled():
             break
+        # 知识包导入在跑时让路：两边都写 files 表，抢写锁就是「两边进度都不动」
+        # （用户 11-01 20:05 卡在 64554 就是这个）。
+        waited = 0
+        while pause_check and pause_check() and waited < 300:
+            _time.sleep(1.0)
+            waited += 1
         chunk = rows[start:start + BATCH]
         results: List[Tuple[float, int, int, str]] = []
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:

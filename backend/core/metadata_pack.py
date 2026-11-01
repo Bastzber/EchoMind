@@ -210,6 +210,7 @@ def apply(
     db_manager=None,
     batch_size: int = 800,
     progress: Optional[Callable[[str, int, int], None]] = None,
+    sync_fts: bool = True,
 ) -> Dict[str, Any]:
     """把匹配结果写库：默认只补空白，overwrite=True 才覆盖。
 
@@ -315,11 +316,16 @@ def apply(
                 progress("apply", min(start + batch_size, len(ids)), len(ids))
             except Exception:
                 pass
+        # 让出写锁 30ms：81 批连着写会把 SQLite 的写锁占满几十秒，
+        # 界面请求排队 → 前端显示「读取失败」（用户 11-01 20:5x）。
+        import time as _t
+        _t.sleep(0.03)
 
     # FTS 同步：6.5 万条要 130 次小事务，原来整段没有任何进度，
     # 界面就停在「64575/64893」不动（用户 11-01 17:2x 说卡住）。
     # 这里按 5000 条一批推进并回报，进度条能一直走到 100%。
-    if fts_pending:
+    # sync_fts=False 时把这批 id 交给调用方，由后台任务慢速补（磁盘 IO 是导入卡顿的主因）
+    if fts_pending and sync_fts:
         total_fts = len(fts_pending)
         for fts_start in range(0, total_fts, 5000):
             fts_chunk = fts_pending[fts_start:fts_start + 5000]
@@ -351,6 +357,7 @@ def apply(
         "skipped": skipped,
         "touched": len(touched),
         "user_tags": tag_rows,
+        "fts_pending": fts_pending if not sync_fts else [],
     }
 
 

@@ -92,15 +92,22 @@ class ConnectionManager:
             return
 
         disconnected = set()
-        for connection in self.active_connections[client_id]:
+        # 必须遍历副本：await send_json 期间另一个协程可能 discard 连接
+        # （WebSocket 断开），直接遍历 set 会抛「Set changed size during iteration」，
+        # 那个异常会顺着调用栈冒到导入任务里，把整个导入判成失败（用户 11-01 19:1x 卡 45%）。
+        for connection in list(self.active_connections.get(client_id, ())):
             try:
                 await connection.send_json(message)
             except Exception:
                 disconnected.add(connection)
 
-        # 清理断开的连接
-        for conn in disconnected:
-            self.active_connections[client_id].discard(conn)
+        # 清理断开的连接。注意用 get：上面的 await 期间客户端可能已经整体断开，
+        # active_connections[client_id] 被删掉，直接索引会抛 KeyError 'client_xxx'
+        # （用户 11-01 19:28 看到的就是这个）。
+        conns = self.active_connections.get(client_id)
+        if conns is not None:
+            for conn in disconnected:
+                conns.discard(conn)
 
     async def send_to_all(self, message: dict):
         """

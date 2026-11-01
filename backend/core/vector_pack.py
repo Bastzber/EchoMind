@@ -69,6 +69,12 @@ def validate(pack: Dict[str, Any], local: Optional[Dict[str, Any]], kind: str) -
         local_value = str(local.get(field) or '')
         if not pack_value:
             continue
+        # 本机 manifest 没记这一项时不能当成「不匹配」：老工程记了 dimensions，
+        # 新建工程的 manifest 是 None，结果文本向量被整包拒收（用户 11-01 21:32：
+        # 文本待索引 65151 一条没进）。指纹/模型/预处理这几项仍然照常校验。
+        if not local_value:
+            logger.info("[VectorPack] 本机 manifest 缺少 %s，跳过该项校验", label)
+            continue
         if pack_value != local_value:
             raise VectorPackError(
                 f'{label}不匹配：包={pack_value[:24]}… 本机={local_value[:24]}…，'

@@ -119,17 +119,23 @@ def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dic
 
     applied = 0
     if pairs:
+        # 不在这里同步 FTS：6.5 万条描述 + 全文索引一起写会把磁盘打满，
+        # 表现就是「进度卡在 64554、界面读取失败」（用户 11-01 20:30）。
+        # 交给导入完成后的后台任务慢速补，或者干脆靠向量搜索。
         result = metadata_pack.apply(
             project_id, pairs, overwrite=False, db_manager=db,
             progress=(lambda stage, done, total: progress('metadata', done, total)) if progress else None,
+            sync_fts=False,
         )
         applied = int(result.get('applied') or 0)
+        fts_ids = result.get('fts_pending') or []
     return {
         'matched': matched,
         'missing': missing,
         'applied': applied,
         'by_kind': preview.get('by_kind') or {},
         'pairs': pairs,
+        'fts_pending': fts_ids if pairs else [],
     }
 
 
@@ -197,6 +203,7 @@ def import_pack(
                 raise KnowledgePackError('已取消导入')
             if progress:
                 progress(kind, 0, int(info.get('count') or 0))
+            logger.info('[KnowledgePack] 开始导入 %s（%s 条）', kind, info.get('count'))
             try:
                 result = vector_pack.import_pack(
                     db_manager, project_id, kind, work_dir, None,
@@ -207,10 +214,14 @@ def import_pack(
                     sha_rows=sha_rows,
                 )
                 kinds_report[kind] = result
+                logger.info('[KnowledgePack] %s 完成: %s', kind, result)
             except vector_pack.VectorPackError as exc:
                 # 向量缺失不该让整个包失败：元数据已经写进去了
                 logger.warning('[KnowledgePack] %s 导入失败: %s', kind, exc)
                 kinds_report[kind] = {'error': str(exc)}
+            except Exception as exc:
+                logger.exception('[KnowledgePack] %s 导入异常: %s', kind, exc)
+                kinds_report[kind] = {'error': f'{type(exc).__name__}: {exc}'}
         report['kinds'] = kinds_report
         report['seconds'] = round(time.time() - started, 1)
         return report

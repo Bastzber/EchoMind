@@ -2251,7 +2251,9 @@ async def _scan_and_import_task_locked(
             _schedule_waveform_after_import(project_id)
 
     except Exception as e:
-        logger.error(f"扫描导入失败: {e}")
+        # 打完整堆栈：11-01 19:1x 那次只留了一行「Set changed size during iteration」，
+        # 定位不到是哪段循环，查了半天。
+        logger.exception(f"扫描导入失败: {e}")
         db_manager.update_job(
             task_id, state="failed", stage="failed",
             error_code="import_failed", error_message=str(e),
@@ -3664,11 +3666,21 @@ async def _run_hash_backfill(project_id: str) -> None:
     if _hash_task_running:
         return
     _hash_task_running = True
+    from core import heavy_task as _heavy
+
+    _heavy.enter("hash")
     try:
         from core.content_hash import sha256_file
 
         db = get_db_manager()
+        from core import heavy_task as _heavy
+
         while not _shutting_down:
+            # 有导入/知识包在跑就让路：算哈希要读 6 万个文件 + 写库，
+            # 撞上导入就是「两边都卡 + database is locked」（11-01 20:56 实测）。
+            if _heavy.busy("hash"):
+                await asyncio.sleep(2.0)
+                continue
             batch = await asyncio.to_thread(db.files_needing_hash, project_id, 60)
             if not batch:
                 break
@@ -3690,6 +3702,7 @@ async def _run_hash_backfill(project_id: str) -> None:
     except Exception as exc:
         logger.warning("[Hash] 补算失败: %s", exc)
     finally:
+        _heavy.leave("hash")
         _hash_task_running = False
 
 async def _backfill_content_hashes() -> None:
@@ -3697,6 +3710,9 @@ async def _backfill_content_hashes() -> None:
     await _run_hash_backfill(getattr(config, "CURRENT_PROJECT_ID", "default"))
 
 
+
+# 知识包导入互斥：同时跑两个会抢写锁，进度看起来就是不动
+_knowledge_import_running = False
 
 _rescan_state = {"running": False, "scanned": 0, "added": 0, "roots": [], "error": ""}
 
@@ -6106,6 +6122,14 @@ async def knowledge_pack_import(payload: KnowledgeImportRequest, background_task
     """导入知识包：写描述/标签 + 导入两套向量，一个任务跑完。"""
     from core import knowledge_pack
 
+    global _knowledge_import_running
+    # 同时开两个知识包任务会互相抢写锁，看起来就是「进度不动」（11-01 19:49 用户选了两次包）。
+    if _knowledge_import_running:
+        raise HTTPException(
+            status_code=409,
+            detail="已有知识包正在导入，等它跑完再导第二个",
+        )
+
     zip_path = (payload.path or "").strip()
     if not zip_path:
         for candidate in _knowledge_pack_candidates():
@@ -6122,6 +6146,7 @@ async def knowledge_pack_import(payload: KnowledgeImportRequest, background_task
     project_id = payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default")
     db_manager = get_db_manager()
     job_id = db_manager.create_job(project_id, "knowledge_import", int(info.get("files") or 0))
+    _knowledge_import_running = True
     background_tasks.add_task(_knowledge_import_task, job_id, project_id, Path(zip_path))
     return {
         "success": True,
@@ -6133,6 +6158,22 @@ async def knowledge_pack_import(payload: KnowledgeImportRequest, background_task
     }
 
 
+async def _backfill_fts_slow(project_id: str, ids: List[str]) -> None:
+    """慢速补全文索引：每 2000 条歇 0.3 秒，不跟界面抢磁盘。"""
+    db_manager = get_db_manager()
+    total = len(ids)
+    done = 0
+    for start in range(0, total, 2000):
+        chunk = ids[start:start + 2000]
+        try:
+            await asyncio.to_thread(db_manager.update_fts_rows, project_id, chunk)
+        except Exception as exc:
+            logger.warning("[FTS] 补同步失败: %s", exc)
+        done += len(chunk)
+        await asyncio.sleep(0.3)
+    logger.info("[FTS] 后台补同步完成: %d 条", done)
+
+
 async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -> None:
     """后台导知识包：进度写进 job，前端轮询 /api/v1/jobs/{id}。"""
     import asyncio
@@ -6140,6 +6181,9 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
     from core import knowledge_pack
 
     db_manager = get_db_manager()
+    from core import heavy_task as _heavy
+
+    _heavy.enter("knowledge_pack")
     db_manager.update_job(job_id, state="running", stage="unpacking")
 
     def progress(stage: str, done: int, total: int) -> None:
@@ -6161,6 +6205,15 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
         )
         # 匹配数为 0 说明一个文件都没对上（多半是 sha256 还没算完），
         # 这不是「成功」：写进 stage 让前端明确提示，别报「索引已就绪」。
+        # FTS 延后补：知识包导入时不同步全文索引（磁盘会满负荷），
+        # 这里起一个慢速后台任务分批补，不挡界面。
+        _fts_ids = ((report.get("metadata") or {}).get("fts_pending")) or []
+        if _fts_ids:
+            try:
+                asyncio.create_task(_backfill_fts_slow(project_id, _fts_ids))
+            except Exception as _exc:
+                logger.debug("[KnowledgePack] FTS 补同步调度失败: %s", _exc)
+
         matched = int(((report.get("metadata") or {}).get("matched")) or 0)
         applied = int(((report.get("metadata") or {}).get("applied")) or 0)
         db_manager.update_job(
@@ -6176,6 +6229,10 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
     except Exception as exc:
         db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
         logger.error("[KnowledgePack] 导入异常: %s", exc)
+    finally:
+        global _knowledge_import_running
+        _knowledge_import_running = False
+        _heavy.leave("knowledge_pack")
 
 
 class KnowledgeExportRequest(BaseModel):
@@ -7409,17 +7466,31 @@ async def _start_index_job(
     }
 
 
+def _heavy_task_busy(except_name: str) -> bool:
+    """有别的重活在跑就返回 True（让路的任务用）。"""
+    from core import heavy_task
+
+    return heavy_task.busy(except_name)
+
+
 async def _backfill_durations(project_id: str) -> None:
     """导入完成后补时长（后台，不阻塞）。"""
     from core import duration_backfill
+    from core import heavy_task as _heavy
 
+    _heavy.enter("duration")
     try:
         report = await asyncio.to_thread(
-            duration_backfill.backfill, get_db_manager(), project_id
+            duration_backfill.backfill, get_db_manager(), project_id,
+            None,
+            None,
+            lambda: _knowledge_import_running or _heavy_task_busy("duration"),
         )
         logger.info("[Duration] 结果: %s", report)
     except Exception as exc:
         logger.warning("[Duration] 失败: %s", exc)
+    finally:
+        _heavy.leave("duration")
 
 
 def _schedule_waveform_after_import(project_id: str) -> None:

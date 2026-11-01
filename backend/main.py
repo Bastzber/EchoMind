@@ -1986,6 +1986,11 @@ async def _scan_and_import_task_locked(
                         total, IMPORT_INLINE_INDEX_LIMIT)
 
         _ws_loop_start = 0.0
+        # M11 批量提交：大库导入把写库攒成一个事务，每 200 条落盘一次。
+        # 前提是所有写都走同一个单线程 executor（同一连接），否则就是 r15 的死锁。
+        _bulk_commit = not probe_inline
+        if _bulk_commit:
+            await _run_db_work(db_manager.begin_batch)
         for i, audio_file in enumerate(audio_files):
             _iter_start = time.monotonic()
             # 检查是否取消
@@ -1995,6 +2000,8 @@ async def _scan_and_import_task_locked(
                     "用户取消"
                 )
                 ws_manager.unregister_task(task_id)
+                if _bulk_commit:
+                    await _run_db_work(db_manager.end_batch)
                 db_manager.update_job(
                     task_id, state="cancelled", stage="cancelled", processed=i
                 )
@@ -2095,7 +2102,8 @@ async def _scan_and_import_task_locked(
             )
             if file_uuid:
                 if waveform_error:
-                    db_manager.set_artifact_state(
+                    await _run_db_work(
+                        db_manager.set_artifact_state,
                         project_id,
                         file_uuid,
                         "waveform",
@@ -2134,18 +2142,21 @@ async def _scan_and_import_task_locked(
                             indexed += await _flush_vector_batch(vector_pending, project_id)
                             vector_pending = []
                     elif defer_vectors:
-                        db_manager.set_artifact_state(
+                        await _run_db_work(
+                            db_manager.set_artifact_state,
                             project_id, file_uuid, "audio_vector", "pending",
                             source_fingerprint=source_fingerprint,
                         )
                 except Exception as e:
                     logger.warning(f"生成语义索引失败 {audio_file.path}: {e}")
-                    db_manager.set_artifact_state(
+                    await _run_db_work(
+                        db_manager.set_artifact_state,
                         project_id, file_uuid, "audio_vector", "failed",
                         error_code="audio_index_failed", error_message=str(e),
                     )
                 if defer_vectors:
-                    db_manager.set_artifact_state(
+                    await _run_db_work(
+                        db_manager.set_artifact_state,
                         project_id, file_uuid, "text_vector", "pending",
                         source_fingerprint=source_fingerprint,
                     )
@@ -2155,7 +2166,18 @@ async def _scan_and_import_task_locked(
                         await _flush_text_batch(text_pending, project_id, folder_context)
                         text_pending = []
             _t_before_job = time.monotonic()
-            db_manager.update_job(task_id, processed=i + 1, stage="indexing")
+            if _bulk_commit:
+                # 批量模式下当前连接持有写事务，主线程直接写会等锁；
+                # 每 20 条报一次进度就够了（前端 2 秒轮询一次）。
+                if (i + 1) % 20 == 0:
+                    await _run_db_work(
+                        db_manager.update_job, task_id,
+                        processed=i + 1, stage="indexing",
+                    )
+                if (i + 1) % 200 == 0:
+                    await _run_db_work(db_manager.flush_batch)
+            else:
+                db_manager.update_job(task_id, processed=i + 1, stage="indexing")
             if os.getenv("ECHOMIND_IMPORT_PROFILE") == "1" and i < 40:
                 logger.info(
                     "[IMPORT_PROFILE] %s iter=%.0fms write=%.0fms job=%.0fms",
@@ -2181,6 +2203,10 @@ async def _scan_and_import_task_locked(
             except Exception as exc:
                 logger.debug("调度批量索引失败: %s", exc)
 
+        # 批量提交收尾：最后不足 200 条的那批落盘（正常路径）
+        if _bulk_commit:
+            await _run_db_work(db_manager.end_batch)
+
         # 循环结束：flush 剩余的批量向量/文本索引
         if vector_pending:
             indexed += await _flush_vector_batch(vector_pending, project_id)
@@ -2191,6 +2217,8 @@ async def _scan_and_import_task_locked(
 
         for failure_index, candidate in enumerate(probe_failures, start=len(audio_files)):
             if ws_manager.is_task_cancelled(task_id):
+                if _bulk_commit:
+                    await _run_db_work(db_manager.end_batch)
                 db_manager.update_job(
                     task_id,
                     state="cancelled",
@@ -2254,6 +2282,10 @@ async def _scan_and_import_task_locked(
         # 打完整堆栈：11-01 19:1x 那次只留了一行「Set changed size during iteration」，
         # 定位不到是哪段循环，查了半天。
         logger.exception(f"扫描导入失败: {e}")
+        try:
+            await _run_db_work(db_manager.end_batch)
+        except Exception:
+            pass
         db_manager.update_job(
             task_id, state="failed", stage="failed",
             error_code="import_failed", error_message=str(e),

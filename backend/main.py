@@ -1843,8 +1843,18 @@ async def _scan_and_import_task_locked(
             total = len(candidate_paths)
             db_manager.update_job(task_id, total=total)
 
+        # 上一次导入如果是「取消」退出的，批量事务可能没提交（写锁一直挂着），
+        # 后续任何写操作都会等 busy_timeout —— 表现就是卡在 0% 不动。这里先清一次。
+        try:
+            await _run_db_work(db_manager.end_batch)
+        except Exception:
+            pass
+
         candidates: Dict[str, Dict[str, Any]] = {}
         added = 0
+        # 立刻把阶段名切成「正在登记文件」：之前 job 的 stage 还是空的，
+        # 前端只能显示保底文案「正在处理」，看着像卡死。
+        db_manager.update_job(task_id, stage="preparing", total=total, processed=0)
         # 每个文件都要入库/探测，这一段是导入最慢的部分。
         # 之前这里从不更新 processed，前端只能看到"共 N 条"却一直没有进度，
         # 用户会以为卡死。现在按时间节流上报进度（每 0.5 秒一次）。
@@ -1853,6 +1863,10 @@ async def _scan_and_import_task_locked(
         _last_report = 0.0
         for candidate_index, candidate_path in enumerate(candidate_paths):
             if ws_manager.is_task_cancelled(task_id):
+                try:
+                    await _run_db_work(db_manager.end_batch)
+                except Exception:
+                    pass
                 db_manager.update_job(
                     task_id,
                     state="cancelled",

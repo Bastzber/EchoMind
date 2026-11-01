@@ -299,13 +299,34 @@ function showSoundContextMenu(event, sound) {
     menu.appendChild(makeMenuItem('重新分析：音频向量（不动描述/标签）', 'audio-waveform', () => reanalyzeSound(sound, 'audio')));
     menu.appendChild(makeMenuItem('重新分析：全部', 'refresh-cw', () => reanalyzeSound(sound, 'all')));
 
-    const closeMenu = (e) => {
-        if (!menu.contains(e.target)) {
-            closeSoundContextMenu();
-            document.removeEventListener('click', closeMenu);
-        }
+    // 点空白处 / 滚轮 / 窗口失焦 / Esc 都要能关掉。
+    // 用 pointerdown 的**捕获阶段**：列表行、波形、播放器很多地方在 click 里
+    // stopPropagation()，冒泡阶段挂在 document 上的 click 监听根本收不到，
+    // 菜单就永远关不掉（用户 11-01 13:0x 反馈的就是这个）。
+    const openedAt = Date.now();
+    const teardown = () => {
+        closeSoundContextMenu();
+        document.removeEventListener('pointerdown', onPointerDown, true);
+        document.removeEventListener('keydown', onKeyDown, true);
+        document.removeEventListener('wheel', onWheel, true);
+        window.removeEventListener('blur', teardown);
+        window.removeEventListener('resize', teardown);
     };
-    setTimeout(() => document.addEventListener('click', closeMenu), 100);
+    const onPointerDown = (e) => {
+        if (Date.now() - openedAt < 80) return;      // 别把「打开它的那一下」当关闭
+        if (menu.contains(e.target)) return;         // 点菜单内部：交给菜单项自己处理
+        teardown();
+    };
+    const onKeyDown = (e) => { if (e.key === 'Escape') teardown(); };
+    const onWheel = (e) => {
+        if (menu.contains(e.target)) return;
+        teardown();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    window.addEventListener('blur', teardown);
+    window.addEventListener('resize', teardown);
     document.body.appendChild(menu);
     placeMenuWithinViewport(menu, event);
     menu.style.visibility = 'visible';
@@ -387,13 +408,18 @@ function showAddToUserFolderMenu(sounds) {
     menu.appendChild(cancel);
 
     document.body.appendChild(menu);
+    // 同上：捕获阶段，避免被内层的 stopPropagation 挡住
+    const openedAt = Date.now();
     const close = (e) => {
-        if (!menu.contains(e.target)) {
-            menu.remove();
-            document.removeEventListener('click', close);
-        }
+        if (Date.now() - openedAt < 80) return;
+        if (e && menu.contains(e.target)) return;
+        menu.remove();
+        document.removeEventListener('pointerdown', close, true);
+        document.removeEventListener('keydown', onKey, true);
     };
-    setTimeout(() => document.addEventListener('click', close), 100);
+    const onKey = (e) => { if (e.key === 'Escape') { menu.remove(); document.removeEventListener('pointerdown', close, true); document.removeEventListener('keydown', onKey, true); } };
+    document.addEventListener('pointerdown', close, true);
+    document.addEventListener('keydown', onKey, true);
 }
 
 // ---- 标签操作 ----

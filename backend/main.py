@@ -1843,13 +1843,6 @@ async def _scan_and_import_task_locked(
             total = len(candidate_paths)
             db_manager.update_job(task_id, total=total)
 
-        # 上一次导入如果是「取消」退出的，批量事务可能没提交（写锁一直挂着），
-        # 后续任何写操作都会等 busy_timeout —— 表现就是卡在 0% 不动。这里先清一次。
-        try:
-            await _run_db_work(db_manager.end_batch)
-        except Exception:
-            pass
-
         candidates: Dict[str, Dict[str, Any]] = {}
         added = 0
         # 立刻把阶段名切成「正在登记文件」：之前 job 的 stage 还是空的，
@@ -1863,10 +1856,6 @@ async def _scan_and_import_task_locked(
         _last_report = 0.0
         for candidate_index, candidate_path in enumerate(candidate_paths):
             if ws_manager.is_task_cancelled(task_id):
-                try:
-                    await _run_db_work(db_manager.end_batch)
-                except Exception:
-                    pass
                 db_manager.update_job(
                     task_id,
                     state="cancelled",
@@ -1997,8 +1986,6 @@ async def _scan_and_import_task_locked(
                         total, IMPORT_INLINE_INDEX_LIMIT)
 
         _ws_loop_start = 0.0
-        # 进批量模式：写库阶段每条不再单独 fsync，每 200 条提交一次。
-        await _run_db_work(db_manager.begin_batch)
         for i, audio_file in enumerate(audio_files):
             _iter_start = time.monotonic()
             # 检查是否取消
@@ -2106,9 +2093,6 @@ async def _scan_and_import_task_locked(
             file_uuid = await _run_db_work(
                 db_manager.upsert_file, record, project_id
             )
-            # 批量提交：逐条 commit 时 6.5 万条要几十分钟（每次 fsync 5~10ms）
-            if (i + 1) % 200 == 0:
-                await _run_db_work(db_manager.flush_batch)
             if file_uuid:
                 if waveform_error:
                     db_manager.set_artifact_state(
@@ -2232,8 +2216,6 @@ async def _scan_and_import_task_locked(
                 progress=int(((failure_index + 1) / total) * 100),
             )
 
-        # 收尾：把批量模式里最后不足 200 条的那批落盘
-        await _run_db_work(db_manager.end_batch)
         await _bump_project_index_revision(project_id)
         if duplicate_skipped:
             logger.info(f"其中 {duplicate_skipped} 个因同名同大小已在库中而跳过")
@@ -2270,10 +2252,6 @@ async def _scan_and_import_task_locked(
 
     except Exception as e:
         logger.error(f"扫描导入失败: {e}")
-        try:
-            await _run_db_work(db_manager.end_batch)
-        except Exception:
-            pass
         db_manager.update_job(
             task_id, state="failed", stage="failed",
             error_code="import_failed", error_message=str(e),

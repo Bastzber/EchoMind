@@ -668,9 +668,13 @@ app = FastAPI(
 
 # 按域拆分的路由放在 backend/api/routers/（AGENTS.md：新接口别继续堆这个文件）。
 # 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
+from api.routers import media as _media_router  # noqa: E402
+from api.routers import nl_search as _nl_search_router  # noqa: E402
 from api.routers import similar as _similar_router  # noqa: E402
 
 app.include_router(_similar_router.router)
+app.include_router(_nl_search_router.router)
+app.include_router(_media_router.router)
 
 
 @app.exception_handler(SoundBotAPIError)

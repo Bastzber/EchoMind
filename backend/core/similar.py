@@ -506,3 +506,65 @@ def _file_signature(db_manager: Any, project_id: str) -> Tuple[int, str]:
         return int(row[0] or 0), str(row[1] or "")
     except Exception:
         return -1, ""
+
+def search_by_terms(
+    db_manager: Any,
+    project_id: str,
+    query: str,
+    *,
+    limit: int = 30,
+) -> List[Dict[str, Any]]:
+    """按词命中直接检索（不走向量、不需要模型）。
+
+    「找相似」用的是同一套 IDF 倒排；这里把它开放成「用一句话搜库」。
+    中文单字 + 英文词，太常见的听感标签（低频/短尾…）被 IDF 压掉，
+    所以「猪哼 低沉」里真正起作用的是「猪」「哼」。
+    """
+    import math
+
+    df, total, postings = _term_index(db_manager, project_id)
+    if total <= 0:
+        return []
+    tokens = [token for token in _tokenize(query) if token in postings]
+    if not tokens:
+        return []
+
+    def idf(token: str) -> float:
+        return math.log((total + 1) / (df.get(token, 0) + 1)) + 1.0
+
+    hits: Dict[str, float] = {}
+    matched: Dict[str, List[str]] = {}
+    for token in tokens:
+        weight = idf(token)
+        for file_uuid in postings[token]:
+            hits[file_uuid] = hits.get(file_uuid, 0.0) + weight
+            matched.setdefault(file_uuid, []).append(token)
+    if not hits:
+        return []
+
+    best = max(hits.values()) or 1.0
+    ranked = sorted(hits.items(), key=lambda item: -item[1])[: max(limit * 3, 60)]
+    rows = _rows_by_ids(db_manager, [file_uuid for file_uuid, _ in ranked])
+    results: List[Dict[str, Any]] = []
+    for file_uuid, weight in ranked:
+        row = rows.get(file_uuid)
+        if row is None:
+            continue
+        path, filename, duration, tags, description = row
+        terms = sorted(matched.get(file_uuid, []), key=lambda token: -idf(token))
+        results.append(
+            {
+                "file_uuid": file_uuid,
+                "path": path,
+                "filename": filename,
+                "duration": duration,
+                "tags": _parse_tags(tags),
+                "description": description,
+                "score": round(min(1.0, weight / best), 4),
+                "matched_terms": terms[:6],
+                "match": "term",
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results

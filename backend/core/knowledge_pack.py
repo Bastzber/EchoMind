@@ -94,6 +94,29 @@ def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dic
     pairs = preview.get('pairs') or []
     matched = len(pairs)
     missing = int(preview.get('unmatched') or 0) + int(preview.get('ambiguous') or 0)
+    # 补时长：新库导入时 scanner 跳过了 probe（duration=0），这里用包里的值填上。
+    # 只填空的，不覆盖本地已有的时长。
+    durs = [
+        (
+            float(pair.get('duration') or 0.0),
+            int(pair.get('sample_rate') or 0),
+            int(pair.get('channels') or 0),
+            str(pair.get('file_uuid') or ''),
+        )
+        for pair in pairs
+        if float(pair.get('duration') or 0.0) > 0 and pair.get('file_uuid')
+    ]
+    if durs:
+        try:
+            with db.get_cursor() as cursor:
+                cursor.executemany(
+                    "UPDATE files SET duration=?, sample_rate=?, channels=? "
+                    "WHERE file_uuid=? AND (duration IS NULL OR duration<=0)",
+                    durs,
+                )
+        except Exception as exc:
+            logger.warning('[KnowledgePack] 补时长失败: %s', exc)
+
     applied = 0
     if pairs:
         result = metadata_pack.apply(
@@ -239,7 +262,8 @@ def export_pack(
     try:
         with db_manager.get_cursor() as cursor:
             rows = [dict(r) for r in cursor.execute(
-                'SELECT file_uuid, sha256, path, filename, ai_description, tags '
+                'SELECT file_uuid, sha256, path, filename, ai_description, tags, '
+                'duration, sample_rate, channels '
                 'FROM files WHERE project_id=? AND sha256 IS NOT NULL ORDER BY path',
                 (project_id,),
             ).fetchall()]
@@ -294,6 +318,10 @@ def export_pack(
                     'filename': r['filename'],
                     'description': r['ai_description'] or '',
                     'tags': tags,
+                    # 时长/采样率/声道一起带走：新库不用再打开 6 万个文件重读
+                    'duration': float(r.get('duration') or 0.0),
+                    'sample_rate': int(r.get('sample_rate') or 0),
+                    'channels': int(r.get('channels') or 0),
                 }, ensure_ascii=False) + '\n')
                 if progress and index % 5000 == 0:
                     progress('metadata', index, len(rows))

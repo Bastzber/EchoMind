@@ -1742,6 +1742,10 @@ async def _flush_text_batch(
         return 0
 
 
+class _SkipWaveform(Exception):
+    """大库导入时跳过波形计算（内部信号，不外抛）。"""
+
+
 async def _scan_and_import_task(
     task_id: str,
     folder_path: str,
@@ -1880,9 +1884,13 @@ async def _scan_and_import_task_locked(
         # 用户以为卡住了（B1）。保持已完成的候选数，只换阶段名。
         # 进解码阶段时把 processed 归零：之前写成 total 会让进度条一进去就 100%，
         # 而这一步其实要读完 6 万个文件的元数据，看着就像卡死。
+        # 大库（≥2000）不逐个 probe：打开 6.5 万个音频要几十分钟，
+        # 而时长可以随知识包一起进来、波形交给后台延迟补。
+        # 小库仍然 probe，保证「导完就能看到时长」。
+        probe_inline = total < 2000
         db_manager.update_job(task_id, stage="decoding", total=total, processed=0)
         audio_files, folder_structure = await _run_audio_work(
-            scanner.scan_with_structure, folder_path, recursive
+            scanner.scan_with_structure, folder_path, recursive, probe_inline
         )
         if duplicate_skipped:
             audio_files = [
@@ -2027,6 +2035,10 @@ async def _scan_and_import_task_locked(
             source_fingerprint = None
             waveform_error = None
             try:
+                # 大库导入不算波形：每个文件都要解码整段音频，6.5 万条能拖一两个小时。
+                # 大羽音效库的做法就是「导入只登记，时长/波形后台补」，这里对齐它。
+                if not probe_inline:
+                    raise _SkipWaveform()
                 source_fp = await _run_audio_work(
                     audio_service.fingerprint, audio_file.path
                 )
@@ -2046,6 +2058,8 @@ async def _scan_and_import_task_locked(
                     waveform_version = int(waveform.fingerprint.waveform_version)
                 else:
                     skipped += 1
+            except _SkipWaveform:
+                pass
             except AudioServiceError as e:
                 logger.warning(f"计算波形失败 {audio_file.path}: {e.message}")
                 waveform_error = e

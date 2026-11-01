@@ -127,15 +127,18 @@ def preview(project_id: str, items: List[Dict[str, Any]], db_manager=None) -> Di
         rel = str(item.get("rel") or "")
         uuid, how = matcher.match(rel, item.get("sha256", ""), item.get("filename", ""))
         if uuid:
-            matched.append(
-                {
-                    "file_uuid": uuid,
-                    "rel": rel,
-                    "how": how,
-                    "description": str(item.get("description") or ""),
-                    "tags": item.get("tags"),
-                }
-            )
+            entry = {
+                "file_uuid": uuid,
+                "rel": rel,
+                "how": how,
+                "description": str(item.get("description") or ""),
+                "tags": item.get("tags"),
+            }
+            # 时长/采样率/声道随包一起走：新库导入时跳过 probe，这里是唯一的来源
+            for extra in ("duration", "sample_rate", "channels", "user_tags"):
+                if extra in item:
+                    entry[extra] = item[extra]
+            matched.append(entry)
             if len(samples) < 5:
                 samples.append({"rel": rel, "file_uuid": uuid, "how": how})
         elif _norm(item.get("filename")):

@@ -117,7 +117,7 @@ class AudioScanner:
             unique_paths.values(), key=lambda value: os.path.normcase(str(value))
         )
 
-    def scan(self, folder_path: str, recursive: bool = True, max_workers: int = 8) -> List[AudioFile]:
+    def scan(self, folder_path: str, recursive: bool = True, max_workers: int = 8, probe: bool = True) -> List[AudioFile]:
         """
         扫描指定文件夹中的音频文件（优化版本，支持并行处理）
 
@@ -150,7 +150,10 @@ class AudioScanner:
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
-            future_to_path = {executor.submit(self._process_file, path): path for path in audio_file_paths}
+            future_to_path = {
+                executor.submit(self._process_file, path, probe): path
+                for path in audio_file_paths
+            }
             
             # 处理结果
             for future in as_completed(future_to_path):
@@ -175,7 +178,7 @@ class AudioScanner:
         
         return audio_files
 
-    def scan_with_structure(self, folder_path: str, recursive: bool = True) -> tuple[List[AudioFile], FolderNode]:
+    def scan_with_structure(self, folder_path: str, recursive: bool = True, probe: bool = True) -> tuple[List[AudioFile], FolderNode]:
         """
         扫描文件夹并返回文件列表和文件夹结构
 
@@ -190,7 +193,7 @@ class AudioScanner:
         root_name = folder.name or folder_path
 
         # 先扫描所有文件
-        audio_files = self.scan(folder_path, recursive)
+        audio_files = self.scan(folder_path, recursive, probe=probe)
 
         # 构建文件夹树形结构
         root_node = FolderNode(
@@ -464,7 +467,7 @@ class AudioScanner:
 
         return metadata
 
-    def _process_file(self, file_path: Path) -> Optional[AudioFile]:
+    def _process_file(self, file_path: Path, probe: bool = True) -> Optional[AudioFile]:
         """
         处理单个音频文件，提取元数据（优化版本）
 
@@ -484,8 +487,21 @@ class AudioScanner:
             stat = file_path.stat()
             parsed_name, name_tokens, name_description = self._parse_filename(file_path.name)
 
-            # AudioService owns the pinned PyAV/FFmpeg decoder boundary.
-            info = self.audio_service.probe(file_path)
+            # probe=False：大库导入时只登记路径/大小/文件名，不打开音频。
+            # 打开 6.5 万个文件要几十分钟，而时长会在导入知识包时补上
+            # （或由后台波形任务补），没必要在导入阶段死等。
+            if probe:
+                # AudioService owns the pinned PyAV/FFmpeg decoder boundary.
+                info = self.audio_service.probe(file_path)
+            else:
+                from core.audio_service import AudioMetadata
+
+                info = AudioMetadata(
+                    duration=0.0,
+                    sample_rate=0,
+                    channels=0,
+                    format=file_path.suffix.lower().lstrip("."),
+                )
 
             return AudioFile(
                 path=str(file_path),

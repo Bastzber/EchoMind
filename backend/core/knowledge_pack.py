@@ -129,6 +129,7 @@ def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dic
         'missing': missing,
         'applied': applied,
         'by_kind': preview.get('by_kind') or {},
+        'pairs': pairs,
     }
 
 
@@ -164,8 +165,31 @@ def import_pack(
         if progress:
             progress('metadata', 0, report['files'])
         meta = _import_metadata(db_manager, project_id, work_dir / 'metadata.jsonl', progress)
-        report['metadata'] = meta
-        logger.info('[KnowledgePack] 元数据：%s', meta)
+        report['metadata'] = {k: v for k, v in meta.items() if k != 'pairs'}
+        logger.info('[KnowledgePack] 元数据：%s', report['metadata'])
+
+        # 向量导入也要按「包内 sha → 本地文件」走：新库 sha256 还没算完时，
+        # 只查 DB 的 sha 列会一条都匹配不上，向量进不去、工件永远 pending。
+        sha_rows: Dict[str, Dict[str, Any]] = {}
+        pairs = meta.get('pairs') or []
+        if pairs:
+            uuids = [str(p.get('file_uuid')) for p in pairs if p.get('file_uuid')]
+            rows_by_uuid: Dict[str, Dict[str, Any]] = {}
+            for start in range(0, len(uuids), 400):
+                chunk = uuids[start:start + 400]
+                marks = ','.join('?' for _ in chunk)
+                with db_manager.get_cursor() as cursor:
+                    for row in cursor.execute(
+                        f"SELECT file_uuid, filename, path, duration, file_size, "
+                        f"       ai_description, tags FROM files WHERE file_uuid IN ({marks})",
+                        chunk,
+                    ):
+                        rows_by_uuid[str(row['file_uuid'])] = dict(row)
+            for pair in pairs:
+                sha_key = str(pair.get('sha256') or '').lower()
+                row = rows_by_uuid.get(str(pair.get('file_uuid')))
+                if sha_key and row:
+                    sha_rows[sha_key] = row
 
         kinds_report: Dict[str, Any] = {}
         for kind, info in (manifest.get('kinds') or {}).items():
@@ -180,6 +204,7 @@ def import_pack(
                     cancelled,
                     # 增量包必须并进现有集合：新建 shadow 再切换会把旧向量丢掉
                     merge_into_active=(pack_mode == 'delta'),
+                    sha_rows=sha_rows,
                 )
                 kinds_report[kind] = result
             except vector_pack.VectorPackError as exc:

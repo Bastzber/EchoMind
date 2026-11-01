@@ -135,7 +135,7 @@ def preview(project_id: str, items: List[Dict[str, Any]], db_manager=None) -> Di
                 "tags": item.get("tags"),
             }
             # 时长/采样率/声道随包一起走：新库导入时跳过 probe，这里是唯一的来源
-            for extra in ("duration", "sample_rate", "channels", "user_tags"):
+            for extra in ("duration", "sample_rate", "channels", "user_tags", "sha256"):
                 if extra in item:
                     entry[extra] = item[extra]
             matched.append(entry)

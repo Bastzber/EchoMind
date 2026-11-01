@@ -141,6 +141,7 @@ def import_pack(
     progress: Optional[Any] = None,
     cancelled: Optional[Any] = None,
     merge_into_active: bool = False,
+    sha_rows: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """把向量包写进 shadow collection，校验后原子切换。"""
     from core.index_lifecycle import create_shadow_indexer, verified_manifest
@@ -242,7 +243,9 @@ def import_pack(
     for sha_hex, raw_vec in _iter_records(bin_path, header['count'], dim):
         if cancelled and cancelled():
             raise VectorPackError('已取消导入')
-        row = by_sha.get(sha_hex.lower())
+        # sha_rows：知识包按路径/文件名匹配出来的「包内 sha → 本地行」，
+        # 优先于 DB 的 sha256 列 —— 新库哈希还没算完时，只靠 by_sha 会一条都匹配不上。
+        row = (sha_rows or {}).get(sha_hex.lower()) or by_sha.get(sha_hex.lower())
         if row is None:
             missing += 1
             continue

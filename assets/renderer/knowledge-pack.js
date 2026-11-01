@@ -64,6 +64,8 @@
     const STAGE_LABELS = {
         metadata: '写描述和标签',
         apply: '写描述和标签',
+        fts: '更新搜索索引',
+        tags: '写入我的标签',
         audio_vector: '导入音频向量',
         text_vector: '导入文本向量',
     };

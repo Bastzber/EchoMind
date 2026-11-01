@@ -316,16 +316,36 @@ def apply(
             except Exception:
                 pass
 
-    # FTS 一次性写：分批写 64k 行要 128 次小事务，实测是导入卡顿的主因之一
+    # FTS 同步：6.5 万条要 130 次小事务，原来整段没有任何进度，
+    # 界面就停在「64575/64893」不动（用户 11-01 17:2x 说卡住）。
+    # 这里按 5000 条一批推进并回报，进度条能一直走到 100%。
     if fts_pending:
-        try:
-            db.update_fts_rows(project_id, fts_pending)
-        except Exception as exc:
-            logger.warning("描述包 FTS 批量同步失败: %s", exc)
+        total_fts = len(fts_pending)
+        for fts_start in range(0, total_fts, 5000):
+            fts_chunk = fts_pending[fts_start:fts_start + 5000]
+            try:
+                db.update_fts_rows(project_id, fts_chunk)
+            except Exception as exc:
+                logger.warning("描述包 FTS 批量同步失败: %s", exc)
+            if progress:
+                try:
+                    progress("fts", min(fts_start + 5000, total_fts), total_fts)
+                except Exception:
+                    pass
 
     tag_rows = 0
     if user_tags:
+        if progress:
+            try:
+                progress("tags", 0, len(user_tags))
+            except Exception:
+                pass
         tag_rows = _attach_user_tags(project_id, user_tags, db)
+        if progress:
+            try:
+                progress("tags", len(user_tags), len(user_tags))
+            except Exception:
+                pass
     return {
         "applied": applied,
         "skipped": skipped,

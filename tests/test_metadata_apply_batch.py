@@ -96,8 +96,10 @@ def test_progress_callback_reports_each_batch():
         "default", pairs, db_manager=db, batch_size=4,
         progress=lambda stage, done, total: seen.append((stage, done, total)),
     )
-    assert len(seen) == 3                      # 4 + 4 + 2
-    assert seen[-1] == ("apply", 10, 10)
+    # 3 批写库（4 + 4 + 2）+ 1 次 FTS 同步
+    assert len(seen) == 4
+    assert seen[-2] == ("apply", 10, 10)
+    assert seen[-1] == ("fts", 10, 10)
 
 
 def test_keeps_existing_manual_description_without_overwrite():

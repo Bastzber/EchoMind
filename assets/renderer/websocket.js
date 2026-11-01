@@ -367,16 +367,18 @@ function updateScanProgress(data) {
 
     const total = Number(data.total || 0);
     const scanned = Number(data.scanned ?? data.processed ?? 0);
-    const percent = data.progress !== undefined && data.progress !== null
+    // 后端给的是原始浮点（2.58783444154349127），直接显示太长；统一取整
+    const rawPercent = data.progress !== undefined && data.progress !== null
         ? Number(data.progress)
-        : (total ? Math.min(100, Math.round((scanned / total) * 100)) : 0);
+        : (total ? (scanned / total) * 100 : 0);
+    const percent = Math.max(0, Math.min(100, Math.round(Number.isFinite(rawPercent) ? rawPercent : 0)));
     if (progressBar) progressBar.style.width = percent + '%';
 
     // 后端阶段名 -> 用户能看懂的说法
     const statusMap = {
         'scanning': '正在扫描文件',
         'preparing': '正在登记文件',
-        'decoding': '正在解码分析',
+        'decoding': '正在读取时长与波形',
         'analyzing': '正在分析音频',
         'saving': '正在写入数据库',
         'indexing': '正在生成索引',

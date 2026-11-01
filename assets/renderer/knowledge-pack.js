@@ -26,12 +26,17 @@
         if (typeof ctx.notify === 'function') ctx.notify(text, type);
     }
 
-    // 底部固定进度卡片：导入/导出都用它
+    // 底部固定进度卡片：导入/导出都用它。
+    // 导入任务的进度弹窗也占了右下角，两者会在同一位置叠起来——
+    // 有导入弹窗时把这张卡往上挪 130px。
     function showProgress(title) {
         document.getElementById('packProgressCard')?.remove();
+        const stack = window.importRuntime && window.importRuntime.scanProgressModal
+            && window.importRuntime.scanProgressModal.isConnected;
+        const bottom = stack ? 130 : 20;
         const card = document.createElement('div');
         card.id = 'packProgressCard';
-        card.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:950;width:320px;'
+        card.style.cssText = 'position:fixed;right:20px;bottom:' + bottom + 'px;z-index:950;width:320px;'
             + 'background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;'
             + 'box-shadow:0 8px 24px rgba(0,0,0,.18);padding:12px 14px;font-size:12px';
         card.innerHTML = ''
@@ -86,8 +91,47 @@
         setStatus('仍在后台进行，可在任务列表查看');
     }
 
+    // 知识包按 sha256 匹配文件。刚导完音效库时哈希还在后台补算，
+    // 这时候导包会「应用 0 条」，看起来像导入失败。先等哈希算完再导。
+    async function ensureHashesReady(progress) {
+        const projectId = ctx.getProject();
+        const q = '/api/v1/index/hash?project_id=' + encodeURIComponent(projectId || 'default');
+        let pending = 0;
+        try {
+            const status = await ctx.api.get(q, { timeoutMs: 20000 });
+            pending = Number(status?.pending || 0);
+        } catch (_) {
+            return;
+        }
+        if (pending <= 0) return;
+        if (progress) progress.set('正在补算文件哈希（还剩 ' + pending + ' 条）…', 0.02);
+        try {
+            await ctx.api.post('/api/v1/index/hash?project_id=' + encodeURIComponent(projectId || 'default'), {}, { timeoutMs: 30000 });
+        } catch (_) { }
+        const deadline = Date.now() + 5 * 60 * 1000;
+        while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 2000));
+            let left = 0;
+            try {
+                const s = await ctx.api.get(q, { timeoutMs: 20000 });
+                left = Number(s?.pending || 0);
+            } catch (_) { continue; }
+            if (progress) {
+                progress.set('正在补算文件哈希（还剩 ' + left + ' 条）…', left > 0 ? 0.02 : 0.05);
+            }
+            if (left <= 0) return;
+        }
+    }
+
     async function importPack(filePath) {
         try {
+            setStatus('正在准备（补算文件哈希）…');
+            const prep = showProgress('正在准备导入');
+            try {
+                await ensureHashesReady(prep);
+            } finally {
+                prep.close();
+            }
             setStatus('正在检查知识包…');
             const res = await ctx.api.post(
                 '/api/v1/knowledge/import',
@@ -102,10 +146,20 @@
             try {
                 await pollJob(jobId, progress, {
                     labels: STAGE_LABELS,
-                    done: async () => {
-                        progress.set('完成', 1);
-                        setStatus('✅ 导入完成');
-                        notify('知识包导入完成，索引已就绪', 'success');
+                    done: async (job) => {
+                        const stage = String(job?.stage || '');
+                        const matched = Number((stage.match(/matched=(\d+)/) || [])[1] || 0);
+                        if (matched <= 0) {
+                            // 一条都没对上：哈希没算完，或者这份包和本地文件不是同一批
+                            progress.set('没匹配到文件', 1);
+                            setStatus('⚠ 知识包没匹配到任何文件');
+                            notify('知识包没匹配到任何文件：文件哈希可能还没算完，等一会儿再导一次', 'error', 12000);
+                            setTimeout(() => progress.close(), 5000);
+                            return;
+                        }
+                        progress.set('完成（匹配 ' + matched + ' 条）', 1);
+                        setStatus('✅ 导入完成，匹配 ' + matched + ' 条');
+                        notify('知识包导入完成，匹配 ' + matched + ' 条', 'success');
                         if (typeof ctx.onImported === 'function') await ctx.onImported();
                         setTimeout(() => progress.close(), 1500);
                     },

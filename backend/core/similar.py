@@ -621,15 +621,29 @@ def search_by_terms(
         if row is None:
             continue
         path, filename, duration, tags, description = row
-        blob = (str(filename) + " " + str(description) + " " + " ".join(_parse_tags(tags))).lower()
-        coverage: Dict[str, float] = {
-            term: (1.0 if term in blob else 0.0) for term in terms
-        }
+        name_text = str(filename).lower()
+        desc_text = str(description).lower()
+        tag_text = " ".join(_parse_tags(tags)).lower()
+        # 文件名命中权重最高（和软件里的关键词层一致），描述次之，标签再次。
+        # 用户反馈「同样搜雷声，软件给雷声.mp3、面板给英文名配乐」就是权重一样导致的。
+        coverage: Dict[str, float] = {}
+        for term in terms:
+            if term in name_text:
+                coverage[term] = 1.0
+            elif term in tag_text:
+                coverage[term] = 0.85
+            elif term in desc_text:
+                coverage[term] = 0.7
+            else:
+                coverage[term] = 0.0
         # 至少一个两字以上的词真的出现过（半截也算），否则就是单字噪音
         strong = [term for term in coverage if len(term) > 1 and coverage[term] >= 0.5]
         if has_multi_char and not strong:
             continue
-        score = sum(weights[term] * cov for term, cov in coverage.items()) / total_weight
+        score = sum(
+            weights[term] * (2.2 if cov >= 1.0 else cov)
+            for term, cov in coverage.items()
+        ) / (total_weight * 2.2)
         if score <= 0:
             continue
         matched = [term for term, cov in coverage.items() if cov >= 0.5]

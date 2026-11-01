@@ -1878,7 +1878,9 @@ async def _scan_and_import_task_locked(
         # Decode/probe only after SQLite owns the candidate set.
         # 注意：这里**不能**把 processed 直接写成 total ——一进解码阶段就显示 100%，
         # 用户以为卡住了（B1）。保持已完成的候选数，只换阶段名。
-        db_manager.update_job(task_id, stage="decoding", total=total)
+        # 进解码阶段时把 processed 归零：之前写成 total 会让进度条一进去就 100%，
+        # 而这一步其实要读完 6 万个文件的元数据，看着就像卡死。
+        db_manager.update_job(task_id, stage="decoding", total=total, processed=0)
         audio_files, folder_structure = await _run_audio_work(
             scanner.scan_with_structure, folder_path, recursive
         )
@@ -2220,20 +2222,11 @@ async def _scan_and_import_task_locked(
         # 以前这里排的是 audio_vector + text_vector，界面却提示「索引已暂停」，
         # 行为和提示互相矛盾。
         if added:
-            try:
-                index_job = db_manager.create_job(project_id, "post_import_waveform", added)
-                await _bump_project_index_revision(project_id)
-                asyncio.create_task(
-                    _repair_index_task(
-                        index_job,
-                        project_id,
-                        ["waveform"],
-                        "reconcile",
-                    )
-                )
-                logger.info("[IMPORT] 已排入后台波形任务: %s", index_job)
-            except Exception as exc:
-                logger.warning("[IMPORT] 排入后台索引失败: %s", exc)
+            # 导入完成后**不要立刻**跑波形/索引：用户接下来要导知识包，
+            # 现在开任务会跟知识包抢写锁、抢 GPU，也是「导入完卡在解码分析」的观感来源。
+            # 延迟 N 秒（默认 180）再补，这期间用户可以安安心心导知识包。
+            await _bump_project_index_revision(project_id)
+            _schedule_waveform_after_import(project_id)
 
     except Exception as e:
         logger.error(f"扫描导入失败: {e}")
@@ -6144,9 +6137,15 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
         report = await asyncio.to_thread(
             knowledge_pack.import_pack, db_manager, project_id, zip_path, progress, cancelled,
         )
+        # 匹配数为 0 说明一个文件都没对上（多半是 sha256 还没算完），
+        # 这不是「成功」：写进 stage 让前端明确提示，别报「索引已就绪」。
+        matched = int(((report.get("metadata") or {}).get("matched")) or 0)
+        applied = int(((report.get("metadata") or {}).get("applied")) or 0)
         db_manager.update_job(
-            job_id, state="completed", stage="done",
+            job_id, state="completed",
+            stage="done matched=%d applied=%d" % (matched, applied),
             processed=int(report.get("files") or 0),
+            error_message=None if matched else "知识包没有匹配到任何文件",
         )
         logger.info("[KnowledgePack] 导入完成: %s", report)
     except knowledge_pack.KnowledgePackError as exc:

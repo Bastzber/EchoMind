@@ -49,6 +49,16 @@
     el.className = 'status' + (kind ? ' ' + kind : '');
   }
 
+  var toastTimer = null;
+  function toast(text, isError) {
+    var el = $('toast');
+    if (!el) { return; }
+    el.textContent = text;
+    el.className = 'toast' + (isError ? ' err' : '');
+    if (toastTimer) { clearTimeout(toastTimer); }
+    toastTimer = setTimeout(function () { el.textContent = ''; }, 6000);
+  }
+
   function fmtDuration(seconds) {
     var s = Number(seconds || 0);
     if (!s) { return '—'; }
@@ -137,14 +147,14 @@
     if (state.playingId === item.id) { player.pause(); state.playingId = null; return; }
     var ext = extOf(item);
     if (PLAYABLE.indexOf(ext) < 0) {
-      $('hint').innerHTML = '<span class="warn">' + ext.toUpperCase() + ' 面板放不了，请用「在 EchoMind 打开」试听</span>';
+      toast(ext.toUpperCase() + ' 面板放不了，请回 EchoMind 试听', true);
       return;
     }
     var url = API + '/api/v1/files/' + encodeURIComponent(item.id) + '/audio?project_id=' +
       encodeURIComponent(state.project);
     player.src = url;
     player.play().catch(function () {
-      $('hint').innerHTML = '<span class="warn">播放失败，可能是格式或路径问题</span>';
+      toast('播放失败，可能是格式或路径问题', true);
     });
     state.playingId = item.id;
     document.querySelectorAll('.item.playing').forEach(function (n) { n.classList.remove('playing'); });
@@ -155,11 +165,13 @@
     var path = (item.path || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     var result = await evalScript('EchoMindImport("' + path + '")');
     if (result === 'OK') {
-      $('hint').innerHTML = '<span class="tag">已导入项目面板：</span>' + item.filename;
+      toast('已导入项目面板：' + item.filename);
+    } else if (result === 'NO_PROJECT') {
+      toast('PR 里还没有打开项目，先新建/打开一个再导入', true);
     } else if (result === 'NO_CEP') {
-      $('hint').innerHTML = '<span class="warn">不在 PR 里运行，无法导入（浏览器预览模式）</span>';
+      toast('不在 PR 里运行，无法导入（浏览器预览模式）', true);
     } else {
-      $('hint').innerHTML = '<span class="warn">导入失败：' + result + '</span>';
+      toast('导入失败：' + result, true);
     }
   }
 
@@ -168,8 +180,8 @@
     try {
       if (cepAvailable() && window.cep && window.cep.util) { window.cep.util.copyToClipboard(text); }
       else { navigator.clipboard.writeText(text); }
-      $('hint').innerHTML = '已复制路径：' + text;
-    } catch (e) { $('hint').textContent = text; }
+      toast('已复制路径：' + text);
+    } catch (e) { toast(text, true); }
   }
 
   function render(data) {
@@ -193,7 +205,14 @@
       meta.className = 'meta';
       var bits = [fmtDuration(item.duration), (item.format || extOf(item)).toUpperCase()];
       if (item.sample_rate) { bits.push(item.sample_rate + 'Hz'); }
-      if (item.score) { bits.push('匹配 ' + Math.round(item.score * 100) + '%'); }
+      var terms = item.matched_terms || [];
+      if (terms.length) {
+        // 词命中的分数是「相对最高分」的，并列第一时都是 100%，写出来是误导；
+        // 直接显示命中了哪些词更有用。
+        bits.push('命中 ' + terms.slice(0, 4).join('/'));
+      } else if (item.score) {
+        bits.push('相似 ' + Math.round(item.score * 100) + '%');
+      }
       bits.forEach(function (bit) {
         var span = document.createElement('span');
         span.textContent = bit;

@@ -26,6 +26,8 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line)
 .hint { color: var(--dim); font-size: 11px; margin-top: 6px; min-height: 14px; }
 .hint .tag { color: var(--accent); }
 .hint .warn { color: var(--warn); }
+.toast { font-size: 11px; color: var(--ok); min-height: 14px; margin-top: 2px; }
+.toast.err { color: var(--err); }
 .results { flex: 1; overflow-y: auto; }
 .empty { color: var(--dim); padding: 24px 14px; text-align: center; }
 .item { padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: default; }

@@ -98,6 +98,9 @@ from utils.logger import logger
 
 # 线程池用于 CPU 密集型任务
 _executor = ThreadPoolExecutor(max_workers=4)
+# DB 写操作专用单线程：SQLite 只允许一个写者，4 个线程抢锁会互相等 busy_timeout，
+# 表现就是「导入进度长时间不动」（用户 11-01 18:2x 卡在 9%）。
+_db_executor = ThreadPoolExecutor(max_workers=1)
 _model_executor = ThreadPoolExecutor(max_workers=1)
 _project_index_locks: Dict[str, asyncio.Lock] = {}
 _projects_deleting: set[str] = set()
@@ -117,6 +120,14 @@ async def _run_audio_work(function, *args, **kwargs):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor, functools.partial(function, *args, **kwargs)
+    )
+
+
+async def _run_db_work(function, *args, **kwargs):
+    """数据库写操作走单线程 executor（SQLite 单写者）。"""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _db_executor, functools.partial(function, *args, **kwargs)
     )
 
 
@@ -169,20 +180,11 @@ async def _prepare_import_candidate(
         name_description=name_description,
         metadata_tags={},
     )
-    record = AudioFileRecord(
-        path=str(absolute),
-        filename=absolute.name,
-        file_size=stat.st_size,
-        tags="[]",
-        source_fingerprint=source.source_key,
-        waveform_version=int(source.waveform_version),
-    )
-    file_uuid = await _run_audio_work(
-        get_db_manager().upsert_file, record, project_id
-    )
+    # 这里不再写库：主循环（写库阶段）本来就会 upsert 一次，
+    # preparing 阶段每条再写一次等于把写库成本翻倍，6.5 万条要多花十几分钟。
     return {
         "audio_file": placeholder,
-        "file_uuid": file_uuid,
+        "file_uuid": None,
         "source": source,
         "existing": existing,
     }
@@ -1981,6 +1983,8 @@ async def _scan_and_import_task_locked(
                         total, IMPORT_INLINE_INDEX_LIMIT)
 
         _ws_loop_start = 0.0
+        # 进批量模式：写库阶段每条不再单独 fsync，每 200 条提交一次。
+        await _run_db_work(db_manager.begin_batch)
         for i, audio_file in enumerate(audio_files):
             _iter_start = time.monotonic()
             # 检查是否取消
@@ -2085,9 +2089,12 @@ async def _scan_and_import_task_locked(
                 waveform_fingerprint=waveform_fingerprint,
                 waveform_version=waveform_version,
             )
-            file_uuid = await _run_audio_work(
+            file_uuid = await _run_db_work(
                 db_manager.upsert_file, record, project_id
             )
+            # 批量提交：逐条 commit 时 6.5 万条要几十分钟（每次 fsync 5~10ms）
+            if (i + 1) % 200 == 0:
+                await _run_db_work(db_manager.flush_batch)
             if file_uuid:
                 if waveform_error:
                     db_manager.set_artifact_state(
@@ -2211,6 +2218,8 @@ async def _scan_and_import_task_locked(
                 progress=int(((failure_index + 1) / total) * 100),
             )
 
+        # 收尾：把批量模式里最后不足 200 条的那批落盘
+        await _run_db_work(db_manager.end_batch)
         await _bump_project_index_revision(project_id)
         if duplicate_skipped:
             logger.info(f"其中 {duplicate_skipped} 个因同名同大小已在库中而跳过")
@@ -2247,6 +2256,10 @@ async def _scan_and_import_task_locked(
 
     except Exception as e:
         logger.error(f"扫描导入失败: {e}")
+        try:
+            await _run_db_work(db_manager.end_batch)
+        except Exception:
+            pass
         db_manager.update_job(
             task_id, state="failed", stage="failed",
             error_code="import_failed", error_message=str(e),

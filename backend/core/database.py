@@ -477,6 +477,25 @@ class DatabaseManager:
         except Exception as e:
             _get_logger().error(f"数据库诊断失败: {e}")
 
+    def begin_batch(self) -> None:
+        """批量写入模式：get_cursor 退出时不 commit，由 flush_batch 统一提交。
+
+        导入 6.5 万条时逐条 commit 要几十分钟（每次 fsync 5~10ms）；
+        批量模式把「1 次/条」降到「1 次/200 条」。
+        """
+        self._local.batch = True
+
+    def flush_batch(self) -> None:
+        """提交当前线程累积的写事务。"""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.commit()
+
+    def end_batch(self) -> None:
+        """退出批量模式并落盘。"""
+        self._local.batch = False
+        self.flush_batch()
+
     @contextmanager
     def get_cursor(self):
         """获取数据库游标的上下文管理器"""
@@ -484,7 +503,8 @@ class DatabaseManager:
         cursor = conn.cursor()
         try:
             yield cursor
-            conn.commit()
+            if not getattr(self._local, "batch", False):
+                conn.commit()
         except Exception:
             conn.rollback()
             raise

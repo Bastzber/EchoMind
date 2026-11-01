@@ -72,14 +72,32 @@ def _rows(count, desc="[auto] 待补"):
     }
 
 
-def test_writes_in_batches_and_syncs_fts_once_per_batch():
+def test_writes_in_batches_and_syncs_fts_once_at_the_end():
+    """分批写库，但 FTS 只在最后同步一次。
+
+    原来每批都调 update_fts_rows，64k 条要 80 次小事务，是「导入卡在
+    16000/64893」的元凶之一；改成最后一次批量同步。
+    """
     db = _Db(_rows(10))
     pairs = [{"file_uuid": "u%d" % i, "description": "雨声 %d" % i} for i in range(10)]
     result = metadata_pack.apply("default", pairs, db_manager=db, batch_size=4)
     assert result["applied"] == 10
     assert result["skipped"] == 0
-    assert len(db.fts_batches) == 3          # 4 + 4 + 2
+    assert len(db.fts_batches) == 1            # 全部合成一次
+    assert sorted(db.fts_batches[0]) == sorted('u%d' % i for i in range(10))
     assert db.rows["u3"]["ai_description"] == "雨声 3"
+
+
+def test_progress_callback_reports_each_batch():
+    db = _Db(_rows(10))
+    pairs = [{"file_uuid": "u%d" % i, "description": "雨声 %d" % i} for i in range(10)]
+    seen = []
+    metadata_pack.apply(
+        "default", pairs, db_manager=db, batch_size=4,
+        progress=lambda stage, done, total: seen.append((stage, done, total)),
+    )
+    assert len(seen) == 3                      # 4 + 4 + 2
+    assert seen[-1] == ("apply", 10, 10)
 
 
 def test_keeps_existing_manual_description_without_overwrite():

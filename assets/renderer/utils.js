@@ -141,8 +141,19 @@ function scheduleIndexStatusRetry() {
     }, 2000);
 }
 
+// 导入/扫描任务在跑的时候，右下角什么卡片都别弹：
+// 用户正看着导入进度，再叠两张卡只会互相打架（11-01 15:3x 反馈）。
+function importOrScanRunning() {
+    const rt = window.importRuntime;
+    if (!rt) return false;
+    if (rt.currentScanTaskId) return true;
+    const modal = rt.scanProgressModal;
+    return Boolean(modal && modal.isConnected);
+}
+
 async function maybeOfferKnowledgePack(backlog) {
     if (knowledgeOfferChecked) return;
+    if (importOrScanRunning()) return;   // 等音效库导完再问
     knowledgeOfferChecked = true;
     if (localStorage.getItem('echomind.knowledgePackDismissed') === '1') return;
     let info = null;
@@ -152,6 +163,8 @@ async function maybeOfferKnowledgePack(backlog) {
     if (!info || !info.available) return;
     if (backlog < 1000) return;   // 已经建好了就别打扰
     if (document.getElementById('knowledgeOfferCard')) return;
+    // 知识包优先：把「索引还没建完」那张卡收掉，避免两张卡叠在同一位置
+    document.getElementById('indexBacklogCard')?.remove();
     const card = document.createElement('div');
     card.id = 'knowledgeOfferCard';
     card.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:900;width:380px;'
@@ -190,7 +203,9 @@ function maybeShowIndexBacklogCard(status, busy, job) {
     const textBacklog = num(text.pending) + num(text.stale);
     const backlog = audioBacklog + textBacklog;
     const dismissed = sessionStorage.getItem('echomind.indexBacklogDismissed') === '1';
-    if (busy || backlog < 1000 || dismissed) {
+    // 同样的位置只放一张卡：导入中 / 知识包提示在 / 用户关过 → 都不显示
+    const knowledgeCard = document.getElementById('knowledgeOfferCard');
+    if (busy || importOrScanRunning() || knowledgeCard || backlog < 1000 || dismissed) {
         if (existing) existing.remove();
         return;
     }

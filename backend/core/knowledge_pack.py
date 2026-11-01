@@ -107,7 +107,10 @@ def _import_metadata(db, project_id: str, meta_path: Path, progress=None) -> Dic
             })
     applied = 0
     if pairs:
-        result = metadata_pack.apply(project_id, pairs, overwrite=False, db_manager=db)
+        result = metadata_pack.apply(
+            project_id, pairs, overwrite=False, db_manager=db,
+            progress=(lambda stage, done, total: progress('metadata', done, total)) if progress else None,
+        )
         applied = int(result.get('applied') or 0)
     return {'matched': matched, 'missing': missing, 'applied': applied}
 

@@ -10,7 +10,7 @@ import importlib.util
 import json
 import logging
 import unicodedata
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +206,7 @@ def apply(
     overwrite: bool = False,
     db_manager=None,
     batch_size: int = 800,
+    progress: Optional[Callable[[str, int, int], None]] = None,
 ) -> Dict[str, Any]:
     """把匹配结果写库：默认只补空白，overwrite=True 才覆盖。
 
@@ -235,6 +236,7 @@ def apply(
     applied = 0
     skipped = 0
     touched: List[str] = []
+    fts_pending: List[str] = []
     # 包里的 user_tags（「我的标签」）单独收集：它写的是 tags/file_tags 双层表，
     # 和 files.tags 那 6 维不是一回事（B9）。
     user_tags: Dict[str, List[str]] = {}
@@ -296,13 +298,27 @@ def apply(
             continue
         if updates:
             changed_ids = [item[3] for item in updates]
-            db.update_fts_rows(project_id, changed_ids)
+            fts_pending.extend(changed_ids)
             # 只把改过描述的文件标脏，别动整库（改 3 条不该让 6.5 万条重编码）
             try:
                 db.mark_artifacts_stale(project_id, "text_vector", changed_ids)
             except Exception as exc:
                 logger.debug("标记文本向量失效失败: %s", exc)
             applied += len(updates)
+        # 每批都回报一次：原来整个 apply 阶段没有任何进度，界面上的
+        # 「16000/64893」会卡住不动，看起来像卡死（用户 11-01 15:3x 反馈）。
+        if progress:
+            try:
+                progress("apply", min(start + batch_size, len(ids)), len(ids))
+            except Exception:
+                pass
+
+    # FTS 一次性写：分批写 64k 行要 128 次小事务，实测是导入卡顿的主因之一
+    if fts_pending:
+        try:
+            db.update_fts_rows(project_id, fts_pending)
+        except Exception as exc:
+            logger.warning("描述包 FTS 批量同步失败: %s", exc)
 
     tag_rows = 0
     if user_tags:

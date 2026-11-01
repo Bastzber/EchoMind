@@ -6221,6 +6221,22 @@ async def _knowledge_export_task(
         except Exception:
             pass
 
+    # 知识包按 sha256 装条目，没算完哈希的文件会被漏掉（用户 11-01 17:4x：
+    # 导出的包缺 573 条，导入方永远差这 573 个）。导出前先补算哈希。
+    try:
+        with db_manager.get_cursor() as cursor:
+            missing_hash = cursor.execute(
+                "SELECT COUNT(*) FROM files WHERE project_id=? "
+                "AND (sha256 IS NULL OR sha256='')",
+                (project_id,),
+            ).fetchone()[0]
+        if missing_hash:
+            logger.info("[KnowledgePack] 导出前补算 %d 个文件哈希", missing_hash)
+            db_manager.update_job(job_id, stage="hashing", processed=0, total=missing_hash)
+            await _run_hash_backfill(project_id)
+    except Exception as exc:
+        logger.warning("[KnowledgePack] 导出前补算哈希失败: %s", exc)
+
     try:
         report = await asyncio.to_thread(
             knowledge_pack.export_pack, db_manager, project_id, out_path, progress, base_pack,

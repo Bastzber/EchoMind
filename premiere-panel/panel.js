@@ -142,6 +142,89 @@
     } catch (e) { /* 波形只是锦上添花 */ }
   }
 
+  // CEP 的 Chromium 有时候不肯直接连 http 音频（file:// 页面 + 媒体元素），
+  // 失败时退到「XHR 抓成 Blob 再播」；成功一次就记住，下次直接走 Blob。
+  var blobMode = false;
+  var transMode = false;
+  var lastObjectUrl = null;
+
+  function directPlay(url) {
+    return new Promise(function (resolve, reject) {
+      var player = $('player');
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (!settled) { settled = true; reject('timeout'); }
+      }, 4000);
+      var onError = function () {
+        if (settled) { return; }
+        settled = true;
+        clearTimeout(timer);
+        reject('media error ' + (player.error ? player.error.code : '?'));
+      };
+      player.addEventListener('error', onError, { once: true });
+      player.src = url;
+      player.load();
+      var attempt = player.play();
+      if (!attempt || !attempt.then) {
+        settled = true; clearTimeout(timer); resolve(); return;
+      }
+      attempt.then(function () {
+        if (settled) { return; }
+        settled = true; clearTimeout(timer); resolve();
+      }).catch(function (err) {
+        if (settled) { return; }
+        settled = true; clearTimeout(timer);
+        reject((err && (err.name || err.message)) || 'play rejected');
+      });
+    });
+  }
+
+  // CEP 里最可靠的一条：用面板自带的 Node 直接读文件，做成 Blob 交给 <audio>。
+  // 既绕开 http 媒体策略，也绕开非 ASCII 路径问题。
+  function nodePlay(path, mime) {
+    return new Promise(function (resolve, reject) {
+      var node = window.cep_node;
+      if (!node || !path) { reject('没有 Node 权限'); return; }
+      try {
+        var fs = node.require('fs');
+        var buf = fs.readFileSync(path);
+        var bytes = new Uint8Array(buf.length);
+        for (var i = 0; i < buf.length; i++) { bytes[i] = buf[i]; }
+        if (lastObjectUrl) { URL.revokeObjectURL(lastObjectUrl); }
+        lastObjectUrl = URL.createObjectURL(new Blob([bytes], { type: mime || 'audio/wav' }));
+        var player = $('player');
+        player.src = lastObjectUrl;
+        player.play().then(resolve).catch(function (e) {
+          reject('decode: ' + ((e && e.name) || 'play rejected'));
+        });
+      } catch (e) {
+        reject('fs: ' + e);
+      }
+    });
+  }
+
+  function blobPlay(url, mime) {
+    return new Promise(function (resolve, reject) {
+      var req = new XMLHttpRequest();
+      req.open('GET', url, true);
+      req.responseType = 'arraybuffer';
+      req.timeout = 30000;
+      req.onload = function () {
+        if (req.status < 200 || req.status >= 300) { reject('HTTP ' + req.status); return; }
+        try {
+          if (lastObjectUrl) { URL.revokeObjectURL(lastObjectUrl); }
+          lastObjectUrl = URL.createObjectURL(new Blob([req.response], { type: mime || 'audio/wav' }));
+          var player = $('player');
+          player.src = lastObjectUrl;
+          player.play().then(resolve).catch(function (e) { reject((e && e.name) || 'play rejected'); });
+        } catch (e) { reject('blob: ' + e); }
+      };
+      req.onerror = function () { reject('XHR 失败'); };
+      req.ontimeout = function () { reject('XHR 超时'); };
+      req.send();
+    });
+  }
+
   function preview(item, rowEl) {
     var player = $('player');
     if (state.playingId === item.id) { player.pause(); state.playingId = null; return; }
@@ -152,13 +235,45 @@
     }
     var url = API + '/api/v1/files/' + encodeURIComponent(item.id) + '/audio?project_id=' +
       encodeURIComponent(state.project);
-    player.src = url;
-    player.play().catch(function () {
-      toast('播放失败，可能是格式或路径问题', true);
-    });
+    var mime = 'audio/' + (ext === 'mp3' ? 'mpeg' : ext);
     state.playingId = item.id;
     document.querySelectorAll('.item.playing').forEach(function (n) { n.classList.remove('playing'); });
     if (rowEl) { rowEl.classList.add('playing'); }
+
+    // 依次尝试，前一个失败才走下一个：
+    //   1. CEP 里用 Node 直读（绕开 http 策略）
+    //   2. 原始文件直连
+    //   3. 后端转成 PCM WAV 再直连（IMA ADPCM / 浮点 WAV 浏览器解不了，靠这条）
+    //   4. 转码结果抓成 Blob 再播
+    var transUrl = url + '&transcode=1';
+    var attempts = [];
+    if (window.cep_node && item.path) {
+      attempts.push(function () { return nodePlay(item.path, mime); });
+    }
+    if (!transMode) {
+      attempts.push(function () { return directPlay(url); });
+    }
+    attempts.push(function () {
+      transMode = true;
+      return directPlay(transUrl).catch(function () { return blobPlay(transUrl, 'audio/wav'); });
+    });
+
+    var chain = attempts[0]();
+    var errors = [];
+    attempts.slice(1).forEach(function (next) {
+      chain = chain.catch(function (err) {
+        errors.push(String(err));
+        return next();
+      });
+    });
+    chain = chain.catch(function (err) {
+      errors.push(String(err));
+      throw new Error(errors.join(' / '));
+    });
+    chain.catch(function (err) {
+      state.playingId = null;
+      toast('播放失败（' + (err && err.message ? err.message : err) + '），可用「复制路径」在别的播放器里听', true);
+    });
   }
 
   async function importToProject(item) {

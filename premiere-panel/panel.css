@@ -21,6 +21,9 @@ button { font: inherit; border-radius: 4px; padding: 4px 10px; cursor: pointer; 
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button.primary:disabled { opacity: .5; cursor: default; }
 button.ghost { background: transparent; color: var(--dim); }
+.modes { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.mode { background: transparent; border: 0; color: var(--dim); padding: 3px 9px; font-size: 11px; border-radius: 0; }
+.mode.active { background: var(--accent); color: #fff; font-weight: 600; }
 .project { margin-left: auto; color: var(--dim); font-size: 11px; }
 select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
 .hint { color: var(--dim); font-size: 11px; margin-top: 6px; min-height: 14px; }

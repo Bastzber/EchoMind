@@ -16,6 +16,10 @@
     <div class="row">
       <button id="go" class="primary">搜索</button>
       <button id="clear" class="ghost">清空</button>
+      <div class="modes" id="modes">
+        <button class="mode active" data-mode="term" title="字面命中：快，按文件名/描述/标签里的词匹配">精确</button>
+        <button class="mode" data-mode="semantic" title="和软件里那套一致的向量语义搜索：更懂「意思」，但第一次可能要 10~30 秒">语义</button>
+      </div>
       <label class="project"><span>工程</span><select id="project"></select></label>
     </div>
     <div class="hint" id="hint"></div>

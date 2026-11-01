@@ -507,6 +507,57 @@ def _file_signature(db_manager: Any, project_id: str) -> Tuple[int, str]:
     except Exception:
         return -1, ""
 
+STOP_CHARS = set("的了是在和与或个些那这之把给")
+
+
+def _split_query_terms(query: str) -> List[str]:
+    """把一句话拆成检索词：中文用 bigram（去虚词），英文用整词。
+
+    用 bigram 而不是单字：「嘟 转场」里单字「场」有 4000 多个文件含
+    「现场」，会把手术液体声排到转场音效前面；「转场」这个 bigram 就准了。
+    也不是整段：「婴儿笑声」整段匹配不到「婴儿笑-xh…」，拆成
+    「婴儿/儿笑/笑声」就有 2/3 命中。
+    """
+    value = str(query or "").strip()
+    if not value:
+        return []
+    terms: List[str] = []
+    for chunk in re.split(r"[\s,，、/|;；.。!！?？:：]+", value):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        for part in re.findall(r"[\u3400-\u9fff]+|[A-Za-z0-9]+", chunk):
+            part = part.strip().lower()
+            if not part or part.isdigit():
+                continue
+            if _CJK.match(part):
+                clean = "".join(c for c in part if c not in STOP_CHARS)
+                if len(clean) <= 1:
+                    terms.append(clean or part)
+                else:
+                    terms.extend(clean[i : i + 2] for i in range(len(clean) - 1))
+            else:
+                terms.append(part)
+    return list(dict.fromkeys(terms))
+
+def _lcs_len(a: str, b: str) -> int:
+    """最长公共子串长度（用来判断「词」在文本里出现了多少）。"""
+    if not a or not b:
+        return 0
+    best = 0
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        ch = a[i - 1]
+        for j in range(1, len(b) + 1):
+            if ch == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best
+
+
 def search_by_terms(
     db_manager: Any,
     project_id: str,
@@ -514,44 +565,74 @@ def search_by_terms(
     *,
     limit: int = 30,
 ) -> List[Dict[str, Any]]:
-    """按词命中直接检索（不走向量、不需要模型）。
+    """按词命中检索（不走向量、不需要模型）。
 
-    「找相似」用的是同一套 IDF 倒排；这里把它开放成「用一句话搜库」。
-    中文单字 + 英文词，太常见的听感标签（低频/短尾…）被 IDF 压掉，
-    所以「猪哼 低沉」里真正起作用的是「猪」「哼」。
+    两段式：
+      1. 单字倒排快速捞候选（便宜，宁多勿漏）；
+      2. 再按**整词覆盖度**打分：词在文件名/描述/标签里出现了多少就用多少。
+
+    为什么不能只按单字算分：「嘟 转场」里「场」有 4000 多个文件含「现场」，
+    单字打分会让手术液体声排到转场音效前面；只用整词又太严（「婴儿笑声」
+    匹配不到「婴儿笑-xh…」）。按覆盖度既能给部分分，又要求「转场」这种
+    两字词真的出现过。
     """
     import math
 
     df, total, postings = _term_index(db_manager, project_id)
     if total <= 0:
         return []
-    tokens = [token for token in _tokenize(query) if token in postings]
-    if not tokens:
+
+    terms = _split_query_terms(query)
+    if not terms:
         return []
 
     def idf(token: str) -> float:
         return math.log((total + 1) / (df.get(token, 0) + 1)) + 1.0
 
-    hits: Dict[str, float] = {}
-    matched: Dict[str, List[str]] = {}
-    for token in tokens:
-        weight = idf(token)
-        for file_uuid in postings[token]:
-            hits[file_uuid] = hits.get(file_uuid, 0.0) + weight
-            matched.setdefault(file_uuid, []).append(token)
-    if not hits:
+    def term_weight(term: str) -> float:
+        chars = [c for c in term if _CJK.match(c)]
+        if chars:
+            return sum(idf(c) for c in chars) / len(chars)
+        return idf(term)
+
+    weights = {term: term_weight(term) for term in terms}
+    total_weight = sum(weights.values()) or 1.0
+
+    # ① 候选：每个词拆成单字去倒排取并集
+    candidate_ids: Dict[str, float] = {}
+    for term in terms:
+        chars = list({c for c in term if _CJK.match(c)}) or [term]
+        for char in chars:
+            bucket = postings.get(char)
+            if not bucket:
+                continue
+            for file_uuid in bucket:
+                candidate_ids[file_uuid] = candidate_ids.get(file_uuid, 0.0) + weights[term]
+    if not candidate_ids:
         return []
 
-    best = max(hits.values()) or 1.0
-    ranked = sorted(hits.items(), key=lambda item: -item[1])[: max(limit * 3, 60)]
-    rows = _rows_by_ids(db_manager, [file_uuid for file_uuid, _ in ranked])
+    top_candidates = sorted(candidate_ids.items(), key=lambda item: -item[1])[:900]
+    rows = _rows_by_ids(db_manager, [file_uuid for file_uuid, _ in top_candidates])
+    has_multi_char = any(len(term) > 1 for term in terms)
+
     results: List[Dict[str, Any]] = []
-    for file_uuid, weight in ranked:
+    for file_uuid, _coarse in top_candidates:
         row = rows.get(file_uuid)
         if row is None:
             continue
         path, filename, duration, tags, description = row
-        terms = sorted(matched.get(file_uuid, []), key=lambda token: -idf(token))
+        blob = (str(filename) + " " + str(description) + " " + " ".join(_parse_tags(tags))).lower()
+        coverage: Dict[str, float] = {
+            term: (1.0 if term in blob else 0.0) for term in terms
+        }
+        # 至少一个两字以上的词真的出现过（半截也算），否则就是单字噪音
+        strong = [term for term in coverage if len(term) > 1 and coverage[term] >= 0.5]
+        if has_multi_char and not strong:
+            continue
+        score = sum(weights[term] * cov for term, cov in coverage.items()) / total_weight
+        if score <= 0:
+            continue
+        matched = [term for term, cov in coverage.items() if cov >= 0.5]
         results.append(
             {
                 "file_uuid": file_uuid,
@@ -560,11 +641,11 @@ def search_by_terms(
                 "duration": duration,
                 "tags": _parse_tags(tags),
                 "description": description,
-                "score": round(min(1.0, weight / best), 4),
-                "matched_terms": terms[:6],
+                "score": round(min(1.0, score), 4),
+                "matched_terms": matched,
                 "match": "term",
             }
         )
-        if len(results) >= limit:
-            break
-    return results
+
+    results.sort(key=lambda item: (-item["score"], -len(item["matched_terms"]), item["filename"]))
+    return results[:limit]

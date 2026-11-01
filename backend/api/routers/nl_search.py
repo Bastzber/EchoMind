@@ -39,9 +39,13 @@ class NLSearchRequest(BaseModel):
     project_id: str = Field(..., min_length=1)
     limit: int = Field(default=30, ge=1, le=100)
     use_llm: bool = Field(default=True, description="关掉就只做关键词搜索")
+    mode: str = Field(
+        default="term",
+        description="term=词命中（快，字面准）；semantic=跟软件里那套语义搜索一致（首次慢）",
+    )
     include_semantic: bool = Field(
         default=False,
-        description="是否再跑一遍向量语义检索（更全但慢很多，面板默认不开）",
+        description="已废弃：用 mode 代替（保留是为了老调用方不炸）",
     )
 
 
@@ -139,7 +143,68 @@ async def nl_search(payload: NLSearchRequest):
 
     db_manager = _main.get_db_manager()
     project_id = payload.project_id
-    query_text = nl_query.build_query_string(interpreted, text_query)
+    # 词命中用**用户原话**，不用 LLM 改写出来的关键词：
+    # 实测「嘟 转场」被改写成「嘟 转场 提示音」后，多了个泛词反而把结果搅浑。
+    # LLM 的产出只用来提取时长/声道这类过滤条件。
+    query_text = text_query
+
+    mode = (payload.mode or "term").strip().lower()
+    if mode not in ("term", "semantic"):
+        mode = "term"
+
+    if mode == "semantic":
+        # 「跟软件里那套一致」：用**原句**（不换成关键词）走同一条混合搜索，
+        # LLM 只用来提取时长/声道这类过滤条件。
+        request = schemas.SearchRequest(
+            query=text_query,
+            project_id=project_id,
+            top_k=max(60, payload.limit * 3),
+            threshold=0.15,
+            page=1,
+            page_size=payload.limit,
+            min_duration=interpreted.get("min_duration"),
+            max_duration=interpreted.get("max_duration"),
+            channels=interpreted.get("channels"),
+        )
+        try:
+            response = await _main.search_audio(request)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"搜索失败: {exc}") from exc
+        rows: List[Dict[str, Any]] = []
+        for item in getattr(response, "results", []) or []:
+            audio = getattr(item, "audio_file", None)
+            rows.append(
+                {
+                    "id": getattr(audio, "id", None),
+                    "path": getattr(audio, "path", "") or "",
+                    "filename": getattr(audio, "filename", "") or "",
+                    "duration": float(getattr(audio, "duration", 0) or 0),
+                    "sample_rate": int(getattr(audio, "sample_rate", 0) or 0),
+                    "channels": int(getattr(audio, "channels", 0) or 0),
+                    "format": getattr(audio, "format", "") or "",
+                    "score": float(getattr(item, "score", 0) or 0),
+                    "tags": [],
+                    "description": "",
+                    "matched_terms": [],
+                    "match": "semantic",
+                }
+            )
+        _enrich(db_manager, project_id, rows)
+        rows = [item for item in rows if item.get("id")][: payload.limit]
+        return {
+            "success": True,
+            "mode": "semantic",
+            "degraded": bool(interpreted.get("degraded")),
+            "semantic_ok": True,
+            "filters_relaxed": False,
+            "interpreted": interpreted,
+            "query_used": text_query,
+            "total": len(rows),
+            "counts": {"term": 0, "semantic": len(rows)},
+            "results": rows,
+        }
 
     # ① 词命中：快、准，先把「猪」「哼」这种字面就对得上的捞出来
     term_items: List[Dict[str, Any]] = []

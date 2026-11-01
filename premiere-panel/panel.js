@@ -8,7 +8,29 @@
 
   var API = 'http://127.0.0.1:8000';
   var PLAYABLE = ['wav', 'mp3', 'flac', 'ogg', 'oga', 'm4a', 'aac', 'aif', 'aiff', 'mp4'];
-  var state = { project: 'default', items: [], playingId: null, busy: false };
+  var state = { project: 'default', items: [], playingId: null, busy: false, mode: 'term' };
+
+  function loadMode() {
+    try {
+      var saved = localStorage.getItem('echomind.panelMode');
+      if (saved === 'semantic' || saved === 'term') { state.mode = saved; }
+    } catch (e) { /* CEP 里 localStorage 可能不可用 */ }
+  }
+
+  function applyMode() {
+    document.querySelectorAll('#modes .mode').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-mode') === state.mode);
+    });
+  }
+
+  function setMode(mode) {
+    state.mode = mode === 'semantic' ? 'semantic' : 'term';
+    try { localStorage.setItem('echomind.panelMode', state.mode); } catch (e) { /* ignore */ }
+    applyMode();
+    toast(state.mode === 'semantic'
+      ? '语义模式：和软件里那套一致，第一次搜索可能要 10~30 秒'
+      : '精确模式：按字面命中，毫秒级返回');
+  }
 
   function $(id) { return document.getElementById(id); }
 
@@ -114,6 +136,11 @@
     if (interpreted.max_duration) { parts.push('时长 ≤ ' + interpreted.max_duration + 's'); }
     if (interpreted.min_duration) { parts.push('时长 ≥ ' + interpreted.min_duration + 's'); }
     var warn = data.degraded ? '<span class="warn">（AI 未配置或调用失败，已降级为关键词搜索）</span>' : '';
+    if (data.mode === 'semantic') {
+      parts.push('语义模式');
+    } else if (!warn) {
+      parts.push('精确模式');
+    }
     $('hint').innerHTML = (parts.length ? parts.join(' · ') : '') + warn;
   }
 
@@ -382,13 +409,14 @@
     if (!query) { $('query').focus(); return; }
     state.busy = true;
     $('go').disabled = true;
-    setStatus('搜索中…');
+    setStatus(state.mode === 'semantic' ? '语义搜索中…（首次可能 10~30 秒）' : '搜索中…');
     $('hint').textContent = '';
     try {
       var data = await xhr('POST', API + '/api/v1/ai/nl-search', {
         query: query,
         project_id: state.project,
         limit: 30,
+        mode: state.mode,
       });
       render(data);
       renderHint(data);
@@ -402,6 +430,10 @@
     }
   }
 
+  document.querySelectorAll('#modes .mode').forEach(function (btn) {
+    btn.onclick = function () { setMode(btn.getAttribute('data-mode')); };
+  });
+
   $('go').onclick = search;
   $('clear').onclick = function () {
     $('query').value = '';
@@ -413,5 +445,7 @@
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); search(); }
   });
 
+  loadMode();
+  applyMode();
   boot();
 })();

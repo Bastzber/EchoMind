@@ -2236,10 +2236,13 @@ async def _scan_and_import_task_locked(
         # 以前这里排的是 audio_vector + text_vector，界面却提示「索引已暂停」，
         # 行为和提示互相矛盾。
         if added:
-            # 导入完成后**不要立刻**跑波形/索引：用户接下来要导知识包，
-            # 现在开任务会跟知识包抢写锁、抢 GPU，也是「导入完卡在解码分析」的观感来源。
-            # 延迟 N 秒（默认 180）再补，这期间用户可以安安心心导知识包。
+            # 导入完成后立刻在后台补时长（只读头，6.5 万条约 3 分钟，不挡界面）。
+            # 波形仍然延迟补：那要整段解码，跟知识包抢写锁，没必要抢跑。
             await _bump_project_index_revision(project_id)
+            try:
+                asyncio.create_task(_backfill_durations(project_id))
+            except Exception as exc:
+                logger.debug("[Duration] 调度失败: %s", exc)
             _schedule_waveform_after_import(project_id)
 
     except Exception as e:
@@ -7399,6 +7402,19 @@ async def _start_index_job(
         "kinds": valid_kinds,
         "total": total,
     }
+
+
+async def _backfill_durations(project_id: str) -> None:
+    """导入完成后补时长（后台，不阻塞）。"""
+    from core import duration_backfill
+
+    try:
+        report = await asyncio.to_thread(
+            duration_backfill.backfill, get_db_manager(), project_id
+        )
+        logger.info("[Duration] 结果: %s", report)
+    except Exception as exc:
+        logger.warning("[Duration] 失败: %s", exc)
 
 
 def _schedule_waveform_after_import(project_id: str) -> None:

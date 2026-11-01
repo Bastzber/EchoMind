@@ -429,6 +429,18 @@ function handleScanComplete(data) {
         rendererApi.post('/api/v1/index/hash?project_id=' + encodeURIComponent(currentProject?.id || 'default'), {}, { timeoutMs: 60000 })
             .catch(() => { });
 
+        // 时长是后台补的（只读头，6.5 万条约 3 分钟）：隔一阵刷一次列表，
+        // 让用户看着 00:00.000 一条条变成真实时长，而不是以为导入坏了。
+        if (data.added > 0) {
+            [15000, 45000, 90000, 150000].forEach((delay) => {
+                setTimeout(() => {
+                    const rt = window.importRuntime;
+                    if (rt && rt.currentScanTaskId) return;   // 又在导入了，别打断
+                    loadFilesFromDatabase({ reset: true }).catch(() => { });
+                }, delay);
+            });
+        }
+
         // 索引默认暂停：先让用户导描述包，再分别跑两种向量
         if (data.added > 0) {
             setTimeout(() => {

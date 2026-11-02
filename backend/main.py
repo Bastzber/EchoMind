@@ -670,7 +670,13 @@ app = FastAPI(
 
 # 按域拆分的路由放在 backend/api/routers/（AGENTS.md：新接口别继续堆这个文件）。
 # 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
+from api.routers import assistant as _assistant_router  # noqa: E402
+from api.routers import audio as _audio_router  # noqa: E402
 from api.routers import descriptions as _descriptions_router  # noqa: E402
+from api.routers import duplicates as _duplicates_router  # noqa: E402
+from api.routers import maintenance as _maintenance_router  # noqa: E402
+from api.routers import recipes as _recipes_router  # noqa: E402
+from api.routers import sfx as _sfx_router  # noqa: E402
 from api.routers import favorites as _favorites_router  # noqa: E402
 from api.routers import media as _media_router  # noqa: E402
 from api.routers import tags as _tags_router  # noqa: E402
@@ -683,6 +689,12 @@ app.include_router(_media_router.router)
 app.include_router(_favorites_router.router)
 app.include_router(_tags_router.router)
 app.include_router(_descriptions_router.router)
+app.include_router(_audio_router.router)
+app.include_router(_sfx_router.router)
+app.include_router(_duplicates_router.router)
+app.include_router(_maintenance_router.router)
+app.include_router(_recipes_router.router)
+app.include_router(_assistant_router.router)
 
 
 @app.exception_handler(SoundBotAPIError)
@@ -2761,76 +2773,6 @@ async def serve_recipe_audio(name: str):
     return FileResponse(str(path), media_type="audio/wav")
 
 
-@app.get("/api/v1/recipes/{recipe_id}/samples")
-async def recipe_samples(recipe_id: str):
-    """列出配方可选的单个素材（「选择素材」用）。"""
-    from core.sound_recipe import list_recipe_samples
-
-    recipe = _get_recipe(recipe_id)
-    if recipe is None:
-        raise HTTPException(status_code=404, detail="配方不存在")
-    return {"success": True, "samples": list_recipe_samples(recipe)}
-
-
-@app.post("/api/v1/recipes/{recipe_id}/hit")
-async def recipe_hit(recipe_id: str, payload: Dict[str, Any]):
-    """按 XY 参数渲染一次触发（“走一步”）。"""
-    from core.sound_recipe import render_hit
-
-    recipe = _get_recipe(recipe_id)
-    if recipe is None or not recipe.layers:
-        raise HTTPException(status_code=404, detail="配方不存在或样本不足")
-    x = float(payload.get("x", 0.3) or 0.3)
-    y = float(payload.get("y", 0.5) or 0.5)
-    sample = str(payload.get("sample") or "").strip() or None
-    variation = float(payload.get("variation", 1.0) or 0)
-    enabled = payload.get("enabled")
-    layer_samples = payload.get("layer_samples") or {}
-    if not isinstance(layer_samples, dict):
-        layer_samples = {}
-    samples = await asyncio.to_thread(
-        render_hit, recipe, x, y, None, sample, variation,
-        enabled if isinstance(enabled, list) else None,
-        layer_samples,
-    )
-    return {"success": True, **_serve_recipe_audio(samples)}
-
-
-@app.post("/api/v1/recipes/{recipe_id}/stems")
-async def recipe_stems(recipe_id: str, payload: Dict[str, Any] = None):
-    """返回 4 条独立音轨 + 每条受 x/y 控制的增益范围。
-
-    前端同时循环播放这 4 条，拖动时只改音量 —— 声音永不重启，因此不可能有断层。
-    """
-    from core.noise_ambience import STEM_MIX, load_user_stems, synth_stems
-    from core.sound_recipe import to_wav_bytes as _to_wav
-
-    recipe = _get_recipe(recipe_id)
-    if recipe is None or not recipe.synth:
-        raise HTTPException(status_code=404, detail="该配方不是环境音")
-
-    seconds = min(max(float((payload or {}).get("seconds", 45) or 45), 5.0), 60.0)
-    stems = await asyncio.to_thread(load_user_stems, recipe.synth, seconds)
-    source = "user" if stems else "synth"
-    if not stems:
-        stems = await asyncio.to_thread(synth_stems, recipe.synth, seconds)
-    directory = Path(tempfile.gettempdir()) / "echomind_stems"
-    directory.mkdir(parents=True, exist_ok=True)
-
-    items = []
-    for stem_id, samples in stems.items():
-        wav = _to_wav(samples)
-        name = f"{recipe.synth}_{stem_id}.wav"
-        path = directory / name
-        path.write_bytes(wav)
-        items.append({
-            "id": stem_id,
-            "url": f"/api/v1/temp-audio/stems/{name}",
-            "mix": STEM_MIX.get(recipe.synth, {}).get(stem_id, {"x": (0.3, 0.6), "y": (0.3, 0.6)}),
-        })
-    return {"success": True, "seconds": seconds, "source": source, "stems": items}
-
-
 @app.get("/api/v1/temp-audio/stems/{name}")
 async def serve_stem_audio(name: str):
     """回传音轨；带上 CORS 头，方便前端用 WebAudio/audio 标签播放。"""
@@ -2843,59 +2785,6 @@ async def serve_stem_audio(name: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="音轨不存在")
     return FileResponse(str(path), media_type="audio/wav", headers={"Access-Control-Allow-Origin": "*"})
-
-
-@app.post("/api/v1/recipes/{recipe_id}/ambience")
-async def recipe_ambience(recipe_id: str, payload: Dict[str, Any]):
-    """渲染一段可无缝循环的环境床（拖动触控板时连续换气）。"""
-    from core.sound_recipe import render_ambience
-
-    recipe = _get_recipe(recipe_id)
-    if recipe is None or not recipe.layers:
-        raise HTTPException(status_code=404, detail="配方不存在或样本不足")
-    x = float(payload.get("x", 0.5) or 0.5)
-    y = float(payload.get("y", 0.5) or 0.5)
-    seconds = min(max(float(payload.get("seconds", 6) or 6), 2.0), 12.0)
-    enabled = payload.get("enabled")
-    layer_samples = payload.get("layer_samples") or {}
-    if not isinstance(layer_samples, dict):
-        layer_samples = {}
-    samples = await asyncio.to_thread(
-        render_ambience, recipe, x, y, seconds, 1.0,
-        enabled if isinstance(enabled, list) else None,
-        layer_samples,
-    )
-    return {"success": True, **_serve_recipe_audio(samples)}
-
-
-@app.post("/api/v1/recipes/{recipe_id}/session")
-async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
-    """把一串触发事件渲染成一段录音（最长 60 秒）。"""
-    from core.sound_recipe import render_ambience_performance, render_session
-
-    recipe = _get_recipe(recipe_id)
-    if recipe is None or not recipe.layers:
-        raise HTTPException(status_code=404, detail="配方不存在或样本不足")
-    events = payload.get("events") or []
-    max_seconds = min(float(payload.get("max_seconds", 60) or 60), 60.0)
-    sample = str(payload.get("sample") or "").strip() or None
-    variation = float(payload.get("variation", 1.0) or 0)
-    enabled = payload.get("enabled")
-    layer_samples = payload.get("layer_samples") or {}
-    if not isinstance(layer_samples, dict):
-        layer_samples = {}
-    for event in events:
-        event.setdefault("sample", sample)
-        event.setdefault("variation", variation)
-    if recipe.mode == "env":
-        samples = await asyncio.to_thread(
-            render_ambience_performance, recipe, events, max_seconds,
-            enabled if isinstance(enabled, list) else None,
-            layer_samples,
-        )
-    else:
-        samples = await asyncio.to_thread(render_session, recipe, events, max_seconds)
-    return {"success": True, **_serve_recipe_audio(samples)}
 
 
 def _wav_duration(audio_bytes: bytes) -> float:
@@ -2912,260 +2801,6 @@ def _wav_duration(audio_bytes: bytes) -> float:
     except Exception:
         return 0.0
     return 0.0
-
-
-@app.post("/api/v1/sfx/generate")
-async def sfx_generate(request: Dict[str, Any]):
-    """AI 生成音效（试听模式：写入临时文件，不直接入库）。
-
-    入参: text_prompt(必填), format(wav/mp3/pcm/ogg_opus, 默认 mp3), sample_rate(默认 44100)
-    返回: generation_id / audio_path(临时文件) / duration / size
-    """
-    from core.sfx_generator import generate_sfx, is_configured
-
-    if not is_configured():
-        raise SoundBotAPIError(
-            "sfx_not_configured", "豆包语音 API Key 未配置，无法生成音效", status_code=400
-        )
-    text_prompt = (request.get("text_prompt") or "").strip()
-    if not text_prompt:
-        raise HTTPException(status_code=422, detail="text_prompt 不能为空")
-
-    import tempfile
-    import uuid as _uuid
-
-    fmt = str(request.get("format", "mp3")).strip().lower()
-    if fmt not in ("wav", "mp3", "pcm", "ogg_opus"):
-        fmt = "mp3"
-    try:
-        sample_rate = int(request.get("sample_rate", 44100) or 44100)
-    except (TypeError, ValueError):
-        sample_rate = 44100
-    try:
-        audio, duration = await asyncio.to_thread(
-            generate_sfx, text_prompt, sample_rate, fmt
-        )
-    except Exception as exc:
-        logger.error("音效生成失败: %s", exc)
-        raise HTTPException(status_code=502, detail=f"生成失败: {exc}")
-
-    # 响度标准化：生成模型输出比音效库素材小 5~10 dB，用户每条都要手动 +6 dB。
-    # 这里统一拉到 -16 LUFS、峰值不超过 -1 dBTP；解不开就原样返回，不阻断生成。
-    from core import loudness as _loudness
-
-    loud_stats: Dict[str, Any] = {}
-    try:
-        audio, loud_stats = await asyncio.to_thread(_loudness.normalize, audio)
-        if loud_stats.get("normalized"):
-            duration = await asyncio.to_thread(_wav_duration, audio) or duration
-    except Exception as exc:
-        logger.warning("音效响度标准化失败，保留原始输出: %s", exc)
-
-    # 落稳定目录：原来写 %TEMP%，系统一清临时文件，历史里的「试听 / 保存到库」就全废了。
-    gen_dir = (
-        Path(os.environ.get("APPDATA") or tempfile.gettempdir())
-        / "EchoMind" / "generated" / datetime.now().strftime("%Y%m%d")
-    )
-    gen_dir.mkdir(parents=True, exist_ok=True)
-    gen_id = _uuid.uuid4().hex[:12]
-    tmp_path = gen_dir / f"sfx_{gen_id}.wav"
-    try:
-        tmp_path.write_bytes(audio)
-    except Exception as exc:
-        logger.error("写入生成音效失败: %s", exc)
-        raise HTTPException(status_code=502, detail=f"写入失败: {exc}")
-    return {
-        "generation_id": gen_id,
-        "audio_path": str(tmp_path),
-        "duration": duration,
-        "size": len(audio),
-        "text_prompt": text_prompt,
-        "generated_dir": str(gen_dir),
-        "loudness": loud_stats,
-    }
-
-
-@app.post("/api/v1/sfx/save")
-async def sfx_save(request: Dict[str, Any], background_tasks: BackgroundTasks):
-    """把试听过的生成音效保存到库目录并自动索引。
-
-    入参: audio_path(必填，生成接口返回的临时文件), name(可选), tags(可选数组)
-    """
-    from core.sfx_generator import get_save_dir
-
-    import shutil
-
-    audio_path_str = str(request.get("audio_path") or "").strip()
-    if not audio_path_str:
-        raise HTTPException(status_code=422, detail="audio_path 不能为空")
-    audio_path = Path(audio_path_str)
-    if not audio_path.exists():
-        raise HTTPException(status_code=404, detail="临时音频不存在，请重新生成")
-
-    name = (request.get("name") or "").strip()
-    tags = request.get("tags") or []
-    if not isinstance(tags, list):
-        tags = []
-    if not name:
-        name = "AI音效_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    save_dir = get_save_dir()
-    stem, suffix = name, audio_path.suffix or ".mp3"
-    if not Path(stem).suffix:
-        stem = stem + suffix
-    save_path = save_dir / stem
-    counter = 1
-    while save_path.exists():
-        p = Path(stem)
-        save_path = save_dir / f"{p.stem}_{counter}{p.suffix}"
-        counter += 1
-    try:
-        shutil.copy2(audio_path, save_path)
-    except Exception as exc:
-        logger.error("保存生成音效失败: %s", exc)
-        raise HTTPException(status_code=502, detail=f"保存失败: {exc}")
-
-    # 探测元数据
-    duration, sample_rate, channels = 0.0, 0, 0
-    try:
-        from core.audio_service import get_audio_service
-
-        info = await asyncio.to_thread(get_audio_service().probe, str(save_path))
-        if info:
-            duration = float(getattr(info, "duration", 0) or 0)
-            sample_rate = int(getattr(info, "sample_rate", 0) or 0)
-            channels = int(getattr(info, "channels", 0) or 0)
-    except Exception as exc:
-        logger.warning("探测生成音效元数据失败: %s", exc)
-
-    size = save_path.stat().st_size
-    db_manager = get_db_manager()
-    current_project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
-    job_id = None
-    async with _get_project_index_lock(current_project_id):
-        db_manager.add_file_simple(
-            str(save_path),
-            save_path.name,
-            duration,
-            sample_rate,
-            channels,
-            size,
-            tags=json.dumps(tags, ensure_ascii=False),
-        )
-        record = db_manager.get_file(str(save_path), current_project_id)
-        if record:
-            now = datetime.now().isoformat()
-            db_manager.mark_artifacts_stale_for_file(
-                current_project_id,
-                record.file_uuid,
-                ["waveform", "audio_vector", "text_vector"],
-                now,
-            )
-            try:
-                await _get_project_searcher(current_project_id).clear_cache()
-            except Exception as exc:
-                logger.debug(f"清理搜索缓存失败: {exc}")
-            job_id = db_manager.create_job(current_project_id, "index_reconcile", 1)
-            background_tasks.add_task(
-                _repair_index_task,
-                job_id,
-                current_project_id,
-                ["waveform", "audio_vector", "text_vector"],
-                "reconcile",
-            )
-    return {
-        "success": True,
-        "file_path": str(save_path),
-        "filename": save_path.name,
-        "duration": duration,
-        "job_id": job_id,
-    }
-
-
-@app.post("/api/v1/sfx/generated/rename")
-async def sfx_generated_rename(request: Dict[str, Any]):
-    """给生成好的音效改名（就地重命名，历史记录里的路径要跟着更新）。"""
-    src = Path(str(request.get("path") or "").strip())
-    new_name = str(request.get("name") or "").strip()
-    if not src.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    if not new_name:
-        raise HTTPException(status_code=422, detail="新文件名不能为空")
-    # 只允许改文件名，不允许带路径，避免越权写到别处
-    if any(sep in new_name for sep in ("/", "\\")) or new_name in (".", ".."):
-        raise HTTPException(status_code=422, detail="文件名不能包含路径分隔符")
-    if not Path(new_name).suffix:
-        new_name = new_name + src.suffix
-    target = src.parent / new_name
-    if target.resolve() == src.resolve():
-        return {"success": True, "path": str(src), "name": src.name}
-    if target.exists():
-        raise HTTPException(status_code=409, detail="同名文件已存在")
-    try:
-        src.rename(target)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"重命名失败: {exc}")
-    return {"success": True, "path": str(target), "name": target.name}
-
-
-@app.post("/api/v1/sfx/generated/reveal")
-async def sfx_generated_reveal(request: Dict[str, Any]):
-    """在资源管理器里定位生成文件（选中它）。"""
-    path = Path(str(request.get("path") or "").strip())
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    try:
-        if os.name == "nt" and path.is_file():
-            import subprocess
-
-            subprocess.Popen(["explorer", "/select,", str(path)])
-        else:
-            os.startfile(str(path if path.is_dir() else path.parent))  # type: ignore[attr-defined]
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"打开目录失败: {exc}")
-    return {"success": True}
-
-
-@app.post("/api/v1/sfx/generated/delete")
-async def sfx_generated_delete(request: Dict[str, Any]):
-    """删除一个生成文件（只删生成目录里的，不碰库内素材）。"""
-    path = Path(str(request.get("path") or "").strip())
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    base_dir = Path(os.environ.get("APPDATA") or tempfile.gettempdir()) / "EchoMind" / "generated"
-    try:
-        path.resolve().relative_to(base_dir.resolve())
-    except ValueError:
-        raise HTTPException(status_code=403, detail="只允许删除生成目录里的文件")
-    try:
-        path.unlink()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"删除失败: {exc}")
-    return {"success": True}
-
-
-@app.get("/api/v1/sfx/config")
-async def sfx_get_config():
-    """获取音频生成（豆包语音）配置状态。"""
-    from core.sfx_generator import is_configured, get_save_dir
-
-    return {
-        "success": True,
-        "configured": is_configured(),
-        "save_dir": str(get_save_dir()),
-        "base_url": "https://openspeech.bytedance.com/api/v3/tts/create",
-    }
-
-
-@app.post("/api/v1/sfx/config")
-async def sfx_save_config(request: Dict[str, Any]):
-    """保存音频生成（豆包语音）配置。入参: api_key, save_dir(可选)。"""
-    from core.sfx_generator import save_config
-
-    api_key = str(request.get("api_key") or "").strip()
-    save_dir = str(request.get("save_dir") or "").strip()
-    save_config(api_key=api_key, save_dir=save_dir)
-    return {"success": True, "message": "音频生成配置已保存"}
 
 
 async def _regenerate_file_description(project_id: str, record: Any) -> bool:
@@ -3409,23 +3044,6 @@ async def set_favorite(file_uuid: str, payload: Dict[str, Any], project_id: str 
     value = bool(payload.get("favorite", True))
     ok = db_manager.set_favorite(project_id, file_uuid, value)
     return {"success": ok, "favorite": value}
-
-
-@app.get("/api/v1/duplicates")
-async def list_duplicates(project_id: str = Query(default="default"), limit: int = Query(default=20000, le=20000)):
-    db_manager = get_db_manager()
-    groups = db_manager.duplicate_groups(project_id, limit=limit)
-    total_files = sum(g["count"] for g in groups)
-    return {
-        "success": True,
-        "groups": groups,
-        "group_count": len(groups),
-        "file_count": total_files,
-        "wasted_bytes": sum(
-            (len(g["files"]) - 1) * int(g["files"][0].get("size") or 0) for g in groups
-        ),
-    }
-
 
 
 _hash_task_running = False
@@ -3841,83 +3459,6 @@ def _folder_tag_name(path: str) -> str:
     return ""
 
 
-@app.post("/api/v1/duplicates/merge-tags")
-async def merge_duplicates_into_tags(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    """把"副本所在目录名"变成保留文件的标签，然后删掉副本。
-
-    这样一个音效只留一份物理文件，多分类归属靠标签表达，不再占双倍空间。
-    """
-    import json as _json
-    from pathlib import Path as _Path
-
-    keep_path = str(payload.get("keep_path") or "").strip()
-    remove_paths = [str(item) for item in (payload.get("paths") or []) if str(item).strip()]
-    delete_source = payload.get("delete_source", True) is not False
-    extra_tags = [str(t).strip() for t in (payload.get("tags") or []) if str(t).strip()]
-
-    if not keep_path or not remove_paths:
-        raise HTTPException(status_code=422, detail="keep_path 和 paths 都不能为空")
-
-    db_manager = get_db_manager()
-
-    derived = []
-    for path in remove_paths:
-        name = _folder_tag_name(path)
-        if name and name not in derived:
-            derived.append(name)
-    for tag in extra_tags:
-        if tag not in derived:
-            derived.append(tag)
-
-    merged_tags = []
-    with db_manager.get_cursor() as cursor:
-        row = cursor.execute(
-            "SELECT tags FROM files WHERE project_id=? AND canonical_path=?",
-            (project_id, canonicalize_path(keep_path)),
-        ).fetchone()
-        try:
-            merged_tags = [str(t) for t in (_json.loads(row[0]) if row and row[0] else []) if str(t).strip()]
-        except Exception:
-            merged_tags = []
-    for tag in derived:
-        if tag not in merged_tags:
-            merged_tags.append(tag)
-
-    if merged_tags:
-        db_manager.update_tags(keep_path, merged_tags, project_id)
-
-    moved = 0
-    removed = 0
-    failed = 0
-    for path in remove_paths:
-        try:
-            source = _Path(path)
-            if delete_source and source.exists():
-                _move_to_recycle_bin(source)
-                moved += 1
-            if db_manager.delete_file(path, project_id):
-                removed += 1
-        except Exception as exc:
-            failed += 1
-            logger.warning("合并标签后删除失败 %s: %s", path, exc)
-
-    try:
-        await _get_project_searcher(project_id).clear_cache()
-    except Exception:
-        pass
-
-    return {
-        "success": True,
-        "keep_path": keep_path,
-        "tags_added": derived,
-        "tags_total": merged_tags,
-        "moved": moved,
-        "removed": removed,
-        "failed": failed,
-    }
-
-
-
 # ==================== 转码 / 损坏文件修复 ====================
 
 class TranscodeRequest(BaseModel):
@@ -4109,148 +3650,12 @@ async def review_move_file(payload: ReviewMoveRequest):
 
 
 
-class AssistantChatRequest(BaseModel):
-    messages: List[Dict[str, str]]
-    project_id: str = "default"
-
-
-@app.post("/api/v1/assistant/chat")
-async def assistant_chat(payload: AssistantChatRequest):
-    """大肥鱼 AI 助理：带工具调用的多步对话。"""
-    from core.assistant import run_assistant
-
-    if not payload.messages:
-        raise HTTPException(status_code=422, detail="messages 不能为空")
-    result = await run_assistant(payload.messages[-12:], payload.project_id or "default")
-    return {"success": True, **result}
-
-class AssistantSpeakRequest(BaseModel):
-    text: str
-    profile_id: str = ""
-    provider: str = "auto"
-    channels: int = 1
-    sample_rate: int = 24000
-
-
-
-@app.post("/api/v1/assistant/speak/stream")
-async def assistant_speak_stream(payload: AssistantSpeakRequest):
-    """流式朗读：边合成边把 PCM 推给前端，首帧约 0.5 秒就能出声。
-
-    一次性合成要等整句念完（5~6 秒）才拿到文件；这里直接把 Breeze 的流转发出去。
-    """
-    import httpx
-
-    from core import tts
-
-    text = (payload.text or '').strip()
-    if not text:
-        raise HTTPException(status_code=422, detail="text 不能为空")
-    if not await asyncio.to_thread(tts.breeze_available, 1.0):
-        for _ in range(25):
-            await asyncio.sleep(1.0)
-            if await asyncio.to_thread(tts.breeze_available, 1.0):
-                break
-
-    loop = asyncio.get_running_loop()
-    parts = await asyncio.to_thread(
-        tts.breeze_request_parts,
-        text,
-        voice_id=await asyncio.to_thread(tts.assistant_voice_id),
-        instruction=await asyncio.to_thread(tts.voice_style),
-    )
-    if not parts:
-        raise HTTPException(status_code=422, detail="文本不能为空")
-    url, body, headers = parts
-
-    async def gen():
-        # Breeze 边生成边返回 PCM（实测首块 0.47s，整段 5.8s）
-        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0)) as client:
-            async with client.stream('POST', url, content=body, headers=headers) as resp:
-                if resp.status_code != 200:
-                    raise SoundBotAPIError("tts_failed", f"合成失败 {resp.status_code}", status_code=503)
-                async for chunk in resp.aiter_raw():
-                    if chunk:
-                        yield chunk
-
-    return StreamingResponse(
-        gen(),
-        media_type="application/octet-stream",
-        headers={"X-Sample-Rate": "24000", "X-Channels": "1", "Cache-Control": "no-store"},
-    )
-
-
-
-
-@app.post("/api/v1/assistant/speak")
-async def assistant_speak(payload: AssistantSpeakRequest):
-    """朗读一段文本：本地 Breeze 优先，豆包兜底。"""
-    from core import tts
-
-    text = (payload.text or "").strip()
-    if not text:
-        raise HTTPException(status_code=422, detail="text 不能为空")
-    # 冷启动保护：刚开机/刚重启时 Breeze 还没起来，直接合成会 503，
-    # 前端那一段就被跳过了（表现就是「第一句话没声音」）。
-    # 这里最多等 25 秒，等它起来再合成。
-    if not await asyncio.to_thread(tts.breeze_available, 1.0):
-        for _ in range(25):
-            await asyncio.sleep(1.0)
-            if await asyncio.to_thread(tts.breeze_available, 1.0):
-                break
-    provider = (getattr(payload, "provider", "") or "auto").strip() or "auto"
-    result = await asyncio.to_thread(tts.speak, text, provider, getattr(payload, "profile_id", "") or "")
-    if not result.get("ok"):
-        raise SoundBotAPIError("tts_failed", str(result.get("error") or "朗读失败"), status_code=503)
-    return {"success": True, "path": result.get("path"), "provider": result.get("provider"), "seconds": result.get("seconds")}
-
-
 @app.get("/api/v1/tts/status")
 async def tts_status():
     from core import tts
 
     return {"success": True, **(await asyncio.to_thread(tts.status))}
 
-
-@app.get("/api/v1/assistant/memory")
-async def assistant_memory_list():
-    from core.assistant import load_memory
-
-    return {"success": True, "items": load_memory(get_db_manager(), limit=50)}
-
-
-@app.delete("/api/v1/assistant/memory")
-async def assistant_memory_clear():
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        cursor.execute("DELETE FROM assistant_memory")
-    return {"success": True}
-
-
-@app.get("/api/v1/assistant/events")
-async def assistant_events():
-    """给前端做主动提醒用：最近导入/索引状态的变化源。"""
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        failed = cursor.execute(
-            "SELECT COUNT(*) FROM file_artifacts WHERE project_id='default' AND state='failed'"
-        ).fetchone()[0]
-        pending = cursor.execute(
-            "SELECT COUNT(*) FROM file_artifacts WHERE project_id='default' AND state IN ('pending','processing')"
-        ).fetchone()[0]
-        total = cursor.execute(
-            "SELECT COUNT(*) FROM files WHERE project_id='default'"
-        ).fetchone()[0]
-        last_job = cursor.execute(
-            "SELECT kind, state, total, created_at FROM jobs ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()
-    return {
-        "success": True,
-        "failed": failed,
-        "pending": pending,
-        "total_files": total,
-        "last_job": ({"kind": last_job[0], "state": last_job[1], "total": last_job[2], "created_at": last_job[3]} if last_job else None),
-    }
 
 @app.post("/api/v1/db/files/delete")
 async def batch_delete_db_files(payload: BatchDeleteRequest):
@@ -4660,125 +4065,9 @@ async def files_copy_endpoint(payload: FileCopyRequest):
 
 # ==================== 效果器（混响） ====================
 
-class EffectRequest(BaseModel):
-    path: str
-    preset: str = "room_large"
-    wet: Optional[float] = None
-
-
-class EffectExportRequest(BaseModel):
-    path: str
-    preset: str = "room_large"
-    wet: Optional[float] = None
-    out_dir: Optional[str] = None
-
-
-@app.post("/api/v1/audio/export-effect")
-async def export_effect_endpoint(payload: EffectExportRequest):
-    """处理并落盘：默认输出到原文件同目录 <名字>_<预设>.wav。"""
-    from core.effects import apply_effect, PRESETS
-    import shutil
-
-    if not payload.path:
-        raise HTTPException(status_code=422, detail="path 不能为空")
-    loop = asyncio.get_running_loop()
-    wet = -1.0 if payload.wet is None else float(payload.wet)
-    result = await loop.run_in_executor(None, apply_effect, payload.path, payload.preset, wet)
-    if not result.get("ok"):
-        raise SoundBotAPIError("effect_failed", str(result.get("error") or "处理失败"), status_code=500)
-
-    source = Path(payload.path)
-    out_dir = Path(payload.out_dir) if payload.out_dir else source.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
-    preset_name = (PRESETS.get(payload.preset) or {}).get("name") or payload.preset
-    target = out_dir / f"{source.stem}_{preset_name}.wav"
-    index = 2
-    while target.exists():
-        target = out_dir / f"{source.stem}_{preset_name} ({index}).wav"
-        index += 1
-    await loop.run_in_executor(None, shutil.copyfile, result["path"], str(target))
-    return {"success": True, "path": str(target), "preset": result.get("preset"), "wet": result.get("wet")}
-
-
-@app.get("/api/v1/audio/effect-presets")
-async def list_effect_presets():
-    """可用效果器预设（混响空间）。"""
-    from core.effects import PRESETS
-
-    items = [
-        {"id": key, "name": value["name"], "decay": value["decay"], "wet": value["wet"]}
-        for key, value in PRESETS.items()
-    ]
-    return {"success": True, "presets": items}
-
-
-@app.post("/api/v1/audio/apply-effect")
-async def apply_effect_endpoint(payload: EffectRequest):
-    """给干声加混响，返回可试听的临时 WAV。"""
-    from core.effects import apply_effect
-
-    if not payload.path:
-        raise HTTPException(status_code=422, detail="path 不能为空")
-    loop = asyncio.get_running_loop()
-    wet = -1.0 if payload.wet is None else float(payload.wet)
-    result = await loop.run_in_executor(None, apply_effect, payload.path, payload.preset, wet)
-    if not result.get("ok"):
-        raise SoundBotAPIError("effect_failed", str(result.get("error") or "处理失败"), status_code=500)
-    return {"success": True, **result}
-
-
 # ==================== 多声道 ====================
 
-class ChannelMixRequest(BaseModel):
-    path: str
-    audible: List[int]
-
-
-@app.get("/api/v1/audio/channels")
-async def audio_channels(path: str = Query(...), points: int = 400):
-    """逐声道波形峰值（最多 8 条），用于播放器下方的声道条。"""
-    from core.channel_tools import channel_peaks
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, channel_peaks, path, points)
-    if not result.get("ok"):
-        raise SoundBotAPIError("channels_failed", str(result.get("error") or "读取声道失败"), status_code=500)
-    return {"success": True, **result}
-
-
-@app.post("/api/v1/audio/channel-mix")
-async def audio_channel_mix(payload: ChannelMixRequest):
-    """生成只保留指定声道的试听文件（其余静音），用于单独听某个声道。"""
-    from core.channel_tools import render_channel_mix
-
-    if not payload.path:
-        raise HTTPException(status_code=422, detail="path 不能为空")
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, render_channel_mix, payload.path, payload.audible)
-    if not result.get("ok"):
-        raise SoundBotAPIError("channel_mix_failed", str(result.get("error") or "生成失败"), status_code=500)
-    return {"success": True, **result}
-
-
 # ==================== 倒放 ====================
-
-class ReverseRequest(BaseModel):
-    path: str
-
-
-@app.post("/api/v1/audio/reverse")
-async def reverse_audio(payload: ReverseRequest):
-    """生成（或复用缓存的）倒放 WAV，返回本地绝对路径。"""
-    from core.audio_reverse import reverse_to_wav
-
-    if not payload.path:
-        raise HTTPException(status_code=422, detail="path 不能为空")
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, reverse_to_wav, payload.path)
-    if not result.get("ok"):
-        raise SoundBotAPIError("reverse_failed", str(result.get("error") or "倒放失败"), status_code=500)
-    return {"success": True, **result}
-
 
 # ==================== 皮肤 / 主题包 ====================
 
@@ -4825,153 +4114,13 @@ async def delete_skin_endpoint(skin_id: str):
 
 # ==================== 去人声（中置声道消除） ====================
 
-class RemoveVocalsRequest(BaseModel):
-    paths: List[str]
-    out_dir: Optional[str] = None
-    strength: float = 1.0
-
-
-
 # ==================== AI 分轨（Demucs） ====================
-
-class SeparateRequest(BaseModel):
-    paths: List[str]
-    out_dir: Optional[str] = None
-    model: str = "htdemucs"
-    stems: Optional[List[str]] = None
-
 
 def _stems_staging_root() -> Path:
     """分轨产物先落在这里，由用户决定要不要、放到哪。"""
     root = Path(tempfile.gettempdir()) / 'echomind-stems'
     root.mkdir(parents=True, exist_ok=True)
     return root
-
-
-class StemsSaveRequest(BaseModel):
-    files: List[str]
-    target_dir: str
-    overwrite: bool = False
-
-
-@app.post('/api/v1/audio/stems/save')
-async def save_stems(payload: StemsSaveRequest):
-    """把用户选中的分轨文件复制到指定文件夹（不覆盖同名文件）。"""
-    import shutil
-
-    if not payload.files:
-        raise HTTPException(status_code=422, detail='没有选中的分轨')
-    target = Path(payload.target_dir).expanduser()
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
-        raise SoundBotAPIError('bad_target_dir', f'无法创建目标文件夹: {exc}', status_code=400)
-    saved = []
-    skipped = []
-    for raw in payload.files:
-        src = Path(str(raw))
-        if not src.is_file():
-            skipped.append({'path': str(src), 'reason': 'not_found'})
-            continue
-        dest = target / src.name
-        if dest.exists() and not payload.overwrite:
-            stem, suffix = src.stem, src.suffix
-            index = 1
-            while dest.exists():
-                dest = target / f'{stem} ({index}){suffix}'
-                index += 1
-        try:
-            if dest.resolve() != src.resolve():
-                shutil.copy2(str(src), str(dest))
-        except Exception as exc:
-            skipped.append({'path': str(src), 'reason': str(exc)[:120]})
-            continue
-        saved.append(str(dest))
-    return {'success': True, 'saved': saved, 'count': len(saved), 'skipped': skipped, 'target_dir': str(target)}
-
-
-@app.post("/api/v1/audio/separate")
-async def separate_audio(payload: SeparateRequest):
-    """用 Demucs 把音乐拆成人声/鼓/贝斯/其他，并额外合成一版伴奏。"""
-    from core.separation import separate, SUPPORTED_MODELS, DEFAULT_MODEL
-
-    if not payload.paths:
-        raise HTTPException(status_code=422, detail="paths 不能为空")
-    if len(payload.paths) > 20:
-        raise HTTPException(status_code=422, detail="单次最多 20 首（分轨比较慢）")
-
-    model_name = payload.model if payload.model in SUPPORTED_MODELS else DEFAULT_MODEL
-    loop = asyncio.get_running_loop()
-    results = []
-    for path in payload.paths:
-        source = Path(str(path))
-        if not source.is_file():
-            results.append({"source": str(path), "ok": False, "error": "文件不存在"})
-            continue
-        # 默认写到临时暂存区，绝不写进原文件夹：分轨产物要不要、放哪里由用户决定。
-        if payload.out_dir:
-            out_dir = Path(payload.out_dir)
-        else:
-            out_dir = Path(tempfile.mkdtemp(prefix='stems-', dir=str(_stems_staging_root())))
-
-        outcome = await loop.run_in_executor(
-            None, separate, str(source), str(out_dir), model_name, payload.stems, True
-        )
-        results.append({
-            "source": str(path),
-            "ok": bool(outcome.get("ok")),
-            "stems": outcome.get("stems") or {},
-            "instrumental": outcome.get("instrumental") or "",
-            "device": outcome.get("device") or "",
-            "error": outcome.get("error") or "",
-        })
-
-    ok = sum(1 for item in results if item["ok"])
-    return {"success": True, "total": len(results), "ok": ok, "failed": len(results) - ok, "results": results}
-
-
-@app.post("/api/v1/audio/remove-vocals")
-async def remove_vocals_batch(payload: RemoveVocalsRequest):
-    """把选中音乐里的人声尽量消掉，输出伴奏 WAV。"""
-    from core.vocals import remove_vocals
-
-    if not payload.paths:
-        raise HTTPException(status_code=422, detail="paths 不能为空")
-    if len(payload.paths) > 200:
-        raise HTTPException(status_code=422, detail="单次最多 200 个文件")
-
-    loop = asyncio.get_running_loop()
-    results = []
-    for path in payload.paths:
-        source = Path(str(path))
-        if not source.is_file():
-            results.append({"source": str(path), "ok": False, "error": "文件不存在"})
-            continue
-        # 默认写临时暂存区，不写原文件夹：去人声结果是「伴奏」，要不要、放哪由用户决定
-        if payload.out_dir:
-            out_dir = Path(payload.out_dir)
-        else:
-            out_dir = Path(tempfile.mkdtemp(prefix='vocals-', dir=str(_stems_staging_root())))
-        out_dir.mkdir(parents=True, exist_ok=True)
-        destination = out_dir / (source.stem + "_伴奏.wav")
-        if destination.exists():
-            index = 2
-            while destination.exists():
-                destination = out_dir / f"{source.stem}_伴奏 ({index}).wav"
-                index += 1
-        outcome = await loop.run_in_executor(
-            None, remove_vocals, str(source), str(destination), float(payload.strength or 1.0)
-        )
-        results.append({
-            "source": str(path),
-            "destination": str(destination),
-            "ok": bool(outcome.get("ok")),
-            "samples": int(outcome.get("samples") or 0),
-            "error": outcome.get("error") or "",
-        })
-
-    ok = sum(1 for item in results if item["ok"])
-    return {"success": True, "total": len(results), "ok": ok, "failed": len(results) - ok, "results": results}
 
 
 @app.post("/api/v1/transcode")
@@ -5046,31 +4195,6 @@ async def scan_broken_files(project_id: str = Query(default="default")):
 class TagAutoUndoRequest(BaseModel):
     batch: Optional[str] = None
 
-
-@app.get("/api/v1/duplicates/ignored")
-async def list_ignored_duplicates(project_id: str = Query(default="default")):
-    """被标记为"有意保留多个分类副本"的组。"""
-    db_manager = get_db_manager()
-    return {"success": True, "groups": db_manager.list_ignored_duplicate_groups(project_id)}
-
-
-@app.post("/api/v1/duplicates/ignore")
-async def ignore_duplicate(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    """忽略一组重复：同一个音效本来就要归到多个分类时用。"""
-    sha = str(payload.get("sha256") or "").strip()
-    if not sha:
-        raise HTTPException(status_code=422, detail="sha256 不能为空")
-    note = str(payload.get("note") or "").strip()[:200]
-    db_manager = get_db_manager()
-    db_manager.ignore_duplicate_group(project_id, sha, note)
-    return {"success": True, "sha256": sha}
-
-
-@app.delete("/api/v1/duplicates/ignore/{sha256}")
-async def unignore_duplicate(sha256: str, project_id: str = Query(default="default")):
-    db_manager = get_db_manager()
-    removed = db_manager.unignore_duplicate_group(project_id, sha256)
-    return {"success": True, "removed": removed}
 
 @app.get("/api/v1/db/duplicates/backups")
 async def list_duplicate_backups(limit: int = Query(default=20, le=100)):
@@ -6073,85 +5197,6 @@ async def _knowledge_export_task(
         logger.error("[KnowledgePack] 导出异常: %s", exc)
 
 
-@app.post("/api/v1/maintenance/prune-collections")
-async def prune_empty_collections(
-    project_id: str = Query(default="default"),
-    dry_run: bool = Query(default=False),
-):
-    """删除「没有被 manifest 引用、且里面 0 条向量」的集合（空壳清理）。
-
-    重建索引时会不断产生新的 shadow 集合，旧的那代被切走后如果是空的，
-    就永远不会再被用到，只会占着目录。
-    """
-    from core.indexer import get_chroma_client, safe_project_chroma_path
-
-    db_manager = get_db_manager()
-    if not db_manager.get_project(project_id):
-        raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
-
-    with db_manager.get_cursor() as cursor:
-        active = {
-            str(row[0])
-            for row in cursor.execute(
-                "SELECT collection_name FROM index_manifests WHERE project_id=? AND state='ready'",
-                (project_id,),
-            ).fetchall()
-        }
-
-    client = get_chroma_client(str(safe_project_chroma_path(project_id, create=False)))
-    removed, kept = [], []
-    for item in client.list_collections():
-        name = getattr(item, "name", str(item))
-        if name in active:
-            kept.append({"name": name, "reason": "active"})
-            continue
-        try:
-            count = client.get_collection(name).count()
-        except Exception as exc:
-            kept.append({"name": name, "reason": f"read_failed: {exc}"})
-            continue
-        if count > 0:
-            kept.append({"name": name, "reason": f"has {count} vectors"})
-            continue
-        removed.append(name)
-        if not dry_run:
-            try:
-                client.delete_collection(name)
-            except Exception as exc:
-                logger.warning("[Prune] 删除集合 %s 失败: %s", name, exc)
-    logger.info("[Prune] 删除空集合 %d 个，保留 %d 个", len(removed), len(kept))
-    return {
-        "success": True,
-        "dry_run": dry_run,
-        "removed": removed,
-        "kept": kept,
-    }
-
-
-@app.post("/api/v1/maintenance/backfill-durations")
-async def backfill_durations(
-    project_id: str = Query(default="default"),
-    background_tasks: BackgroundTasks = None,
-):
-    """回填缺失的时长 / 采样率 / 声道。
-
-    历史库里有大量行这几列是 0（导入时没探测或从旧备份恢复），界面上显示 00:00。
-    这里用真正的音频探针重算一遍，按批写回。
-    """
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        missing = cursor.execute(
-            "SELECT COUNT(*) FROM files WHERE project_id=? AND (duration <= 0 OR sample_rate <= 0)",
-            (project_id,),
-        ).fetchone()[0]
-    if not missing:
-        return {"success": True, "missing": 0, "message": "没有需要回填的文件"}
-
-    job_id = db_manager.create_job(project_id, "backfill_durations", int(missing))
-    background_tasks.add_task(_backfill_durations_task, job_id, project_id)
-    return {"success": True, "job_id": job_id, "missing": int(missing)}
-
-
 async def _backfill_durations_task(job_id: str, project_id: str) -> None:
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
@@ -6228,62 +5273,6 @@ async def _backfill_durations_task(job_id: str, project_id: str) -> None:
     except Exception as exc:
         db_manager.update_job(job_id, state="failed", stage="error", error_message=str(exc)[:300])
         logger.error("[Backfill] 异常: %s", exc)
-
-
-@app.post("/api/v1/maintenance/decode-test")
-async def decode_test(path: str = Query(...)):
-    """诊断：对一个文件跑完整解码链路，返回每层的结果/异常。
-
-    PyAV 失败时用 miniaudio 兜底，但打包环境里兜底是否生效看不出来——
-    这个接口把每层的异常原样返回，省得靠猜。
-    """
-    from core.audio_service import get_audio_service
-
-    from pathlib import Path as _Path
-
-    source = _Path(path)
-    if not source.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    service = get_audio_service()
-    report: Dict[str, Any] = {'path': str(source), 'steps': {}}
-
-    try:
-        info = await asyncio.to_thread(service.probe, str(source))
-        report['steps']['probe'] = {'ok': True, 'duration': info.duration, 'codec': info.codec}
-    except Exception as exc:
-        report['steps']['probe'] = {'ok': False, 'error': repr(exc)[:200]}
-
-    try:
-        decoded = await asyncio.to_thread(service.decode, str(source))
-        report['steps']['decode'] = {'ok': True, 'duration': decoded.duration, 'samples': int(decoded.samples.size)}
-    except Exception as exc:
-        report['steps']['decode'] = {'ok': False, 'error': repr(exc)[:200]}
-
-    try:
-        wave = await asyncio.to_thread(service.waveform, str(source))
-        report['steps']['waveform'] = {'ok': True, 'peaks': len(wave.peaks), 'duration': wave.duration}
-    except Exception as exc:
-        report['steps']['waveform'] = {'ok': False, 'error': repr(exc)[:200]}
-
-    try:
-        import miniaudio
-
-        report['miniaudio_import'] = getattr(miniaudio, '__version__', 'ok')
-        direct = service._decode_with_miniaudio(source, None, True)
-        report['steps']['miniaudio_direct'] = bool(direct)
-        stripped = service._strip_id3_tail(source)
-        report['steps']['id3_stripped'] = bool(stripped)
-        if stripped is not None:
-            via_strip = service._decode_with_miniaudio(stripped, None, True)
-            report['steps']['miniaudio_stripped'] = {'ok': bool(via_strip), 'samples': int(via_strip.samples.size) if via_strip else 0}
-            try:
-                stripped.unlink()
-            except OSError:
-                pass
-    except Exception as exc:
-        report['miniaudio_error'] = repr(exc)[:200]
-
-    return report
 
 
 @app.get("/api/v1/db/stats")
@@ -6859,29 +5848,6 @@ async def get_playback_source(file_id: str, project_id: Optional[str] = None):
 
 
 # ==================== 通用音频文件服务 ====================
-
-@app.get("/api/v1/audio/{file_path:path}")
-async def get_audio(file_path: str = PathParam(..., description="音频文件路径")):
-    """
-    提供音频文件播放服务（通用路由，放在子路由之后）
-
-    支持范围请求（用于前端波形显示和流式播放）
-    """
-    audio_file = config.validate_audio_path(file_path)
-
-    # 获取文件大小
-    file_size = audio_file.stat().st_size
-
-    capability = config.AUDIO_FORMAT_CAPABILITIES.get(audio_file.suffix.lower(), {})
-    mime_type = capability.get('mime_type', 'application/octet-stream')
-
-    # 创建文件响应，支持范围请求
-    return FileResponse(
-        path=str(audio_file),
-        media_type=mime_type,
-        filename=audio_file.name
-    )
-
 
 # ==================== 索引状态 ====================
 

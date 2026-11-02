@@ -22,6 +22,24 @@ async function loadTagStats() {
     renderCategoryTree();
 }
 
+// 轻量刷新：只拉 /api/v1/tags（实测 0ms，直接读 tags 表），不碰 /api/v1/db/tags。
+// 后者要按文件聚合全库标签，6.5 万条实测 2.2 秒 —— 左侧树根本不需要它，
+// 保存标签后调 loadTagStats 会让用户干等两秒以上（11-03 反馈：左侧 7 秒才刷新）。
+async function refreshTagTree() {
+    try {
+        const layered = await rendererApi.get('/api/v1/tags');
+        window.__tagLayers = {
+            scene: (layered && layered.scene) || [],
+            attr: (layered && layered.attr) || [],
+        };
+    } catch (error) {
+        console.warn('[Tags] 分层标签刷新失败:', error);
+        return;
+    }
+    if (typeof renderCategoryTree === 'function') renderCategoryTree();
+}
+
+
 function showTagLayerMenu(event, tag) {
     document.getElementById('tagLayerMenu')?.remove();
     const menu = document.createElement('div');

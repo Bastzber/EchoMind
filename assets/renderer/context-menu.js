@@ -560,11 +560,14 @@ function showTagModal(sound) {
             //（全库标签聚合，实测 2.2 秒），不能让它卡住提示。
             renderSoundList();
             if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
-            if (typeof loadTagStats === 'function') {
-                loadTagStats().catch(() => {});
-                setTimeout(() => { loadTagStats().catch(() => {}); }, 600);
+            // 左侧树用轻量刷新（只读 tags 表，毫秒级）；全库标签统计放到后面，
+            // 它要按文件聚合 6.5 万条，实测 2.2 秒，不该挡着用户看新标签。
+            if (typeof refreshTagTree === 'function') {
+                await refreshTagTree();
             }
-            if (typeof renderCategoryTree === 'function') setTimeout(() => renderCategoryTree(), 100);
+            if (typeof loadTagStats === 'function') {
+                setTimeout(() => { loadTagStats().catch(() => {}); }, 1200);
+            }
         } catch (err) {
             showNotification('保存标签失败: ' + (err.message || err), 'error');
         }

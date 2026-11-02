@@ -3066,6 +3066,22 @@ async def recipe_session(recipe_id: str, payload: Dict[str, Any]):
     return {"success": True, **_serve_recipe_audio(samples)}
 
 
+def _wav_duration(audio_bytes: bytes) -> float:
+    """从 WAV bytes 读时长（标准化后重新算一次，别沿用编码前的值）。"""
+    import io as _io
+    import wave as _wave
+
+    try:
+        with _wave.open(_io.BytesIO(audio_bytes), "rb") as reader:
+            rate = reader.getframerate() or 0
+            frames = reader.getnframes() or 0
+            if rate > 0:
+                return frames / float(rate)
+    except Exception:
+        return 0.0
+    return 0.0
+
+
 @app.post("/api/v1/sfx/generate")
 async def sfx_generate(request: Dict[str, Any]):
     """AI 生成音效（试听模式：写入临时文件，不直接入库）。
@@ -3101,15 +3117,30 @@ async def sfx_generate(request: Dict[str, Any]):
         logger.error("音效生成失败: %s", exc)
         raise HTTPException(status_code=502, detail=f"生成失败: {exc}")
 
-    tmp_dir = Path(tempfile.gettempdir()) / "soundbot_sfx"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
+    # 响度标准化：生成模型输出比音效库素材小 5~10 dB，用户每条都要手动 +6 dB。
+    # 这里统一拉到 -16 LUFS、峰值不超过 -1 dBTP；解不开就原样返回，不阻断生成。
+    from core import loudness as _loudness
+
+    loud_stats: Dict[str, Any] = {}
+    try:
+        audio, loud_stats = await asyncio.to_thread(_loudness.normalize, audio)
+        if loud_stats.get("normalized"):
+            duration = await asyncio.to_thread(_wav_duration, audio) or duration
+    except Exception as exc:
+        logger.warning("音效响度标准化失败，保留原始输出: %s", exc)
+
+    # 落稳定目录：原来写 %TEMP%，系统一清临时文件，历史里的「试听 / 保存到库」就全废了。
+    gen_dir = (
+        Path(os.environ.get("APPDATA") or tempfile.gettempdir())
+        / "EchoMind" / "generated" / datetime.now().strftime("%Y%m%d")
+    )
+    gen_dir.mkdir(parents=True, exist_ok=True)
     gen_id = _uuid.uuid4().hex[:12]
-    suffix = {"wav": ".wav", "mp3": ".mp3", "pcm": ".pcm", "ogg_opus": ".ogg"}.get(fmt, ".mp3")
-    tmp_path = tmp_dir / f"sfx_{gen_id}{suffix}"
+    tmp_path = gen_dir / f"sfx_{gen_id}.wav"
     try:
         tmp_path.write_bytes(audio)
     except Exception as exc:
-        logger.error("写入临时音效失败: %s", exc)
+        logger.error("写入生成音效失败: %s", exc)
         raise HTTPException(status_code=502, detail=f"写入失败: {exc}")
     return {
         "generation_id": gen_id,
@@ -3117,6 +3148,8 @@ async def sfx_generate(request: Dict[str, Any]):
         "duration": duration,
         "size": len(audio),
         "text_prompt": text_prompt,
+        "generated_dir": str(gen_dir),
+        "loudness": loud_stats,
     }
 
 
@@ -3215,6 +3248,68 @@ async def sfx_save(request: Dict[str, Any], background_tasks: BackgroundTasks):
         "duration": duration,
         "job_id": job_id,
     }
+
+
+@app.post("/api/v1/sfx/generated/rename")
+async def sfx_generated_rename(request: Dict[str, Any]):
+    """给生成好的音效改名（就地重命名，历史记录里的路径要跟着更新）。"""
+    src = Path(str(request.get("path") or "").strip())
+    new_name = str(request.get("name") or "").strip()
+    if not src.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if not new_name:
+        raise HTTPException(status_code=422, detail="新文件名不能为空")
+    # 只允许改文件名，不允许带路径，避免越权写到别处
+    if any(sep in new_name for sep in ("/", "\\")) or new_name in (".", ".."):
+        raise HTTPException(status_code=422, detail="文件名不能包含路径分隔符")
+    if not Path(new_name).suffix:
+        new_name = new_name + src.suffix
+    target = src.parent / new_name
+    if target.resolve() == src.resolve():
+        return {"success": True, "path": str(src), "name": src.name}
+    if target.exists():
+        raise HTTPException(status_code=409, detail="同名文件已存在")
+    try:
+        src.rename(target)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"重命名失败: {exc}")
+    return {"success": True, "path": str(target), "name": target.name}
+
+
+@app.post("/api/v1/sfx/generated/reveal")
+async def sfx_generated_reveal(request: Dict[str, Any]):
+    """在资源管理器里定位生成文件（选中它）。"""
+    path = Path(str(request.get("path") or "").strip())
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    try:
+        if os.name == "nt" and path.is_file():
+            import subprocess
+
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        else:
+            os.startfile(str(path if path.is_dir() else path.parent))  # type: ignore[attr-defined]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"打开目录失败: {exc}")
+    return {"success": True}
+
+
+@app.post("/api/v1/sfx/generated/delete")
+async def sfx_generated_delete(request: Dict[str, Any]):
+    """删除一个生成文件（只删生成目录里的，不碰库内素材）。"""
+    path = Path(str(request.get("path") or "").strip())
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    base_dir = Path(os.environ.get("APPDATA") or tempfile.gettempdir()) / "EchoMind" / "generated"
+    try:
+        path.resolve().relative_to(base_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="只允许删除生成目录里的文件")
+    try:
+        path.unlink()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"删除失败: {exc}")
+    return {"success": True}
 
 
 @app.get("/api/v1/sfx/config")

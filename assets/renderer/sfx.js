@@ -517,7 +517,10 @@
             });
             const data = await resp.json();
             if (!resp.ok || !data.success) throw new Error(data.detail || '保存失败');
-            showNotification?.('已保存到音效库: ' + data.filename, 'success');
+            showNotification?.(
+                '已保存到库：' + data.filename + (data.file_path ? '（' + data.file_path + '）' : ''),
+                'success',
+            );
             const hist = loadHistory();
             hist.unshift({
                 name: data.filename,
@@ -560,10 +563,104 @@
             btn.innerHTML = '<i data-lucide="play" class="w-3.5 h-3.5"></i>';
             btn.title = '播放';
             btn.addEventListener('click', () => togglePlay(h.file_path));
+            // 右键菜单：重命名 / 定位文件 / 复制路径 / 删除
+            row.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                showHistoryMenu(event, h, i);
+            });
+            row.title = h.file_path || '';
             row.appendChild(left); row.appendChild(btn);
             box.appendChild(row);
         });
         if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+    }
+
+    // ---------- 历史右键菜单 ----------
+    function showHistoryMenu(event, entry, index) {
+        document.getElementById('sfxHistoryMenu')?.remove();
+        const menu = document.createElement('div');
+        menu.id = 'sfxHistoryMenu';
+        menu.className = 'fixed z-[9999] min-w-[168px] rounded-lg shadow-xl border py-1 text-xs';
+        menu.style.cssText += 'left:' + event.clientX + 'px;top:' + event.clientY + 'px;'
+            + 'background:var(--bg-secondary,#1f1f23);border-color:var(--border-color,#333);';
+
+        const item = (label, onClick) => {
+            const el = document.createElement('button');
+            el.className = 'w-full text-left px-3 py-1.5 hover:bg-white/10';
+            el.textContent = label;
+            el.addEventListener('click', () => { menu.remove(); onClick(); });
+            menu.appendChild(el);
+        };
+
+        item('重命名', () => renameEntry(entry, index));
+        item('在文件夹中显示', () => revealEntry(entry));
+        item('复制路径', () => {
+            navigator.clipboard?.writeText(entry.file_path || '');
+            showNotification?.('路径已复制', 'success');
+        });
+        item('删除', () => deleteEntry(entry, index));
+
+        document.body.appendChild(menu);
+        const close = (e) => {
+            if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('pointerdown', close, true); }
+        };
+        setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+    }
+
+    async function renameEntry(entry, index) {
+        const input = await window.inputDialog?.({
+            title: '重命名', label: '新文件名', value: entry.name,
+        });
+        if (!input) return;
+        try {
+            const resp = await apiFetch('/api/v1/sfx/generated/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: entry.file_path, name: input }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.success) throw new Error(data.detail || '重命名失败');
+            const hist = loadHistory();
+            hist[index] = { ...hist[index], name: data.name, file_path: data.path };
+            saveHistory(hist);
+            renderHistory();
+            showNotification?.('已重命名为 ' + data.name, 'success');
+        } catch (e) {
+            showNotification?.('重命名失败: ' + e.message, 'error');
+        }
+    }
+
+    async function revealEntry(entry) {
+        try {
+            await apiFetch('/api/v1/sfx/generated/reveal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: entry.file_path }),
+            });
+        } catch (e) {
+            showNotification?.('打开目录失败: ' + e.message, 'error');
+        }
+    }
+
+    async function deleteEntry(entry, index) {
+        if (!confirm('删除这个生成文件？' + String.fromCharCode(10) + entry.name)) return;
+        try {
+            const resp = await apiFetch('/api/v1/sfx/generated/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: entry.file_path }),
+            });
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                throw new Error(data.detail || '删除失败');
+            }
+            const hist = loadHistory();
+            hist.splice(index, 1);
+            saveHistory(hist);
+            renderHistory();
+        } catch (e) {
+            showNotification?.('删除失败: ' + e.message, 'error');
+        }
     }
 
     // ---------- 面板开关 ----------

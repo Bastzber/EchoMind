@@ -97,7 +97,11 @@ class AudioScanner:
 
         paths: List[Path] = []
         if recursive:
-            for root, _dirs, files in os.walk(folder):
+            from core.path_filters import prune_walk_dirs
+
+            for root, dirs, files in os.walk(folder):
+                # 系统目录 / 缓存 / 版本控制不进库（回收站、System Volume Information 等）
+                dirs[:] = [name for name in dirs if name not in prune_walk_dirs(dirs)]
                 for filename in files:
                     file_path = Path(root) / filename
                     if file_path.suffix.lower() in self.supported_formats:

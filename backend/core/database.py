@@ -2383,7 +2383,8 @@ class DatabaseManager:
         return result
 
     def update_ai_description(
-        self, path: str, description: str, project_id: str = None
+        self, path: str, description: str, project_id: str = None,
+        file_uuid: str = None,
     ) -> bool:
         """写入 AI 生成的一句话描述。
 
@@ -2405,6 +2406,24 @@ class DatabaseManager:
                         WHERE canonical_path = ?
                     """, (description, now, canonical_path))
                 changed = cursor.rowcount > 0
+                # canonical_path 对不上就用 file_uuid 兜底：路径规范化（大小写 / 分隔符 /
+                # 长路径前缀）任何一处不一致，原来都静默 rowcount=0，接口只能回
+                # 「写入描述失败」，界面显示「保存失败，再点重试」（11-02 用户实测）。
+                if not changed and file_uuid:
+                    cursor.execute(
+                        "UPDATE files SET ai_description = ?, updated_at = ? WHERE file_uuid = ?",
+                        (description, now, str(file_uuid)),
+                    )
+                    changed = cursor.rowcount > 0
+                    if changed:
+                        logger.info(
+                            "[描述] canonical_path 未命中，已按 file_uuid 写入: %s", file_uuid
+                        )
+                if not changed:
+                    logger.warning(
+                        "[描述] 没有写入任何行: path=%s canonical=%s project=%s uuid=%s",
+                        path, canonical_path, project_id, file_uuid,
+                    )
                 if changed:
                     cursor.execute("""
                         UPDATE file_artifacts SET state='stale', error_code=NULL,
@@ -3990,18 +4009,31 @@ class DatabaseManager:
         return mapping
 
     def list_library_roots(self, project_id: str) -> List[str]:
-        """列出库的根目录（取每个路径的前两段，如 D:\资源库 / F:\另一个资源包）。"""
-        roots = set()
+        r"""列出库的真实根目录（按盘符分组后取公共前缀）。
+
+        原来取「路径前两段」，`D:\回声AI音效管理器\CJ音效库整合包V2\x.wav`
+        会被算成 `D:\回声AI音效管理器` —— 于是「重新读取目录」扫的是父目录，
+        把同级的 AI生成音效 / 克隆测试 也扫进来，还提示补录（11-02 用户实测 9 个）。
+        """
+        by_drive: dict = {}
         with self.get_cursor() as cursor:
             for (path,) in cursor.execute("SELECT path FROM files WHERE project_id=?", (str(project_id),)):
                 if not path:
                     continue
-                parts = str(path).replace('/', '\\').split('\\')
-                if len(parts) >= 2:
-                    roots.add(parts[0] + '\\' + parts[1])
-                elif parts:
-                    roots.add(parts[0])
-        return sorted(roots)
+                drive, _rest = os.path.splitdrive(str(path))
+                by_drive.setdefault(drive or '', []).append(str(path))
+        roots: List[str] = []
+        for _drive, items in by_drive.items():
+            try:
+                common = os.path.commonpath(items)
+            except ValueError:
+                common = os.path.dirname(items[0])
+            # 公共前缀可能落在某个文件上（库里只有一个文件时），退一级到目录
+            if not os.path.isdir(common):
+                common = os.path.dirname(common)
+            if common and os.path.isdir(common):
+                roots.append(common)
+        return sorted(set(roots))
 
     def get_folder_counts(self, project_id: str) -> List[tuple]:
         """返回 [(父目录, 直接文件数)]，用于左侧文件夹树。

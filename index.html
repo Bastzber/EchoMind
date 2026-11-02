@@ -1523,8 +1523,11 @@
                             isPlaying = false;
                             lastStoppedAtSelectionEnd = true;  // 标记播放因到达选区结束而停止
                             pausePlayback();
-                            // 移除ended监听器
-                            if (audioPlayer) {
+                            // 移除 ended 监听器。handler 定义在下面那个点击回调内部，
+                            // update() 访问不到 → 直接引用会抛 ReferenceError（11-02 用户实测：
+                            // 拖拽导出时弹「handlePlaybackEnded is not defined」）。
+                            // typeof 对未声明的标识符不抛错，用它守卫即可。
+                            if (audioPlayer && typeof handlePlaybackEnded === 'function') {
                                 audioPlayer.removeEventListener('ended', handlePlaybackEnded);
                             }
                             return;

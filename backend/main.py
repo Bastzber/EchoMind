@@ -5502,7 +5502,7 @@ async def set_file_description(
     path = getattr(record, "path", None) or getattr(record, "file_path", None)
     if not path:
         raise HTTPException(status_code=500, detail="文件路径缺失")
-    if not db_manager.update_ai_description(path, description, project_id):
+    if not db_manager.update_ai_description(path, description, project_id, file_uuid=file_uuid):
         raise HTTPException(status_code=500, detail="写入描述失败")
     # 描述变了，这一行的 text_vector 已经被标脏。关键词搜索（FTS）当场就更新了，
     # 但语义检索用的是向量，得让增量对账把这一条重新算一遍 —— 只跑 stale 的行，

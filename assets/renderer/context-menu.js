@@ -205,10 +205,9 @@ function showSoundContextMenu(event, sound) {
     // 找相似：排在最前——右键一条音效，第一反应往往是「还有哪些跟它像」
     menu.appendChild(makeMenuItem('找相似', 'search', () => findSimilarForSound(sound)));
 
-    // 标签操作组。两套标签必须写清楚，否则用户会以为改的是左侧「我的标签」：
-    //   系统标签 = files.tags（音效自带的 6 维属性：类型/场景/特性…），只在详情里改
-    //   我的标签 = tags/file_tags（自己起的分类，显示在左侧栏）
-    menu.appendChild(makeMenuItem('编辑系统标签…', 'tag', () => showTagModal(sound)));
+    // 标签：一个入口。底层仍是两套存储（预设词走 files.tags，自定义走 tags/file_tags），
+    // 但用户不用知道——弹窗里选/输入的都是「标签」，保存时按是不是预设词自动分流。
+    menu.appendChild(makeMenuItem('编辑标签…', 'tag', () => showTagModal(sound)));
     menu.appendChild(makeMenuItem('复制标签', 'copy', () => {
         copiedTags = [...(sound.tags || [])];
         showNotification(`已复制 ${copiedTags.length} 个标签`, 'success');
@@ -228,13 +227,12 @@ function showSoundContextMenu(event, sound) {
     sep.style.borderColor = 'var(--border-color)';
     menu.appendChild(sep);
 
-    // 我的标签（左侧栏那套）
-    menu.appendChild(makeMenuItem('设置我的标签…', 'tags', () => {
-        const targets = (selectedSounds.size > 0 && selectedSounds.has(sound.id))
-            ? [...selectedSounds]
-            : [sound];
-        showTagPicker(targets);
-    }));
+    // 批量给多条挂同一个标签（左侧栏那套的复用入口，单条不需要它）
+    if (selectedSounds.size > 1) {
+        menu.appendChild(makeMenuItem('批量设置标签…', 'tags', () => {
+            showTagPicker([...selectedSounds]);
+        }));
+    }
 
     // 添加到自定义文件夹（常用 / 收藏 等）
     if (Array.isArray(userFolders) && userFolders.length > 0) {
@@ -444,8 +442,8 @@ function showTagModal(sound) {
     const title = document.createElement('div');
     title.className = 'flex items-center justify-between';
     title.innerHTML = '<div>'
-        + '<div class="text-base font-semibold">系统标签</div>'
-        + '<div class="text-[11px] opacity-50 mt-0.5">音效自带属性（类型 / 场景 / 特性），不进左侧「我的标签」</div>'
+        + '<div class="text-base font-semibold">标签</div>'
+        + '<div class="text-[11px] opacity-50 mt-0.5">选预设词，或直接输入自己的分类；输入的分类会自动进左侧「我的标签」</div>'
         + '</div>';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'p-1 rounded hover:bg-white/10';
@@ -456,6 +454,22 @@ function showTagModal(sound) {
 
     const current = new Set((sound.tags || []).map(t => String(t)));
     const chosen = new Set(current);
+
+    // 把「我的标签」里已有的也回填进来：一个入口就要看到全部，
+    // 否则保存时会用空的自定义标签覆盖掉原来那批。
+    const fileUuidForLoad = sound.fileId || sound.file_uuid || '';
+    if (fileUuidForLoad && window.rendererApi) {
+        window.rendererApi.get('/api/v1/files/' + encodeURIComponent(fileUuidForLoad) + '/user-tags')
+            .then((data) => {
+                const names = Array.isArray(data?.names) ? data.names : [];
+                if (!names.length) return;
+                names.forEach((n) => chosen.add(String(n)));
+                const presetSet = new Set(Object.values(TAG_PRESETS || {}).flat());
+                const customOnly = names.filter((n) => !presetSet.has(String(n)));
+                if (customOnly.length && input) input.value = customOnly.join(', ');
+            })
+            .catch(() => {});
+    }
 
     // 预设标签（类型/场景/特性各 7 个）
     Object.entries(TAG_PRESETS).forEach(([group, names]) => {
@@ -497,7 +511,7 @@ function showTagModal(sound) {
     footer.className = 'flex items-center justify-between mt-1';
     const hint = document.createElement('span');
     hint.className = 'text-[11px] opacity-50';
-    hint.textContent = '预设来自系统词表；想用自己起的分类，请用右键「设置我的标签」';
+    hint.textContent = '预设词来自系统词表；自己输入的会自动归到左侧「我的标签」';
     const actions = document.createElement('div');
     actions.className = 'flex gap-2';
     const cancel = document.createElement('button');
@@ -511,14 +525,38 @@ function showTagModal(sound) {
     save.style.color = '#fff';
     save.textContent = '保存';
     save.addEventListener('click', async () => {
-        const extra = String(input.value || '')
-            .split(/[,，]/)
-            .map(t => t.trim())
-            .filter(Boolean);
+        const extra = parseTagsInput(input.value);
         extra.forEach(t => chosen.add(t));
-        const tags = Array.from(chosen);
+        const all = Array.from(chosen);
         overlay.remove();
-        await setSoundTags(sound, tags);
+
+        // 一个入口、两套存储，按「是不是预设词」自动分流：
+        //   预设词（环境/紧张/循环…）→ files.tags，音效自带的系统标签
+        //   自己输入的 → tags/file_tags，左侧「我的标签」树
+        const presetSet = new Set(Object.values(TAG_PRESETS || {}).flat());
+        const systemTags = all.filter(t => presetSet.has(t));
+        const customTags = all.filter(t => !presetSet.has(t));
+
+        try {
+            await setSoundTags(sound, systemTags, { silent: customTags.length > 0 });
+        } catch (err) {
+            showNotification('系统标签保存失败: ' + (err.message || err), 'error');
+            return;
+        }
+
+        const fileUuid = sound.fileId || sound.file_uuid || '';
+        if (customTags.length && fileUuid && window.rendererApi) {
+            try {
+                await window.rendererApi.post('/api/v1/files/' + encodeURIComponent(fileUuid) + '/tags',
+                    { names: customTags, tag_ids: [] }, { timeoutMs: 60000 });
+                if (typeof loadTagStats === 'function') await loadTagStats();
+                if (typeof renderTagSidebar === 'function') renderTagSidebar();
+            } catch (err) {
+                showNotification('自定义标签保存失败: ' + (err.message || err), 'error');
+                return;
+            }
+        }
+        showNotification(`已保存 ${all.length} 个标签` + (customTags.length ? `（${customTags.length} 个进了「我的标签」）` : ''), 'success');
     });
     actions.appendChild(cancel);
     actions.appendChild(save);

@@ -9,9 +9,35 @@
 
 - **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 
-## [0.3.0-beta.13] - 2026-10-31
+## [0.3.0-beta.14] - 2026-11-03
 
-> 测试版 V13。这一版把「索引到底为什么失败」讲清楚了：长 ID3 的配乐 MP3 一直编不出音频向量，根因是 mel 子进程少解一个包，不是解码器、也不是模型限制。 / Beta 13 makes indexing failures explainable: the long-ID3 tracks had no audio vector because the mel worker unpacked a two-tuple as features, so every encode returned None — not a decoder or model limitation.
+> 测试版 V14。可用性清账：导入 6.5 万条压到 1 分钟内、保存标签 10 秒 → 0.5 秒、 / 
+> 两套标签合成一个入口、后端主文件拆成 21 个模块（10,147 → 5,330 行）。 / Beta 14 is a usability pass: importing 65k files down to under a minute, saving tags from 10s to 0.5s, unified tag entry, and the backend main file split into 21 modules.
+
+### Changed / 变更
+
+- 两套标签合并成一个入口：一个弹窗选预设词或输入自定义，用户不用区分两套 / Tags merged into one entry: a single dialog for preset words and custom labels, users no longer need to know there are two stores
+- 后端主文件拆分：129 个接口搬进 21 个模块（10,147 → 5,330 行） / Backend main file split: 129 endpoints moved into 21 modules (10,147 → 5,330 lines)
+- 时长显示改 `HH:MM:SS`，主列表、播放器、波形坐标统一 / Duration display switched to `HH:MM:SS` across list, player and waveform ruler
+- 导入完成后提示「请导入知识包」，不再提示「索引还没建完」 / Import completion now suggests importing the knowledge pack instead of warning about unfinished indexing
+- AI 生成音效改落 `%APPDATA%\EchoMind\generated\YYYYMMDD\`，历史支持重命名 / 定位 / 删除 / Generated audio now lands in a stable directory; history supports rename, reveal in folder and delete
+
+### Performance / 性能
+
+- 导入写库改批量事务 + 单线程 executor：6.5 万条十几分钟 → 1 分钟内 / Import writes batched into transactions on a single-thread executor: 65k files from 15+ minutes to under a minute
+- 保存标签时清搜索缓存改后台执行：10 秒 → 0.5 秒 / Search-cache invalidation moved to the background: saving tags from 10s to 0.5s
+- 左侧标签树改轻量刷新，只拉 `/api/v1/tags`（0ms） / Tag tree refresh now only queries `/api/v1/tags` (0ms) instead of the 2.2s full-library aggregation
+- AI 生成音效响度标准化到 -16 LUFS、峰值 ≤ -1 dBTP（实测增益 +5.2 / +7.5 dB） / Generated audio normalized to -16 LUFS with peak below -1 dBTP (measured gain +5.2 / +7.5 dB)
+
+### Fixed / 修复
+
+- 一句话描述保存失败：`canonical_path` 未命中时按 `file_uuid` 兜底写入 / One-line description save failure: falls back to `file_uuid` when `canonical_path` misses
+- 系统标签与右键加标签保存失败：`_projects_deleting` 漏了调用括号 / Tag save failure: a missing call parenthesis on `_projects_deleting`
+- 重新读取目录扫到父目录：`list_library_roots` 改为按盘符求公共前缀 / Library rescan no longer walks the parent folder: roots are computed per drive via common prefix
+- 拖拽导出 `handlePlaybackEnded is not defined` / Drag-export crashed with `handlePlaybackEnded is not defined`
+- 更新器静默挂起：`.finish-update.cmd` 生成后从未被执行 / Updater no longer silently defers: the finish-update script is now actually executed
+- 知识包：四级匹配、向量按 `file_uuid` 去重、文本向量维度校验不再误判整包拒收 / Knowledge pack: four-level matching, vector dedupe by `file_uuid`, and dimension checks no longer reject whole packs
+- 扫描跳过系统目录（回收站 / System Volume Information / 缓存 / 点开头目录） / Scanning skips system folders (recycle bin, System Volume Information, caches, dot-directories)
 
 ### Fixed / 修复
 

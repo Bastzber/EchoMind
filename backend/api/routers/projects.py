@@ -63,8 +63,9 @@ def _projects_deleting():
     return _d.attr("_projects_deleting")
 
 
-def _index_progress(*a, **k):
-    return _d.call("_index_progress", *a, **k)
+def _index_progress():
+    """主模块里的 _index_progress 是 dict（不是函数），要取对象本身。"""
+    return _d.attr("_index_progress")
 
 
 def _invalidate_text_metadata_for_paths_locked(*a, **k):
@@ -171,7 +172,7 @@ async def get_project_index_status(project_id: str):
         "total_files": db_manager.get_file_count(project_id),
         "artifacts": db_manager.get_artifact_counts(project_id),
         "active_job": active_job,
-        "progress": {**_index_progress, **(lambda: __import__("core.index_progress", fromlist=["stats"]).stats())()},
+        "progress": {**_index_progress(), **(lambda: __import__("core.index_progress", fromlist=["stats"]).stats())()},
         "manifests": {
             kind: db_manager.get_index_manifest(project_id, kind) or {}
             for kind in ("audio_vector", "text_vector")

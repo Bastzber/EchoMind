@@ -73,6 +73,7 @@ from pydantic import BaseModel
 import uvicorn
 
 import config
+from core.errors import SoundBotAPIError
 from models import schemas
 from core.indexer import (
     get_indexer,
@@ -217,28 +218,6 @@ async def _record_probe_failure(
         tags=(candidate["existing"].tags if candidate["existing"] else "[]"),
         folder_context=folder_context,
     )
-
-
-class SoundBotAPIError(Exception):
-    """Structured error contract shared by backend, Electron and renderer."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        status_code: int = 400,
-        retryable: bool = False,
-        details: Optional[Dict[str, Any]] = None,
-    ):
-        super().__init__(message)
-        self.status_code = status_code
-        self.payload = {
-            "code": code,
-            "message": message,
-            "retryable": retryable,
-            "details": details or {},
-        }
 
 
 def cleanup_old_clips(max_keep=100):
@@ -670,7 +649,10 @@ app = FastAPI(
 
 # 按域拆分的路由放在 backend/api/routers/（AGENTS.md：新接口别继续堆这个文件）。
 # 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
+from api.routers import ai as _ai_router  # noqa: E402
 from api.routers import assistant as _assistant_router  # noqa: E402
+from api.routers import files as _files_router  # noqa: E402
+from api.routers import search as _search_router  # noqa: E402
 from api.routers import audio as _audio_router  # noqa: E402
 from api.routers import descriptions as _descriptions_router  # noqa: E402
 from api.routers import duplicates as _duplicates_router  # noqa: E402
@@ -695,6 +677,9 @@ app.include_router(_duplicates_router.router)
 app.include_router(_maintenance_router.router)
 app.include_router(_recipes_router.router)
 app.include_router(_assistant_router.router)
+app.include_router(_ai_router.router)
+app.include_router(_search_router.router)
+app.include_router(_files_router.router)
 
 
 @app.exception_handler(SoundBotAPIError)
@@ -2929,122 +2914,7 @@ async def reanalyze_db_file(
 
 # ==================== 批量重命名 ====================
 
-@app.post("/api/v1/files/rename")
-async def batch_rename(
-    payload: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    project_id: str = Query(default="default"),
-):
-    """批量重命名：先 dry_run 预览，确认后再动磁盘。"""
-    import os as _os
-
-    items = payload.get("items") or []
-    dry_run = bool(payload.get("dry_run", True))
-    if not isinstance(items, list) or not items:
-        raise HTTPException(status_code=422, detail="items 不能为空")
-
-    db_manager = get_db_manager()
-    results = []
-    seen_targets = set()
-
-    for item in items:
-        file_uuid = str(item.get("file_uuid") or "").strip()
-        new_name = str(item.get("new_name") or "").strip()
-        entry = {"file_uuid": file_uuid, "new_name": new_name, "ok": False, "message": ""}
-
-        if not file_uuid or not new_name:
-            entry["message"] = "参数缺失"
-            results.append(entry)
-            continue
-        if any(ch in new_name for ch in '\\/:*?"<>|'):
-            entry["message"] = "文件名包含非法字符"
-            results.append(entry)
-            continue
-
-        with db_manager.get_cursor() as cursor:
-            row = cursor.execute(
-                "SELECT path, filename FROM files WHERE project_id=? AND file_uuid=?",
-                (project_id, file_uuid),
-            ).fetchone()
-        if not row:
-            entry["message"] = "文件不存在"
-            results.append(entry)
-            continue
-
-        old_path = row[0]
-        folder = _os.path.dirname(old_path)
-        old_name = row[1] or _os.path.basename(old_path)
-        ext = _os.path.splitext(old_name)[1]
-        if not _os.path.splitext(new_name)[1]:
-            new_name = new_name + ext
-        new_path = _os.path.join(folder, new_name)
-        entry["old_path"] = old_path
-        entry["new_path"] = new_path
-
-        if _os.path.normcase(new_path) in seen_targets:
-            entry["message"] = "目标文件名重复"
-            results.append(entry)
-            continue
-        seen_targets.add(_os.path.normcase(new_path))
-
-        if _os.path.exists(new_path) and _os.path.normcase(new_path) != _os.path.normcase(old_path):
-            entry["message"] = "目标文件已存在"
-            results.append(entry)
-            continue
-
-        if dry_run:
-            entry["ok"] = True
-            entry["message"] = "可重命名"
-            results.append(entry)
-            continue
-
-        try:
-            _os.rename(old_path, new_path)
-        except Exception as exc:
-            entry["message"] = "磁盘重命名失败: " + str(exc)
-            results.append(entry)
-            continue
-
-        try:
-            with db_manager.get_cursor() as cursor:
-                cursor.execute(
-                    "UPDATE files SET path=?, filename=? WHERE project_id=? AND file_uuid=?",
-                    (new_path, new_name, project_id, file_uuid),
-                )
-                cursor.connection.commit()
-            db_manager.update_fts_row(file_uuid, project_id)
-            # 文件名是文本向量的输入之一，改名后这条要重算
-            db_manager.mark_artifacts_stale_for_file(project_id, file_uuid, ["text_vector"])
-            entry["ok"] = True
-            entry["message"] = "已重命名"
-        except Exception as exc:
-            entry["message"] = "数据库更新失败（文件已改名）: " + str(exc)
-        results.append(entry)
-
-    reindex_queued = False
-    if not dry_run and any(r["ok"] for r in results):
-        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "rename")
-        reindex_queued = True
-
-    return {
-        "success": all(r["ok"] for r in results),
-        "dry_run": dry_run,
-        "total": len(results),
-        "done": sum(1 for r in results if r["ok"]),
-        "results": results,
-        "reindex_queued": reindex_queued,
-    }
-
-
 # ==================== 收藏 + 重复检测 ====================
-
-@app.post("/api/v1/files/{file_uuid}/favorite")
-async def set_favorite(file_uuid: str, payload: Dict[str, Any], project_id: str = Query(default="default")):
-    db_manager = get_db_manager()
-    value = bool(payload.get("favorite", True))
-    ok = db_manager.set_favorite(project_id, file_uuid, value)
-    return {"success": ok, "favorite": value}
-
 
 _hash_task_running = False
 
@@ -3997,72 +3867,6 @@ async def voice_delete_profile(profile_id: str):
         raise HTTPException(status_code=404, detail="音色不存在")
     return {"success": True}
 
-class FileCopyRequest(BaseModel):
-    source: str
-    destination: str
-    overwrite: bool = False
-
-
-class FileMetaRequest(BaseModel):
-    ids: List[str]
-
-
-@app.post("/api/v1/files/meta")
-async def files_meta_endpoint(payload: FileMetaRequest):
-    """按 id 批量取描述和标签：搜索结果只有文件名和分数，界面要补这两项。"""
-    import json as _json
-
-    ids = [str(item) for item in (payload.ids or []) if item][:500]
-    if not ids:
-        return {"success": True, "items": []}
-    db_manager = get_db_manager()
-    placeholders = ",".join("?" for _ in ids)
-    with db_manager.get_cursor() as cursor:
-        rows = cursor.execute(
-            f"SELECT file_uuid, filename, ai_description, tags FROM files WHERE file_uuid IN ({placeholders})",
-            tuple(ids),
-        ).fetchall()
-    items = []
-    for row in rows:
-        raw_tags = row["tags"]
-        try:
-            tags = _json.loads(raw_tags) if isinstance(raw_tags, str) else (raw_tags or [])
-        except Exception:
-            tags = [part for part in str(raw_tags or "").split(",") if part.strip()]
-        description = str(row["ai_description"] or "")
-        if description.startswith("[auto]"):
-            description = description[len("[auto]"):].strip()
-        items.append({
-            "id": row["file_uuid"],
-            "filename": row["filename"],
-            "ai_description": description,
-            "tags": [str(tag) for tag in (tags or []) if str(tag).strip()],
-        })
-    return {"success": True, "items": items}
-
-
-@app.post("/api/v1/files/copy")
-async def files_copy_endpoint(payload: FileCopyRequest):
-    """把生成的语音等文件另存到用户指定位置。"""
-    import shutil
-
-    src = Path(payload.source)
-    dest = Path(payload.destination)
-    if not src.is_file():
-        raise HTTPException(status_code=404, detail="源文件不存在")
-    if not dest.parent.is_dir():
-        raise HTTPException(status_code=400, detail="目标文件夹不存在")
-    if dest.exists() and not payload.overwrite:
-        raise HTTPException(status_code=409, detail="目标文件已存在")
-    try:
-        if dest.resolve() != src.resolve():
-            shutil.copy2(str(src), str(dest))
-    except Exception as exc:
-        raise SoundBotAPIError("copy_failed", f"保存失败：{exc}", status_code=500)
-    return {"success": True, "path": str(dest), "size": dest.stat().st_size}
-
-
-
 # ==================== 效果器（混响） ====================
 
 # ==================== 多声道 ====================
@@ -4326,99 +4130,6 @@ async def embed_preview(payload: Dict[str, Any]):
 
 
 # ==================== M4：标签双层（scene / attr） ====================
-
-@app.post("/api/v1/files/{file_uuid}/description")
-async def set_file_description(
-    file_uuid: str,
-    payload: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    project_id: str = Query(default="default"),
-):
-    """单条改「一句话描述」：写库 + 同步 FTS，并把这条的文本向量标脏。"""
-    description = str(payload.get("description") or "").strip()[:500]
-    db_manager = get_db_manager()
-    record = db_manager.get_file_by_uuid(file_uuid, project_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    path = getattr(record, "path", None) or getattr(record, "file_path", None)
-    if not path:
-        raise HTTPException(status_code=500, detail="文件路径缺失")
-    if not db_manager.update_ai_description(path, description, project_id, file_uuid=file_uuid):
-        raise HTTPException(status_code=500, detail="写入描述失败")
-    # 描述变了，这一行的 text_vector 已经被标脏。关键词搜索（FTS）当场就更新了，
-    # 但语义检索用的是向量，得让增量对账把这一条重新算一遍 —— 只跑 stale 的行，
-    # 不是全库重建。同一工程并发触发会自动合并成一个任务。
-    background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "description")
-    return {"success": True, "description": description, "reindex_queued": True}
-
-
-@app.get("/api/v1/files/{file_uuid}/user-tags")
-async def get_file_user_tags(file_uuid: str, project_id: str = Query(default="default")):
-    """读取某个文件的「我的标签」（用户自定义，和 6 维系统标签分开）。"""
-    from core import tag_layers
-
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        names = tag_layers.file_tag_names(cursor, project_id, file_uuid)
-    return {"success": True, "names": names}
-
-
-@app.post("/api/v1/files/{file_uuid}/tags")
-async def set_file_tags(
-    file_uuid: str,
-    payload: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    project_id: str = Query(default="default"),
-):
-    from core import tag_layers
-
-    tag_ids = payload.get("tag_ids") or []
-    names = payload.get("names")
-    if not isinstance(tag_ids, list):
-        raise HTTPException(status_code=422, detail="tag_ids 必须是数组")
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        # 允许前端直接传名字：不存在的标签自动建（attr 层）
-        if isinstance(names, list):
-            resolved = []
-            for raw in names:
-                name = str(raw or "").strip()
-                if not name:
-                    continue
-                row = cursor.execute(
-                    "SELECT id FROM tags WHERE project_id=? AND name=?", (project_id, name)
-                ).fetchone()
-                if row:
-                    resolved.append(str(row[0]))
-                else:
-                    tag_id = uuid.uuid4().hex
-                    cursor.execute(
-                        "INSERT INTO tags (id, project_id, name, layer, created_at) VALUES (?,?,?,?,?)",
-                        (tag_id, project_id, name, "attr", datetime.now().isoformat()),
-                    )
-                    resolved.append(tag_id)
-            tag_ids = resolved
-        try:
-            tag_layers.set_file_tags(cursor, project_id, file_uuid, [str(t) for t in tag_ids])
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    # 改完用户标签：刷新这一行的 FTS（关键词搜索能命中），并把文本向量标脏
-    try:
-        db_manager.update_fts_row(project_id, file_uuid)
-    except Exception as exc:
-        logger.debug("刷新 FTS 失败: %s", exc)
-    try:
-        with db_manager.get_cursor() as cursor:
-            cursor.execute(
-                "UPDATE file_artifacts SET state='stale' WHERE kind='text_vector' AND file_uuid=?",
-                (file_uuid,),
-            )
-    except Exception:
-        pass
-    background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "user_tags")
-    return {"success": True, "reindex_queued": True}
-
 
 @app.get("/api/v1/db/folder/stats")
 async def folder_stats(path: str = Query(...), project_id: str = Query(default="default")):
@@ -5341,177 +5052,6 @@ def _get_project_searcher(project_id: str):
         _PROJECT_SEARCHER_CACHE.pop(next(iter(_PROJECT_SEARCHER_CACHE)), None)
     return searcher
 
-@app.post("/api/v1/search", response_model=schemas.SearchResponse)
-async def search_audio(request: schemas.SearchRequest):
-    """
-    语义搜索音频（同步版本，保持向后兼容）
-
-    - **query**: 自然语言查询（如"清脆的铃铛声"）
-    - **top_k**: 返回结果数量（默认 20）
-    - **threshold**: 相似度阈值（默认 0.15）
-    """
-    _t_handler_start = time.time()
-    try:
-        project_id = request.project_id
-        if not is_safe_project_id(project_id) or not get_db_manager().get_project(project_id):
-            raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
-        searcher = _get_project_searcher(project_id)
-
-        filters = {}
-        if request.min_duration is not None:
-            filters["duration"] = {"$gte": request.min_duration}
-        if request.max_duration is not None:
-            if "duration" in filters:
-                filters["duration"]["$lte"] = request.max_duration
-            else:
-                filters["duration"] = {"$lte": request.max_duration}
-        if request.sample_rate is not None:
-            filters["sample_rate"] = request.sample_rate
-        if request.channels is not None:
-            filters["channels"] = request.channels
-        if request.format is not None:
-            filters["format"] = request.format
-
-        # 使用异步搜索但不推送进度
-        results, stats = await searcher.search_async(
-            query=request.query,
-            top_k=request.top_k,
-            min_similarity=request.threshold,
-            filters=filters if filters else None,
-            use_cache=True,
-            fast=bool(getattr(request, "fast", False)),
-        )
-
-        logger.info(f"搜索 '{request.query}': 找到 {len(results)} 个结果, 耗时 {stats.get('duration', 0):.3f}s, 缓存命中: {stats.get('cache_hit', False)}")
-
-        _t_after_search = time.time()
-        # 转换为响应格式：先把缺 file_id 的路径一次性查出来，避免逐条查库
-        missing_paths = [
-            r.file_path for r in results if not r.metadata.get("file_id") and r.file_path
-        ]
-        id_by_path = {}
-        if missing_paths:
-            try:
-                id_by_path = db_manager.get_file_ids_by_paths(missing_paths, project_id)
-            except Exception as exc:
-                logger.warning("批量解析 file_id 失败: %s", exc)
-        search_results = []
-        for r in results:
-            # 使用 getattr 避免与 Python 内置 format 函数冲突
-            file_format = getattr(r, 'format', '') or ''
-            file_uuid = r.metadata.get("file_id") or id_by_path.get(r.file_path)
-            if not file_uuid:
-                matched_record = db_manager.get_file(r.file_path, project_id)
-                file_uuid = matched_record.file_uuid if matched_record else None
-            audio_file = schemas.AudioFile(
-                id=file_uuid,
-                path=r.file_path,
-                filename=r.filename,
-                duration=r.duration,
-                sample_rate=r.metadata.get("sample_rate", 0),
-                channels=r.metadata.get("channels", 0),
-                format=file_format,
-                size=r.metadata.get("size", 0)
-            )
-            search_results.append(schemas.SearchResult(
-                audio_file=audio_file,
-                score=r.similarity,
-                distance=1.0 - r.similarity,
-                metadata={
-                    "project_id": project_id,
-                    "audio_score": r.metadata.get("audio_score", r.metadata.get("semantic_score", 0.0)),
-                    "text_score": r.metadata.get("text_score", 0.0),
-                    "keyword_score": r.metadata.get("keyword_score", 0.0),
-                    "score_weights": r.metadata.get("score_weights", {
-                        "audio": 0.55, "text": 0.30, "keyword": 0.15,
-                    }),
-                }
-            ))
-
-        # 分页处理
-        total = len(search_results)
-        page = request.page
-        page_size = request.page_size
-        start_idx = (page - 1) * page_size
-        end_idx = start_idx + page_size
-        paginated_results = search_results[start_idx:end_idx]
-        total_pages = (total + page_size - 1) // page_size
-
-        return schemas.SearchResponse(
-            query=request.query,
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
-            results=paginated_results
-        )
-
-    except SoundBotAPIError:
-        raise
-    except Exception as e:
-        import traceback
-        logger.error(f"搜索失败: {e}")
-        logger.error(f"搜索失败详细堆栈: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/v1/search/async")
-async def search_audio_async(
-    request: schemas.SearchRequest,
-    background_tasks: BackgroundTasks,
-    client_id: str = Query(default="default")
-):
-    """
-    异步语义搜索（带 WebSocket 进度推送）
-
-    - **query**: 自然语言查询
-    - **top_k**: 返回结果数量
-    - **threshold**: 相似度阈值
-    - **client_id**: WebSocket 客户端标识
-
-    返回搜索任务ID，通过 WebSocket 接收进度和结果
-    """
-    try:
-        project_id = request.project_id
-        db_manager = get_db_manager()
-        if not is_safe_project_id(project_id) or not db_manager.get_project(project_id):
-            raise SoundBotAPIError(
-                "project_not_found",
-                "工程不存在",
-                status_code=404,
-                details={"project_id": project_id},
-            )
-        search_id = f"search_{int(time.time() * 1000)}"
-
-        # 后台执行搜索
-        background_tasks.add_task(
-            _search_task,
-            search_id=search_id,
-            query=request.query,
-            top_k=request.top_k,
-            min_similarity=request.threshold,
-            filters={
-                k: v for k, v in {
-                    "min_duration": request.min_duration,
-                    "max_duration": request.max_duration,
-                    "sample_rate": request.sample_rate,
-                    "channels": request.channels,
-                    "format": request.format
-                }.items() if v is not None
-            },
-            client_id=client_id,
-            project_id=project_id,
-        )
-
-        return {"search_id": search_id, "message": "搜索任务已启动"}
-
-    except SoundBotAPIError:
-        raise
-    except Exception as e:
-        logger.error(f"启动搜索任务失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 async def _search_task(
     search_id: str,
     query: str,
@@ -5610,42 +5150,6 @@ async def _search_task(
             search_id=search_id,
             error=str(e)
         )
-
-
-@app.get("/api/v1/search/cache/stats")
-async def get_search_cache_stats():
-    """
-    获取搜索缓存统计信息
-    """
-    try:
-        project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-        searcher = _get_project_searcher(project_id)
-        stats = searcher.get_cache_stats()
-        return {
-            "status": "success",
-            "cache_stats": stats
-        }
-    except Exception as e:
-        logger.error(f"获取缓存统计失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/v1/search/cache/clear")
-async def clear_search_cache():
-    """
-    清空搜索缓存
-    """
-    try:
-        project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-        searcher = _get_project_searcher(project_id)
-        await searcher.clear_cache()
-        return {
-            "status": "success",
-            "message": "搜索缓存已清空"
-        }
-    except Exception as e:
-        logger.error(f"清空缓存失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================== 音频波形 ====================
@@ -5774,15 +5278,6 @@ async def _waveform_payload(file_path: str, project_id: str) -> Dict[str, Any]:
         )
 
 
-@app.get("/api/v1/files/{file_id}/waveform")
-async def get_file_waveform(file_id: str, project_id: Optional[str] = None):
-    effective_project = project_id or getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    record = get_db_manager().get_file_by_uuid(file_id, effective_project)
-    if not record:
-        raise SoundBotAPIError("file_not_found", "文件不存在", status_code=404)
-    return await _waveform_payload(record.path, effective_project)
-
-
 @app.post("/api/v1/waveforms/batch")
 async def get_waveforms_batch(request: schemas.WaveformBatchRequest):
     project_id = request.project_id or getattr(config, 'CURRENT_PROJECT_ID', 'default')
@@ -5810,41 +5305,6 @@ async def get_waveforms_batch(request: schemas.WaveformBatchRequest):
 
     items = await asyncio.gather(*(load(file_id) for file_id in request.file_ids))
     return {"project_id": project_id, "items": items}
-
-
-@app.get("/api/v1/files/{file_id}/playback-source")
-async def get_playback_source(file_id: str, project_id: Optional[str] = None):
-    """Return an original path or a cached PCM WAV for Chromium-incompatible files."""
-    from core.audio_service import get_audio_service, AudioServiceError
-
-    effective_project = project_id or getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    record = get_db_manager().get_file_by_uuid(file_id, effective_project)
-    if not record:
-        raise SoundBotAPIError("file_not_found", "文件不存在", status_code=404)
-    service = get_audio_service()
-    try:
-        if service.requires_playback_transcode(record.path):
-            source = await _run_audio_work(service.prepare_playback_wav, record.path)
-            mode = "transcoded_wav"
-        else:
-            source = Path(record.path)
-            mode = "original"
-        return {
-            "file_id": file_id,
-            "path": str(source),
-            "mode": mode,
-            "source_fingerprint": (
-                await _run_audio_work(service.fingerprint, record.path)
-            ).source_key,
-        }
-    except AudioServiceError as exc:
-        raise SoundBotAPIError(
-            exc.code,
-            exc.message,
-            status_code=422,
-            retryable=exc.retryable,
-            details=exc.details,
-        )
 
 
 # ==================== 通用音频文件服务 ====================
@@ -8235,63 +7695,6 @@ async def update_folder_mapping(
 
 # ==================== AI Chat API ====================
 
-@app.post("/api/v1/ai/chat")
-async def ai_chat(request: schemas.AIChatRequest):
-    """
-    AI 对话 - 自然语言搜索
-    
-    支持流式响应，前端需要使用 EventSource 接收。
-    
-    请求格式：
-    - **message**: 用户消息
-    - **history**: 对话历史（可选）
-    - **top_k**: 返回结果数量（默认 20）
-    - **threshold**: 相似度阈值（默认 0.1）
-    
-    SSE 流式响应：
-    - thinking: 正在分析
-    - analyzing: 分析完成
-    - searching: 正在搜索
-    - results: 搜索结果
-    - error: 错误
-    - done: 完成
-    """
-    from core.ai_chat_service import get_ai_chat_service, stream_to_sse
-    
-    try:
-        project_id = request.project_id or "default"
-        db_manager = get_db_manager()
-        if not is_safe_project_id(project_id) or not db_manager.get_project(project_id):
-            raise SoundBotAPIError(
-                "project_not_found", "工程不存在", status_code=404,
-                details={"project_id": project_id},
-            )
-        chat_service = get_ai_chat_service(project_id)
-        
-        return StreamingResponse(
-            stream_to_sse(chat_service.chat(
-                message=request.message,
-                conversation_history=request.history,
-                top_k=request.top_k,
-                threshold=request.threshold,
-                project_id=project_id,
-            )),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
-    except SoundBotAPIError:
-        raise
-    except Exception as e:
-        logger.error(f"AI Chat 请求失败: {e}")
-        import traceback
-        logger.error(f"详细错误: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"AI 服务暂时不可用: {str(e)}")
-
-
 def _text_embedding_config_signature(provider: str, provider_config: Dict[str, Any]) -> str:
     """Fingerprint only settings that can change persisted text vectors."""
     import hashlib
@@ -8308,217 +7711,6 @@ def _text_embedding_config_signature(provider: str, provider_config: Dict[str, A
     }
     encoded = json.dumps(relevant, ensure_ascii=True, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
-
-
-@app.get("/api/v1/ai/config")
-async def get_ai_config():
-    """
-    获取 AI 配置
-    
-    返回当前 LLM 和 Embedding 的配置
-    """
-    try:
-        from core.llm_config_manager import get_llm_config_manager
-        
-        config_manager = get_llm_config_manager()
-        
-        return {
-            "success": True,
-            "llm": {
-                "provider": config_manager.get_llm_provider(),
-                "config": config_manager.get_public_llm_config(),
-                "available_services": config_manager.detect_available_local_services()
-            },
-            "embedding": {
-                "provider": config_manager.get_embedding_provider(),
-                "config": config_manager.get_public_embedding_config()
-            }
-        }
-    except Exception as e:
-        logger.error(f"获取 AI 配置失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/v1/ai/config")
-async def save_ai_config(
-    request: schemas.AIConfigRequest,
-    background_tasks: BackgroundTasks,
-):
-    """
-    保存 AI 配置
-    
-    - **llm_provider**: LLM 提供者 (lm_studio/ollama/external)
-    - **llm_config**: LLM 提供者配置
-    - **embedding_provider**: Embedding 提供者 (default/local/external)
-    - **embedding_config**: Embedding 提供者配置
-    """
-    try:
-        from core.llm_config_manager import get_llm_config_manager
-        from core.llm_client import reset_llm_client
-        from core.ai_chat_service import reset_ai_chat_service
-        from core.search_engine import reset_optimized_searcher
-        
-        config_manager = get_llm_config_manager()
-        old_embedding = config_manager.get_embedding_config()
-        old_provider = config_manager.get_embedding_provider()
-        old_signature = _text_embedding_config_signature(
-            old_provider, old_embedding.get(old_provider, {})
-        )
-        
-        config_manager.save_full_config(
-            llm_provider=request.llm_provider,
-            llm_config=request.llm_config,
-            embedding_provider=request.embedding_provider,
-            embedding_config=request.embedding_config
-        )
-
-        new_embedding = config_manager.get_embedding_config()
-        new_provider = config_manager.get_embedding_provider()
-        new_signature = _text_embedding_config_signature(
-            new_provider, new_embedding.get(new_provider, {})
-        )
-        stale_projects = []
-        if old_signature != new_signature:
-            try:
-                db_manager = get_db_manager()
-                for project in db_manager.get_all_projects():
-                    project_id = project["id"]
-                    changed = db_manager.mark_project_artifacts(
-                        project_id, ["text_vector"], "stale"
-                    )
-                    db_manager.upsert_index_manifest(
-                        project_id,
-                        "text_vector",
-                        engine_fingerprint=new_signature,
-                        state="stale",
-                        revision_increment=1,
-                    )
-                    reset_optimized_searcher(project_id)
-                    job_id = db_manager.create_job(
-                        project_id, "index_rebuild", changed
-                    )
-                    background_tasks.add_task(
-                        _repair_index_task,
-                        job_id,
-                        project_id,
-                        ["text_vector"],
-                        "rebuild",
-                    )
-                    stale_projects.append({
-                        "project_id": project_id,
-                        "files": changed,
-                        "job_id": job_id,
-                    })
-            except Exception as index_error:
-                # Metadata/credential saving already succeeded.  Do not make
-                # Electron roll back its secure-store transaction; report the
-                # index invalidation problem without including config values.
-                logger.exception("文本索引失效标记失败: %s", index_error)
-                stale_projects.append({
-                    "project_id": None,
-                    "files": 0,
-                    "error": "text_index_invalidation_failed",
-                })
-        
-        # 重置 LLM 客户端和 AI Chat 服务以应用新配置
-        reset_llm_client()
-        reset_ai_chat_service()
-        
-        return {
-            "success": True,
-            "message": "配置已保存",
-            "text_index_stale": stale_projects,
-        }
-    except Exception as e:
-        logger.error(f"保存 AI 配置失败: {e}")
-        raise HTTPException(status_code=500, detail="保存配置失败，请检查日志")
-
-
-@app.post("/api/v1/ai/config/test")
-async def test_ai_config(request: schemas.AIConfigRequest):
-    """
-    测试 AI 配置连接
-    
-    - **llm_provider**: LLM 提供者
-    - **llm_config**: LLM 提供者配置
-    - **embedding_provider**: Embedding 提供者
-    - **embedding_config**: Embedding 提供者配置
-    """
-    try:
-        from core.llm_config_manager import get_llm_config_manager
-        
-        config_manager = get_llm_config_manager()
-        
-        # 测试 LLM 连接
-        llm_result = await config_manager.test_llm_connection(
-            provider=request.llm_provider,
-            provider_config=request.llm_config
-        )
-        
-        # 测试 Embedding 连接
-        embedding_result = await config_manager.test_embedding_connection(
-            provider=request.embedding_provider,
-            provider_config=request.embedding_config
-        )
-        
-        return {
-            "success": llm_result.get("success", False) and embedding_result.get("success", False),
-            "llm": llm_result,
-            "embedding": embedding_result
-        }
-    except Exception as e:
-        logger.error(f"测试 AI 配置失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/v1/ai/status")
-async def get_ai_status():
-    """
-    获取 AI 服务状态
-    
-    返回 LLM 和 Embedding 的可用状态
-    """
-    try:
-        from core.llm_config_manager import get_llm_config_manager
-        from core.llm_client import get_llm_client
-        from core.embedder import is_embedder_available
-        
-        config_manager = get_llm_config_manager()
-        
-        # 检查 LLM 可用性
-        llm_available = False
-        llm_provider = config_manager.get_llm_provider()
-        available_services = config_manager.detect_available_local_services()
-        
-        if llm_provider == "lm_studio":
-            llm_available = available_services.get("lm_studio", False)
-        elif llm_provider == "ollama":
-            llm_available = available_services.get("ollama", False)
-        else:
-            # 外部 API，尝试连接
-            try:
-                llm_client = get_llm_client()
-                llm_available = llm_client.is_available
-            except:
-                llm_available = False
-        
-        # 检查 Embedding 可用性
-        embedding_available = is_embedder_available()
-        
-        return {
-            "success": True,
-            "llm": {
-                "available": llm_available,
-                "provider": llm_provider
-            },
-            "embedding": {
-                "available": embedding_available,
-                "provider": config_manager.get_embedding_provider()
-            }
-        }
-    except Exception as e:
-        logger.error(f"获取 AI 状态失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================== 主入口 ====================

@@ -439,7 +439,9 @@ class APIContractTests(unittest.IsolatedAsyncioTestCase):
             "core.llm_config_manager.get_llm_config_manager",
             return_value=FakeConfigManager(),
         ):
-            response = await main.get_ai_config()
+            from api.routers import ai as ai_router
+
+            response = await ai_router.get_ai_config()
 
         encoded = json.dumps(response, ensure_ascii=False)
         self.assertNotIn("LLM-SECRET", encoded)
@@ -465,9 +467,13 @@ class APIContractTests(unittest.IsolatedAsyncioTestCase):
                 query="rain", project_id="missing-project", top_k=10
             )
             tasks = BackgroundTasks()
-            with mock.patch.object(main, "get_db_manager", return_value=manager):
-                with self.assertRaises(main.SoundBotAPIError) as raised:
-                    await main.search_audio_async(request, tasks)
+            from api.routers import search as search_router
+            from core.errors import SoundBotAPIError
+
+            with mock.patch.object(search_router._d, "call", side_effect=None, wraps=search_router._d.call), \
+                 mock.patch("core.database.get_db_manager", return_value=manager):
+                with self.assertRaises(SoundBotAPIError) as raised:
+                    await search_router.search_audio_async(request, tasks)
 
         self.assertEqual(raised.exception.status_code, 404)
         self.assertEqual(len(tasks.tasks), 0)

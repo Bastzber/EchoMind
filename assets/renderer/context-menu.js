@@ -551,8 +551,14 @@ function showTagModal(sound) {
             renderSoundList();
             renderCategoryTree();
             if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
-            if (typeof loadTagStats === 'function') await loadTagStats();
-            if (typeof renderTagSidebar === 'function') renderTagSidebar();
+            // 立刻刷新左侧「我的标签」：loadTagStats 会重拉 /api/v1/tags 并重画分类树。
+            // 再补一次 400ms 后的刷新——第一次偶尔会撞上前端缓存的旧 datalist，
+            // 用户看到的是「保存成功但左侧没变」（11-02 反馈）。
+            if (typeof loadTagStats === 'function') {
+                await loadTagStats();
+                setTimeout(() => { loadTagStats().catch(() => {}); }, 400);
+            }
+            if (typeof renderCategoryTree === 'function') renderCategoryTree();
             showNotification(
                 `已保存 ${systemTags.length} 个系统标签`
                 + (customTags.length

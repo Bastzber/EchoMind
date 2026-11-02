@@ -548,24 +548,23 @@ function showTagModal(sound) {
             );
             const written = Number(result?.custom_written || 0);
             sound.tags = systemTags;
-            renderSoundList();
-            renderCategoryTree();
-            if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
-            // 立刻刷新左侧「我的标签」：loadTagStats 会重拉 /api/v1/tags 并重画分类树。
-            // 再补一次 400ms 后的刷新——第一次偶尔会撞上前端缓存的旧 datalist，
-            // 用户看到的是「保存成功但左侧没变」（11-02 反馈）。
-            if (typeof loadTagStats === 'function') {
-                await loadTagStats();
-                setTimeout(() => { loadTagStats().catch(() => {}); }, 400);
-            }
-            if (typeof renderCategoryTree === 'function') renderCategoryTree();
+
+            // 第一优先：立刻给反馈（后端实测 0.4~0.6 秒返回）。
             showNotification(
                 `已保存 ${systemTags.length} 个系统标签`
-                + (customTags.length
-                    ? `，${written} 个进了「我的标签」`
-                    : ''),
+                + (customTags.length ? `，${written} 个进了「我的标签」` : ''),
                 'success',
             );
+
+            // 再后台刷新列表和左侧树：loadTagStats 要拉 /api/v1/db/tags
+            //（全库标签聚合，实测 2.2 秒），不能让它卡住提示。
+            renderSoundList();
+            if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
+            if (typeof loadTagStats === 'function') {
+                loadTagStats().catch(() => {});
+                setTimeout(() => { loadTagStats().catch(() => {}); }, 600);
+            }
+            if (typeof renderCategoryTree === 'function') setTimeout(() => renderCategoryTree(), 100);
         } catch (err) {
             showNotification('保存标签失败: ' + (err.message || err), 'error');
         }

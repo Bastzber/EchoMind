@@ -30,6 +30,14 @@ from core.database import AudioFileRecord
 
 from api.routers import _deps as _d
 
+async def _clear_searcher_cache(project_id: str) -> None:
+    """后台清搜索缓存：6.5 万条词表重建约 10 秒，不能卡在保存请求里。"""
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception as exc:
+        logger.debug("清理搜索缓存失败: %s", exc)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -257,7 +265,7 @@ async def _broken_cleanup_task(job_id: str, project_id: str, entries: List[Dict[
             job_id, state="failed", stage=f"error removed={removed} failed={failed}"
         )
     try:
-        await _get_project_searcher(project_id).clear_cache()
+        asyncio.create_task(_clear_searcher_cache(project_id))
     except Exception as exc:
         logger.debug(f"清理搜索缓存失败: {exc}")
     except Exception as exc:
@@ -414,7 +422,7 @@ async def update_file_tags(
                     except Exception as exc:
                         logger.warning("[标签] 写入我的标签失败: %s", exc)
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
@@ -459,7 +467,7 @@ async def batch_set_tags(
             if db_manager.update_tags(path, tags, current_project_id):
                 applied += 1
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
@@ -497,7 +505,7 @@ async def rename_tag(
             logger.debug(f"收集改名受影响的文件失败: {exc}")
         changed = db_manager.rename_tag(current_project_id, payload.old, payload.new)
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         if changed > 0:
@@ -533,7 +541,7 @@ async def delete_tag(tag: str, background_tasks: BackgroundTasks):
             logger.debug(f"收集删标签受影响的文件失败: {exc}")
         changed = db_manager.delete_tag(current_project_id, tag)
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         if changed > 0:
@@ -566,7 +574,7 @@ async def rename_db_file(
         if not success:
             raise HTTPException(status_code=404, detail="文件不存在")
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
@@ -619,7 +627,7 @@ async def reanalyze_db_file(
                 current_project_id, record.file_uuid, ["text_vector"], now
             )
             try:
-                await _get_project_searcher(current_project_id).clear_cache()
+                asyncio.create_task(_clear_searcher_cache(current_project_id))
             except Exception as exc:
                 logger.debug(f"清理搜索缓存失败: {exc}")
             job_id = db_manager.create_job(current_project_id, "index_reconcile", 1)
@@ -641,7 +649,7 @@ async def reanalyze_db_file(
             current_project_id, record.file_uuid, kinds, now
         )
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         job_id = db_manager.create_job(current_project_id, "index_reconcile", 1)
@@ -723,7 +731,7 @@ async def resolve_duplicates(payload: Dict[str, Any], project_id: str = Query(de
         manifest_path = str(_write_backup_manifest(entries, action, target_dir))
 
     try:
-        await _get_project_searcher(project_id).clear_cache()
+        asyncio.create_task(_clear_searcher_cache(project_id))
     except Exception as exc:
         logger.debug("清理搜索缓存失败: %s", exc)
 
@@ -1267,7 +1275,7 @@ async def delete_folder_records(payload: Dict[str, Any], project_id: str = Query
     # 顺带清掉「我的文件夹」里指向这个目录的映射，否则左侧还会挂着一个空目录
     mappings_removed = db_manager.remove_mappings_under(project_id, folder)
     try:
-        await _get_project_searcher(project_id).clear_cache()
+        asyncio.create_task(_clear_searcher_cache(project_id))
     except Exception as exc:
         logger.debug("清理搜索缓存失败: %s", exc)
 
@@ -1361,7 +1369,7 @@ async def delete_db_file(path: str):
                 current_project_id, kind, revision_increment=1
             )
         try:
-            await _get_project_searcher(current_project_id).clear_cache()
+            asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
     return {"success": True, "message": "文件已删除"}

@@ -29,7 +29,15 @@ from pydantic import BaseModel, Field
 from models import schemas
 import config
 
-from api.routers import _deps as _d  # noqa: E402
+from api.routers import _deps as _d
+
+async def _clear_searcher_cache(project_id: str) -> None:
+    """后台清搜索缓存：6.5 万条词表重建约 10 秒，不能卡在保存请求里。"""
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception as exc:
+        logger.debug("清理搜索缓存失败: %s", exc)
+  # noqa: E402
 
 
 class TagAutoUndoRequest(BaseModel):
@@ -143,7 +151,7 @@ async def rename_tag(payload: Dict[str, Any], project_id: str = Query(default="d
     db_manager = get_db_manager()
     result = db_manager.rename_tag_by_name(project_id, old_name, new_name)
     try:
-        await _get_project_searcher(project_id).clear_cache()
+        asyncio.create_task(_clear_searcher_cache(project_id))
     except Exception:
         pass
     return {"success": True, **result, "old": old_name, "new": new_name}
@@ -158,7 +166,7 @@ async def delete_tag_batch(payload: Dict[str, Any], project_id: str = Query(defa
     db_manager = get_db_manager()
     result = db_manager.delete_tag_by_name(project_id, name)
     try:
-        await _get_project_searcher(project_id).clear_cache()
+        asyncio.create_task(_clear_searcher_cache(project_id))
     except Exception:
         pass
     return {"success": True, **result, "name": name}
@@ -181,7 +189,7 @@ async def merge_tags(payload: Dict[str, Any], project_id: str = Query(default="d
         merged += result.get("merged", 0) + result.get("renamed", 0)
         files += result.get("files", 0)
     try:
-        await _get_project_searcher(project_id).clear_cache()
+        asyncio.create_task(_clear_searcher_cache(project_id))
     except Exception:
         pass
     return {"success": True, "target": target, "merged": merged, "files": files}

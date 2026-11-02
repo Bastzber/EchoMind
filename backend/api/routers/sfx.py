@@ -29,6 +29,14 @@ import config
 
 from api.routers import _deps as _d
 
+async def _clear_searcher_cache(project_id: str) -> None:
+    """后台清搜索缓存：6.5 万条词表重建约 10 秒，不能卡在保存请求里。"""
+    try:
+        await _get_project_searcher(project_id).clear_cache()
+    except Exception as exc:
+        logger.debug("清理搜索缓存失败: %s", exc)
+
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["sfx"])
 
@@ -205,7 +213,7 @@ async def sfx_save(request: Dict[str, Any], background_tasks: BackgroundTasks):
                 now,
             )
             try:
-                await _get_project_searcher(current_project_id).clear_cache()
+                asyncio.create_task(_clear_searcher_cache(current_project_id))
             except Exception as exc:
                 logger.debug(f"清理搜索缓存失败: {exc}")
             job_id = db_manager.create_job(current_project_id, "index_reconcile", 1)

@@ -70,8 +70,9 @@ def _get_active_text_indexer(*a, **k):
     return _d.call("_get_active_text_indexer", *a, **k)
 
 
-async def _get_project_index_lock(*a, **k):
-    return await _d.call("_get_project_index_lock", *a, **k)
+def _get_project_index_lock(*a, **k):
+    """同步函数：返回 asyncio.Lock（不是协程），调用方用 async with。"""
+    return _d.call("_get_project_index_lock", *a, **k)
 
 
 def _get_project_searcher(*a, **k):

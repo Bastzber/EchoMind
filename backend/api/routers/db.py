@@ -357,7 +357,7 @@ async def update_file_tags(
 
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
         success = db_manager.update_tags(file_path, tags, current_project_id)
@@ -398,7 +398,7 @@ async def batch_set_tags(
     """批量设置标签：同一组标签应用到多个文件路径。"""
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     tags = [str(t).strip() for t in payload.tags if str(t).strip()]
     async with _get_project_index_lock(current_project_id):
@@ -429,7 +429,7 @@ async def rename_tag(
     """全局重命名标签。"""
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
         affected_uuids = []
@@ -465,7 +465,7 @@ async def delete_tag(tag: str, background_tasks: BackgroundTasks):
     """全局删除标签（从所有文件移除）。"""
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
         affected_uuids = []
@@ -507,7 +507,7 @@ async def rename_db_file(
     """重命名文件记录（磁盘文件重命名由 Electron 主进程完成，此处同步数据库）。"""
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
         success = db_manager.rename_file(path, payload.new_name, current_project_id)
@@ -547,7 +547,7 @@ async def reanalyze_db_file(
         raise HTTPException(status_code=422, detail="scope 只能是 all / audio / description / tags")
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
         record = db_manager.get_file(path, current_project_id)
@@ -915,7 +915,7 @@ async def batch_delete_db_files(payload: BatchDeleteRequest):
     if not payload.paths:
         raise HTTPException(status_code=422, detail="paths 不能为空")
     project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
-    if project_id in _projects_deleting:
+    if project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
 
     db_manager = get_db_manager()
@@ -1241,7 +1241,7 @@ async def delete_db_file(path: str):
 
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     async with _get_project_index_lock(current_project_id):
         record = db_manager.get_file(file_path, current_project_id)

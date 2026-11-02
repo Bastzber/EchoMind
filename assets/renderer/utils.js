@@ -214,6 +214,11 @@ function maybeShowIndexBacklogCard(status, busy, job) {
     }
     if (existing) return;   // 已经显示着，别重复建
 
+    // 刚导完音效库时，全是 pending 属于正常状态——正确的下一步是导知识包，
+    // 而不是让用户去「修复文本向量 / 修复音频向量」（那要重编码 6 万条，几小时）。
+    // 所以卡片文案按「有没有导过包」分两套：没导包 → 请导入知识包；导过包还有残留 → 才提示修复。
+    const packImported = Boolean(status?.manifests?.text_vector?.collection_name)
+        || Boolean(status?.manifests?.audio_vector?.collection_name);
     const textMinutes = Math.max(1, Math.round(textBacklog * 0.03));
     const card = document.createElement('div');
     card.id = CARD_ID;
@@ -222,13 +227,17 @@ function maybeShowIndexBacklogCard(status, busy, job) {
         + 'box-shadow:0 8px 24px rgba(0,0,0,.18);padding:14px;font-size:12px;line-height:1.6';
     card.innerHTML = ''
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-        + '  <strong style="font-size:13px">索引还没建完</strong>'
+        + '  <strong style="font-size:13px">' + (packImported ? '索引还没建完' : '请导入知识包') + '</strong>'
         + '  <button id="indexBacklogClose" style="border:0;background:transparent;cursor:pointer;opacity:.55;font-size:14px">×</button>'
         + '</div>'
-        + '<div style="opacity:.8">当前有 <b>' + backlog + '</b> 个文件待处理：'
-        + '文本 ' + textBacklog + ' 条' + (textBacklog ? '（约 ' + textMinutes + ' 分钟）' : '')
-        + '、音频 ' + audioBacklog + ' 条（耗时取决于音频总时长）。</div>'
-        + '<div style="opacity:.65;margin-top:4px">两种向量建议分开跑，别同时开。</div>'
+        + (packImported
+            ? '<div style="opacity:.8">当前有 <b>' + backlog + '</b> 个文件待处理：'
+              + '文本 ' + textBacklog + ' 条' + (textBacklog ? '（约 ' + textMinutes + ' 分钟）' : '')
+              + '、音频 ' + audioBacklog + ' 条（耗时取决于音频总时长）。</div>'
+              + '<div style="opacity:.65;margin-top:4px">两种向量建议分开跑，别同时开。</div>'
+            : '<div style="opacity:.8">导入知识包后，描述、标签、时长和两套向量会一次性就位，'
+              + '不用在这里逐个重编码 <b>' + backlog + '</b> 条。</div>'
+              + '<div style="opacity:.65;margin-top:4px">已经导过包、只是少数文件没覆盖？再点下面的修复。</div>')
         + '<div style="display:flex;gap:8px;margin-top:10px">'
         + '  <button id="indexBacklogText" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">修复文本向量</button>'
         + '  <button id="indexBacklogAudio" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid var(--border-color);background:transparent;cursor:pointer">修复音频向量</button>'

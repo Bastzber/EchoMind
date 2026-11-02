@@ -98,7 +98,7 @@ async def batch_generate_descriptions(
 
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
+    if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
 
     pending = db_manager.list_missing_ai_descriptions(

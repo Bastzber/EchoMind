@@ -64,7 +64,7 @@ def _projects_deleting():
 
 
 def _index_progress():
-    """主模块里的 _index_progress 是 dict（不是函数），要取对象本身。"""
+    """主模块里的 _index_progress() 是 dict（不是函数），要取对象本身。"""
     return _d.attr("_index_progress")
 
 
@@ -220,7 +220,7 @@ async def reconcile_project_index(
 ):
     # 同一工程只允许一个索引任务：已经在跑就直接复用，别新建一个把它打断
     # （之前就是这个「新建即取消旧任务」导致 processing 反复卡住）。
-    current = _automatic_index_tasks.get(project_id)
+    current = _automatic_index_tasks().get(project_id)
     if current and not current["task"].done():
         logger.info(
             "[Index] %s 已有任务 %s 在跑，复用而不是新建",

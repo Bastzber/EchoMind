@@ -670,13 +670,19 @@ app = FastAPI(
 
 # 按域拆分的路由放在 backend/api/routers/（AGENTS.md：新接口别继续堆这个文件）。
 # 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
+from api.routers import descriptions as _descriptions_router  # noqa: E402
+from api.routers import favorites as _favorites_router  # noqa: E402
 from api.routers import media as _media_router  # noqa: E402
+from api.routers import tags as _tags_router  # noqa: E402
 from api.routers import nl_search as _nl_search_router  # noqa: E402
 from api.routers import similar as _similar_router  # noqa: E402
 
 app.include_router(_similar_router.router)
 app.include_router(_nl_search_router.router)
 app.include_router(_media_router.router)
+app.include_router(_favorites_router.router)
+app.include_router(_tags_router.router)
+app.include_router(_descriptions_router.router)
 
 
 @app.exception_handler(SoundBotAPIError)
@@ -2414,180 +2420,6 @@ async def update_file_tags(
     return {"success": True, "message": "标签已更新", "job_id": job_id}
 
 
-@app.get("/api/v1/descriptions/stats")
-async def ai_description_stats():
-    """AI 一句话描述完成统计（批量生成进度用）。"""
-    db_manager = get_db_manager()
-    current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    stats = db_manager.ai_description_stats(current_project_id)
-    return {"success": True, **stats}
-
-
-@app.post("/api/v1/descriptions/batch")
-async def batch_generate_descriptions(
-    payload: schemas.DescriptionBatchRequest,
-    background_tasks: BackgroundTasks,
-):
-    """批量生成 AI 一句话描述（断点续跑：只处理尚无描述的文件）。
-
-    描述写入 files.ai_description 并标记 text_vector 为 stale，
-    随后由 _repair_index_task 重建文本索引，使描述可被语义/关键词搜索命中。
-    """
-    from core.llm_client import get_llm_client
-
-    db_manager = get_db_manager()
-    current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    if current_project_id in _projects_deleting:
-        raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-
-    pending = db_manager.list_missing_ai_descriptions(
-        current_project_id, payload.limit
-    )
-    if not pending:
-        stats = db_manager.ai_description_stats(current_project_id)
-        all_done = stats["remaining"] == 0 and stats.get("auto_count", 0) == 0
-        return {
-            "success": True,
-            "processed": 0,
-            "succeeded": 0,
-            "failed": 0,
-            "remaining": stats["remaining"],
-            "auto_count": stats.get("auto_count", 0),
-            "done": all_done,
-        }
-
-    client = get_llm_client()
-    if not getattr(client, "is_available", True):
-        raise HTTPException(status_code=400, detail="LLM 未配置，请在设置中配置 LLM API")
-
-    semaphore = asyncio.Semaphore(40)
-
-    async def _generate_one(record: Dict[str, Any]) -> bool:
-        filename = str(record.get("filename") or Path(record.get("path", "")).name)
-        system = (
-            "你是音效库管理员。只输出最终的一句话描述，"
-            "不要分析、不要解释、不要复述任务。"
-        )
-        user = (
-            "用一句简体中文（不超过25字）描述这个音效的声音内容。"
-            "只输出这句话本身，不要引号、不要思考过程。\n"
-            f"文件名：{filename}"
-        )
-        async with semaphore:
-            try:
-                chunks: List[str] = []
-                async for chunk in client.chat(
-                    messages=[{"role": "user", "content": user}],
-                    system_prompt=system,
-                    temperature=0.3,
-                    # 推理型模型（DeepSeek V4 Flash）会先消耗预算思考，
-                    # 给足 800 才能保证最终答案非空。
-                    max_tokens=800,
-                    stream=False,
-                ):
-                    if chunk["type"] == "content":
-                        chunks.append(chunk["content"])
-                description = "".join(chunks).strip().strip('"\'“”‘’《》').strip()
-                # 只保留第一句，并丢弃明显是思考过程的内容
-                description = description.splitlines()[0].strip() if description else ""
-                if len(description) > 60 or any(
-                    k in description for k in ("用户要求", "任务：", "The user", "我们需要", "无法判断")
-                ):
-                    logger.warning("描述内容异常，丢弃: %s -> %.40s", filename, description)
-                    return False
-                if not description:
-                    logger.warning("生成描述为空: %s", filename)
-                    return False
-                return db_manager.update_ai_description(
-                    str(record["path"]), description, current_project_id
-                )
-            except Exception as exc:
-                logger.warning("生成描述失败 %s: %s", filename, exc)
-                return False
-
-    results = await asyncio.gather(*[_generate_one(r) for r in pending])
-    succeeded = sum(1 for ok in results if ok)
-    stats = db_manager.ai_description_stats(current_project_id)
-
-    # 仅当全部完成（无描述=0 且无兜底待精修）时触发文本索引重建，
-    # 避免每批都全量 reconcile 拖慢批量流程。未完成时描述已写入 DB
-    # 并标记 stale，下次批次结束时统一重建。
-    job_id = None
-    all_done = stats["remaining"] == 0 and stats.get("auto_count", 0) == 0
-    if all_done:
-        job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-        background_tasks.add_task(
-            _repair_index_task,
-            job_id,
-            current_project_id,
-            ["text_vector"],
-            "reconcile",
-        )
-    return {
-        "success": True,
-        "processed": len(pending),
-        "succeeded": succeeded,
-        "failed": len(pending) - succeeded,
-        "remaining": stats["remaining"],
-        "auto_count": stats.get("auto_count", 0),
-        "done": all_done,
-        "job_id": job_id,
-    }
-
-
-@app.post("/api/v1/descriptions/generate")
-async def generate_one_description(
-    payload: schemas.DescriptionGenerateRequest,
-    background_tasks: BackgroundTasks,
-):
-    """为单个音效生成一句话描述（右键菜单用）。"""
-    from core.llm_client import get_llm_client
-
-    db_manager = get_db_manager()
-    current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    record = db_manager.get_file(payload.path, current_project_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="文件不存在")
-
-    filename = Path(payload.path).name
-    client = get_llm_client()
-    if not getattr(client, "is_available", True):
-        raise HTTPException(status_code=400, detail="LLM 未配置，请在设置中配置 LLM API")
-    system = "你是音频素材库管理员，擅长根据音效文件名准确判断声音内容。"
-    user = (
-        "请用一句简体中文（不超过25字）自然描述这个音效的声音内容。"
-        "直接输出描述本身，不要加引号、书名号或多余解释。\n"
-        f"音效文件名：{filename}"
-    )
-    chunks: List[str] = []
-    try:
-        async for chunk in client.chat(
-            messages=[{"role": "user", "content": user}],
-            system_prompt=system,
-            temperature=0.3,
-            max_tokens=60,
-            stream=False,
-        ):
-            if chunk["type"] == "content":
-                chunks.append(chunk["content"])
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"生成描述失败: {exc}")
-    description = "".join(chunks).strip().strip('"\'“”‘’《》')
-    if not description:
-        raise HTTPException(status_code=500, detail="LLM 未返回有效描述")
-
-    db_manager.update_ai_description(payload.path, description, current_project_id)
-    job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-    background_tasks.add_task(
-        _repair_index_task,
-        job_id,
-        current_project_id,
-        ["text_vector"],
-        "reconcile",
-    )
-    return {"success": True, "description": description, "job_id": job_id}
-
-
 @app.get("/api/v1/db/tags")
 async def list_tags():
     """列出工程内所有标签及使用次数（标签管理面板用）。"""
@@ -3577,13 +3409,6 @@ async def set_favorite(file_uuid: str, payload: Dict[str, Any], project_id: str 
     value = bool(payload.get("favorite", True))
     ok = db_manager.set_favorite(project_id, file_uuid, value)
     return {"success": ok, "favorite": value}
-
-
-@app.get("/api/v1/favorites")
-async def list_favorites(project_id: str = Query(default="default"), limit: int = Query(default=500, le=2000)):
-    db_manager = get_db_manager()
-    files = db_manager.list_favorites(project_id, limit=limit)
-    return {"success": True, "files": files, "total": len(files)}
 
 
 @app.get("/api/v1/duplicates")
@@ -5218,126 +5043,9 @@ async def scan_broken_files(project_id: str = Query(default="default")):
 
 
 
-@app.get("/api/v1/tags/auto-backup")
-async def tag_auto_backup_stats(project_id: str = Query(default="default")):
-    """查看自动补全标签的备份情况（支持撤销的依据）。"""
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        try:
-            row = cursor.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT batch), MIN(created_at), MAX(created_at) FROM tag_auto_backup"
-            ).fetchone()
-        except Exception:
-            return {"success": True, "count": 0, "batches": 0}
-    return {
-        "success": True,
-        "count": int(row[0] or 0),
-        "batches": int(row[1] or 0),
-        "first": row[2],
-        "last": row[3],
-    }
-
-
 class TagAutoUndoRequest(BaseModel):
     batch: Optional[str] = None
 
-
-@app.post("/api/v1/tags/auto-undo")
-async def tag_auto_undo(payload: TagAutoUndoRequest, project_id: str = Query(default="default")):
-    """撤销自动补全：把 files.tags 还原成补全前的样子。"""
-    db_manager = get_db_manager()
-    restored = 0
-    with db_manager.get_cursor() as cursor:
-        try:
-            if payload.batch:
-                rows = cursor.execute(
-                    "SELECT file_uuid, old_tags FROM tag_auto_backup WHERE batch=?", (payload.batch,)
-                ).fetchall()
-            else:
-                rows = cursor.execute("SELECT file_uuid, old_tags FROM tag_auto_backup").fetchall()
-        except Exception:
-            return {"success": True, "restored": 0}
-        for file_uuid, old_tags in rows:
-            cursor.execute(
-                "UPDATE files SET tags=?, updated_at=? WHERE file_uuid=?",
-                (old_tags, datetime.now().isoformat(), file_uuid),
-            )
-            restored += 1
-        if payload.batch:
-            cursor.execute("DELETE FROM tag_auto_backup WHERE batch=?", (payload.batch,))
-        else:
-            cursor.execute("DELETE FROM tag_auto_backup")
-        cursor.connection.commit()
-
-    if restored:
-        try:
-            db_manager.mark_project_artifacts(project_id, ["text_vector"], "stale")
-        except Exception:
-            pass
-    return {"success": True, "restored": restored}
-
-
-@app.get("/api/v1/tags/usage")
-async def get_tag_usage(project_id: str = Query(default="default")):
-    """标签 + 使用次数（标签管理面板用）。"""
-    db_manager = get_db_manager()
-    return {"success": True, "tags": db_manager.list_tag_usage(project_id)}
-
-
-@app.post("/api/v1/tags/rename")
-async def rename_tag(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    """按名字改名；新名字已存在则自动合并。"""
-    old_name = str(payload.get("old") or "").strip()
-    new_name = str(payload.get("new") or "").strip()
-    if not old_name or not new_name:
-        raise HTTPException(status_code=422, detail="old / new 都不能为空")
-    if old_name == new_name:
-        return {"success": True, "renamed": 0, "merged": 0, "files": 0}
-    db_manager = get_db_manager()
-    result = db_manager.rename_tag_by_name(project_id, old_name, new_name)
-    try:
-        await _get_project_searcher(project_id).clear_cache()
-    except Exception:
-        pass
-    return {"success": True, **result, "old": old_name, "new": new_name}
-
-
-@app.post("/api/v1/tags/delete")
-async def delete_tag_batch(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    """删除标签（含文件关联），同步 files.tags。"""
-    name = str(payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="name 不能为空")
-    db_manager = get_db_manager()
-    result = db_manager.delete_tag_by_name(project_id, name)
-    try:
-        await _get_project_searcher(project_id).clear_cache()
-    except Exception:
-        pass
-    return {"success": True, **result, "name": name}
-
-
-@app.post("/api/v1/tags/merge")
-async def merge_tags(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    """把多个标签合并到一个（旧的都并进 target）。"""
-    target = str(payload.get("target") or "").strip()
-    sources = [str(item).strip() for item in (payload.get("sources") or []) if str(item).strip()]
-    if not target or not sources:
-        raise HTTPException(status_code=422, detail="target / sources 不能为空")
-    db_manager = get_db_manager()
-    merged = 0
-    files = 0
-    for name in sources:
-        if name == target:
-            continue
-        result = db_manager.rename_tag_by_name(project_id, name, target)
-        merged += result.get("merged", 0) + result.get("renamed", 0)
-        files += result.get("files", 0)
-    try:
-        await _get_project_searcher(project_id).clear_cache()
-    except Exception:
-        pass
-    return {"success": True, "target": target, "merged": merged, "files": files}
 
 @app.get("/api/v1/duplicates/ignored")
 async def list_ignored_duplicates(project_id: str = Query(default="default")):
@@ -5494,92 +5202,6 @@ async def embed_preview(payload: Dict[str, Any]):
 
 
 # ==================== M4：标签双层（scene / attr） ====================
-
-@app.get("/api/v1/tags")
-async def list_tags(project_id: str = Query(default="default")):
-    from core import tag_layers
-
-    db_manager = get_db_manager()
-    with db_manager.get_cursor() as cursor:
-        tags = tag_layers.list_tags(cursor, project_id)
-    return {
-        "success": True,
-        "scene": [t for t in tags if t["layer"] == "scene"],
-        "attr": [t for t in tags if t["layer"] == "attr"],
-        "total": len(tags),
-    }
-
-
-@app.post("/api/v1/tags")
-async def create_tag(payload: Dict[str, Any], project_id: str = Query(default="default")):
-    import uuid as _uuid
-
-    from core import tag_layers
-
-    name = str(payload.get("name") or "").strip()
-    layer = str(payload.get("layer") or tag_layers.LAYER_ATTR)
-    if not name:
-        raise HTTPException(status_code=422, detail="标签名不能为空")
-    if layer not in tag_layers.VALID_LAYERS:
-        raise HTTPException(status_code=422, detail="layer 只能是 scene 或 attr")
-    db_manager = get_db_manager()
-    tag_id = "tag_" + _uuid.uuid4().hex[:10]
-    with db_manager.get_cursor() as cursor:
-        try:
-            cursor.execute(
-                "INSERT INTO tags (id, project_id, name, layer, sort_order, created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (tag_id, project_id, name, layer, 0, datetime.now().isoformat()),
-            )
-            cursor.connection.commit()
-        except Exception as exc:
-            raise HTTPException(status_code=409, detail=f"标签已存在: {exc}") from exc
-    return {"success": True, "id": tag_id, "name": name, "layer": layer}
-
-
-@app.patch("/api/v1/tags/{tag_id}")
-async def update_tag(
-    tag_id: str,
-    payload: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    project_id: str = Query(default="default"),
-):
-    from core import tag_layers
-
-    db_manager = get_db_manager()
-    affected = db_manager.list_file_uuids_by_tag(project_id, tag_id)
-    with db_manager.get_cursor() as cursor:
-        ok = True
-        named = payload.get("name") is not None
-        if named:
-            ok = tag_layers.rename_tag(cursor, project_id, tag_id, payload["name"]) and ok
-        if payload.get("layer") is not None:
-            ok = tag_layers.set_layer(cursor, project_id, tag_id, payload["layer"]) and ok
-        cursor.connection.commit()
-    if ok and named:
-        # 只改「我的标签」，不动音效自带的 6 维标签
-        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
-    return {"success": ok}
-
-
-@app.delete("/api/v1/tags/{tag_id}")
-async def delete_tag(
-    tag_id: str,
-    background_tasks: BackgroundTasks,
-    project_id: str = Query(default="default"),
-):
-    from core import tag_layers
-
-    db_manager = get_db_manager()
-    affected = db_manager.list_file_uuids_by_tag(project_id, tag_id)
-    with db_manager.get_cursor() as cursor:
-        ok = tag_layers.delete_tag(cursor, project_id, tag_id)
-        cursor.connection.commit()
-    if ok:
-        # 只删「我的标签」，不影响 files.tags
-        background_tasks.add_task(_deferred_reconcile, project_id, ["text_vector"], "tags")
-    return {"success": ok}
-
 
 @app.post("/api/v1/files/{file_uuid}/description")
 async def set_file_description(
@@ -8540,40 +8162,6 @@ def _relative_to_root(path: str, root: str) -> str:
     return norm_path
 
 
-@app.get("/api/v1/descriptions/export")
-async def export_descriptions(project_id: str = Query(default="default")):
-    """导出一句话描述包：按「相对库根的路径」组织，换机器/换盘也能匹配。"""
-    try:
-        db_manager = get_db_manager()
-        with db_manager.get_cursor() as cursor:
-            rows = cursor.execute(
-                "SELECT path, filename, ai_description, tags FROM files WHERE project_id=?",
-                (project_id,),
-            ).fetchall()
-        root = _detect_library_root([r["path"] for r in rows])
-        items = []
-        for row in rows:
-            description = str(row["ai_description"] or "")
-            if not description or description.startswith("[auto]"):
-                continue
-            items.append({
-                "rel": _relative_to_root(row["path"], root),
-                "filename": row["filename"],
-                "description": description,
-                "tags": row["tags"] or "[]",
-            })
-        return {
-            "success": True,
-            "version": 1,
-            "root": root,
-            "count": len(items),
-            "items": items,
-        }
-    except Exception as exc:
-        logger.error("导出描述包失败: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @app.post("/api/v1/metadata/preview")
 async def metadata_preview(payload: Dict[str, Any], project_id: str = Query(default="default")):
     """描述包导入预览：只算匹配，不写库。"""
@@ -8632,142 +8220,6 @@ async def metadata_apply(
         return {"success": True, **result}
     except Exception as exc:
         logger.error("描述包应用失败: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/api/v1/descriptions/import")
-async def import_descriptions(
-    payload: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    project_id: str = Query(default="default"),
-):
-    """导入描述包：按相对路径（大小写不敏感）匹配，套用到当前库。"""
-    from core.metadata_pack import apply as run_apply
-
-    try:
-        items = payload.get("items") or []
-        if not isinstance(items, list) or not items:
-            raise SoundBotAPIError("empty_pack", "描述包为空", status_code=400)
-
-        db_manager = get_db_manager()
-        with db_manager.get_cursor() as cursor:
-            rows = cursor.execute(
-                "SELECT file_uuid, path, filename FROM files WHERE project_id=?",
-                (project_id,),
-            ).fetchall()
-        root = _detect_library_root([r["path"] for r in rows])
-        by_rel = {}
-        by_name = {}
-        for row in rows:
-            rel = _relative_to_root(row["path"], root).lower()
-            by_rel[rel] = row["file_uuid"]
-            by_name.setdefault(str(row["filename"]).lower(), []).append(row["file_uuid"])
-
-        applied = 0
-        matched = 0
-        pairs: List[Dict[str, Any]] = []
-        unmatched: List[Dict[str, str]] = []
-        for item in items:
-            description = str(item.get("description") or "").strip()
-            # 标签包里可能只有 tags/user_tags、没有描述（B9）。以前这里直接
-            # continue，整包标签被丢弃，界面上还显示「导入成功 0 条」。
-            item_tags = item.get("tags")
-            item_user_tags = item.get("user_tags")
-            has_tags = bool(item_tags) or bool(item_user_tags)
-            if not description and not has_tags:
-                unmatched.append({
-                    "rel": str(item.get("rel") or ""),
-                    "filename": str(item.get("filename") or ""),
-                    "reason": "empty_description",
-                    "description": "",
-                })
-                continue
-            rel = str(item.get("rel") or "").replace("/", "\\").lower()
-            uuid_value = by_rel.get(rel)
-            reason = "no_match"
-            if not uuid_value:
-                candidates = by_name.get(str(item.get("filename") or "").lower()) or []
-                uuid_value = candidates[0] if len(candidates) == 1 else None
-                if not uuid_value and len(candidates) > 1:
-                    reason = "ambiguous"
-                elif uuid_value:
-                    reason = "matched_by_name"
-            if not uuid_value:
-                unmatched.append({
-                    "rel": str(item.get("rel") or ""),
-                    "filename": str(item.get("filename") or ""),
-                    "reason": reason,
-                    "description": description,
-                })
-                continue
-            matched += 1
-            # 先攒起来，最后统一走 metadata_pack.apply 的分批写入（含标签合并）。
-            # 逐条 commit + 逐条刷 FTS 就是 database is locked 的来源。
-            pairs.append({
-                "file_uuid": uuid_value,
-                "description": description,
-                "tags": item_tags,
-                # user_tags 走 tags/file_tags 两层表，和 files.tags 不是一回事
-                "user_tags": item_user_tags,
-            })
-        if pairs:
-            try:
-                write_result = await asyncio.to_thread(
-                    run_apply, project_id, pairs, False
-                )
-                applied = int(write_result.get("applied") or 0)
-            except Exception as write_error:
-                logger.exception("描述包批量写入失败: %s", write_error)
-                raise
-        logger.info("描述包导入完成: 匹配 %d / 应用 %d / 未匹配 %d / 包内 %d",
-                    matched, applied, len(unmatched), len(items))
-
-        unmatched_csv = ""
-        if unmatched:
-            try:
-                from core.reports import write_unmatched_csv
-
-                unmatched_csv = write_unmatched_csv(unmatched, prefix="desc-unmatched")
-                logger.info("未匹配清单已导出: %s（%d 条）", unmatched_csv, len(unmatched))
-            except Exception as exc:
-                logger.warning("导出未匹配清单失败: %s", exc)
-
-        # 描述变了，文本向量要按新描述重建，否则搜索用不上新内容。
-        job_id = None
-        if applied:
-            try:
-                from core.search_engine import reset_optimized_searcher
-
-                db_manager.mark_project_artifacts(project_id, ["text_vector"], "stale")
-                db_manager.upsert_index_manifest(
-                    project_id, "text_vector", state="stale", revision_increment=1
-                )
-                reset_optimized_searcher(project_id)
-                job_id = db_manager.create_job(project_id, "text_metadata_refresh", applied)
-                background_tasks.add_task(
-                    _repair_index_task,
-                    job_id,
-                    project_id,
-                    ["text_vector"],
-                    "reconcile",
-                )
-                logger.info("描述包导入后已排队重建文本索引: job=%s", job_id)
-            except Exception as index_error:
-                logger.exception("描述包导入后重建文本索引失败: %s", index_error)
-
-        return {
-            "success": True,
-            "matched": matched,
-            "applied": applied,
-            "pack": len(items),
-            "unmatched": len(unmatched),
-            "unmatched_csv": unmatched_csv,
-            "index_job_id": job_id,
-        }
-    except SoundBotAPIError:
-        raise
-    except Exception as exc:
-        logger.error("导入描述包失败: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

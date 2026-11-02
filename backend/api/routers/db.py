@@ -345,16 +345,32 @@ async def get_db_file(path: str):
 async def update_file_tags(
     path: str,
     background_tasks: BackgroundTasks,
-    payload: schemas.TagsRequest | List[str] = Body(...),
+    payload: Any = Body(...),
 ):
-    """
-    更新文件标签
+    """更新文件标签。
 
-    - **path**: URL 编码的文件路径
-    - **tags**: 新的标签列表
+    入参三种形态都收：
+      ["环境", "紧张"]                      ← 只改系统标签（老前端）
+      {"tags": [...], "custom": [...]}      ← 系统标签 + 我的标签，一次搞定
+      {"tags": [...]}                        ← 只改系统标签
+
+    为什么把「我的标签」也放这里：前端拿不到 file_uuid 时（列表里只有 path），
+    原来会静默跳过自定义标签的写入 —— 提示保存成功、库里其实什么都没写
+    （11-02 用户实测：输入「氛围音乐」，tags 表里查不到）。
     """
+    from core import tag_layers
+
     file_path = path
-    tags = payload.tags if isinstance(payload, schemas.TagsRequest) else payload
+    custom_tags: List[str] = []
+    if isinstance(payload, dict):
+        tags = payload.get("tags") or []
+        raw_custom = payload.get("custom") or []
+        if isinstance(raw_custom, list):
+            custom_tags = [str(t).strip() for t in raw_custom if str(t).strip()]
+    elif isinstance(payload, list):
+        tags = payload
+    else:
+        tags = getattr(payload, "tags", []) or []
 
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
@@ -365,8 +381,38 @@ async def update_file_tags(
 
         if not success:
             raise HTTPException(status_code=404, detail="文件不存在")
-        # 说明：files.tags（6 维标签）和「我的标签」（tags/file_tags）是两套，
-        # 这里不再互相同步——按用户要求分开管理。
+
+        # 我的标签：按路径反查 file_uuid，写 tags + file_tags 两层。
+        custom_written = 0
+        if custom_tags:
+            record = db_manager.get_file(file_path, current_project_id)
+            file_uuid = getattr(record, "file_uuid", None) if record else None
+            if file_uuid:
+                with db_manager.get_cursor() as cursor:
+                    resolved: List[str] = []
+                    for tag_name in custom_tags:
+                        row = cursor.execute(
+                            "SELECT id FROM tags WHERE project_id=? AND name=?",
+                            (current_project_id, tag_name),
+                        ).fetchone()
+                        if row:
+                            resolved.append(str(row[0]))
+                        else:
+                            new_id = uuid.uuid4().hex
+                            cursor.execute(
+                                "INSERT INTO tags (id, project_id, name, layer, created_at) "
+                                "VALUES (?,?,?,?,?)",
+                                (new_id, current_project_id, tag_name, "attr",
+                                 datetime.now().isoformat()),
+                            )
+                            resolved.append(new_id)
+                    try:
+                        tag_layers.set_file_tags(
+                            cursor, current_project_id, str(file_uuid), resolved
+                        )
+                        custom_written = len(resolved)
+                    except Exception as exc:
+                        logger.warning("[标签] 写入我的标签失败: %s", exc)
         try:
             await _get_project_searcher(current_project_id).clear_cache()
         except Exception as exc:
@@ -379,7 +425,12 @@ async def update_file_tags(
             ["text_vector"],
             "reconcile",
         )
-    return {"success": True, "message": "标签已更新", "job_id": job_id}
+    return {
+        "success": True,
+        "message": "标签已更新",
+        "job_id": job_id,
+        "custom_written": custom_written,
+    }
 
 
 @router.get("/api/v1/db/tags")

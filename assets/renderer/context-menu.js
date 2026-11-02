@@ -537,26 +537,32 @@ function showTagModal(sound) {
         const systemTags = all.filter(t => presetSet.has(t));
         const customTags = all.filter(t => !presetSet.has(t));
 
+        // 一次请求搞定两批：后端按路径反查 uuid，自己写 tags/file_tags。
+        // 之前分成两个请求、第二个依赖 sound.fileId，列表里拿不到 uuid 时
+        // 会静默跳过，用户看到「保存成功」但库里什么都没有（11-02 实测）。
         try {
-            await setSoundTags(sound, systemTags, { silent: customTags.length > 0 });
+            const result = await window.electronAPI.backendAPI.updateFileTags(
+                sound.filePath,
+                systemTags,
+                { custom: customTags },
+            );
+            const written = Number(result?.custom_written || 0);
+            sound.tags = systemTags;
+            renderSoundList();
+            renderCategoryTree();
+            if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
+            if (typeof loadTagStats === 'function') await loadTagStats();
+            if (typeof renderTagSidebar === 'function') renderTagSidebar();
+            showNotification(
+                `已保存 ${systemTags.length} 个系统标签`
+                + (customTags.length
+                    ? `，${written} 个进了「我的标签」`
+                    : ''),
+                'success',
+            );
         } catch (err) {
-            showNotification('系统标签保存失败: ' + (err.message || err), 'error');
-            return;
+            showNotification('保存标签失败: ' + (err.message || err), 'error');
         }
-
-        const fileUuid = sound.fileId || sound.file_uuid || '';
-        if (customTags.length && fileUuid && window.rendererApi) {
-            try {
-                await window.rendererApi.post('/api/v1/files/' + encodeURIComponent(fileUuid) + '/tags',
-                    { names: customTags, tag_ids: [] }, { timeoutMs: 60000 });
-                if (typeof loadTagStats === 'function') await loadTagStats();
-                if (typeof renderTagSidebar === 'function') renderTagSidebar();
-            } catch (err) {
-                showNotification('自定义标签保存失败: ' + (err.message || err), 'error');
-                return;
-            }
-        }
-        showNotification(`已保存 ${all.length} 个标签` + (customTags.length ? `（${customTags.length} 个进了「我的标签」）` : ''), 'success');
     });
     actions.appendChild(cancel);
     actions.appendChild(save);

@@ -1239,7 +1239,11 @@ function createBackendRequest(action, data = {}) {
         options: {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: data.tags || [] })
+          body: JSON.stringify({
+            tags: data.tags || [],
+            // 自定义标签（左侧「我的标签」那套）：后端按路径反查 uuid 写 tags/file_tags
+            custom: Array.isArray(data.custom) ? data.custom : []
+          })
         }
       };
     case 'db-tags':

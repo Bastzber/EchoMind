@@ -227,7 +227,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getDbFile: (path) => invokeBackend('db-file', path),
 
         // 更新文件标签
-        updateFileTags: (path, tags) => invokeBackend('db-file-tags', { path, tags }),
+        updateFileTags: (path, tags, options = {}) => invokeBackend('db-file-tags', { path, tags, custom: options.custom || [] }),
 
         // 获取全部标签及计数（标签管理面板）
         getTags: () => invokeBackend('db-tags'),

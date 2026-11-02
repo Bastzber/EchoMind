@@ -205,8 +205,10 @@ function showSoundContextMenu(event, sound) {
     // 找相似：排在最前——右键一条音效，第一反应往往是「还有哪些跟它像」
     menu.appendChild(makeMenuItem('找相似', 'search', () => findSimilarForSound(sound)));
 
-    // 标签操作组
-    menu.appendChild(makeMenuItem('添加/编辑标签', 'tag', () => showTagModal(sound)));
+    // 标签操作组。两套标签必须写清楚，否则用户会以为改的是左侧「我的标签」：
+    //   系统标签 = files.tags（音效自带的 6 维属性：类型/场景/特性…），只在详情里改
+    //   我的标签 = tags/file_tags（自己起的分类，显示在左侧栏）
+    menu.appendChild(makeMenuItem('编辑系统标签…', 'tag', () => showTagModal(sound)));
     menu.appendChild(makeMenuItem('复制标签', 'copy', () => {
         copiedTags = [...(sound.tags || [])];
         showNotification(`已复制 ${copiedTags.length} 个标签`, 'success');
@@ -226,8 +228,8 @@ function showSoundContextMenu(event, sound) {
     sep.style.borderColor = 'var(--border-color)';
     menu.appendChild(sep);
 
-    // 标签：双层设置
-    menu.appendChild(makeMenuItem('设置标签…', 'tags', () => {
+    // 我的标签（左侧栏那套）
+    menu.appendChild(makeMenuItem('设置我的标签…', 'tags', () => {
         const targets = (selectedSounds.size > 0 && selectedSounds.has(sound.id))
             ? [...selectedSounds]
             : [sound];
@@ -441,7 +443,10 @@ function showTagModal(sound) {
 
     const title = document.createElement('div');
     title.className = 'flex items-center justify-between';
-    title.innerHTML = '<div class="text-base font-semibold">标签</div>';
+    title.innerHTML = '<div>'
+        + '<div class="text-base font-semibold">系统标签</div>'
+        + '<div class="text-[11px] opacity-50 mt-0.5">音效自带属性（类型 / 场景 / 特性），不进左侧「我的标签」</div>'
+        + '</div>';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'p-1 rounded hover:bg-white/10';
     closeBtn.textContent = '✕';
@@ -492,7 +497,7 @@ function showTagModal(sound) {
     footer.className = 'flex items-center justify-between mt-1';
     const hint = document.createElement('span');
     hint.className = 'text-[11px] opacity-50';
-    hint.textContent = '预设标签来自词表，建议优先用它们';
+    hint.textContent = '预设来自系统词表；想用自己起的分类，请用右键「设置我的标签」';
     const actions = document.createElement('div');
     actions.className = 'flex gap-2';
     const cancel = document.createElement('button');

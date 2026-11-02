@@ -118,7 +118,11 @@ async function showTagPicker(sounds) {
     box.style.border = '1px solid var(--border-color)';
     box.style.left = Math.round(window.innerWidth / 2 - 190) + 'px';
     box.style.top = '120px';
-    box.innerHTML = `<div class="text-sm mb-2">给 ${sounds.length} 个音效设置标签</div>`;
+    box.innerHTML = `<div class="mb-2">`
+        + `<div class="text-sm font-medium">设置我的标签</div>`
+        + `<div class="text-[11px] opacity-50 mt-0.5">给 ${sounds.length} 个音效挂上左侧栏的分类标签`
+        + `（和音效自带的「系统标签」是两套；系统标签请用右键「编辑系统标签」）</div>`
+        + `</div>`;
 
     const section = (title, tags, multiple) => {
         const head = document.createElement('div');

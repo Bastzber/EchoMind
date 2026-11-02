@@ -454,7 +454,9 @@ class APIContractTests(unittest.IsolatedAsyncioTestCase):
             manager = DatabaseManager(str(Path(directory) / "project.db"))
             with mock.patch.object(main, "get_db_manager", return_value=manager):
                 with self.assertRaises(Exception) as raised:
-                    await main.get_project("missing-project")
+                    from api.routers import projects as projects_router
+
+                    await projects_router.get_project("missing-project")
 
         self.assertEqual(getattr(raised.exception, "status_code", None), 404)
 
@@ -525,7 +527,9 @@ class APIContractTests(unittest.IsolatedAsyncioTestCase):
                 mock.patch.object(main, "get_db_manager", return_value=manager),
                 mock.patch.object(main, "get_ws_manager", return_value=ws_manager),
             ):
-                response = await main.import_project_files(
+                from api.routers import projects as projects_router
+
+                response = await projects_router.import_project_files(
                     "default",
                     schemas.ProjectImportRequest(
                         folder_path=str(folder), client_id="renderer-a"
@@ -724,10 +728,12 @@ class APIContractTests(unittest.IsolatedAsyncioTestCase):
                 mock.patch("core.search_engine.reset_optimized_searcher"),
                 mock.patch("core.ai_chat_service.reset_ai_chat_service"),
             ):
-                response = await main.update_user_folder(
+                from api.routers import projects as projects_router
+
+                response = await projects_router.update_user_folder(
                     "default",
                     "folder_fx",
-                    main.UpdateFolderRequest(name="Renamed", description="New"),
+                    projects_router.UpdateFolderRequest(name="Renamed", description="New"),
                     tasks,
                 )
 

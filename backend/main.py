@@ -3005,9 +3005,6 @@ async def scan_broken_files(project_id: str = Query(default="default")):
 
 
 
-class TagAutoUndoRequest(BaseModel):
-    batch: Optional[str] = None
-
 
 # ==================== P3：中文文本向量（BGE-M3） ====================
 

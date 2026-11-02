@@ -20,6 +20,12 @@ from core.database import is_safe_project_id
 from core.errors import SoundBotAPIError
 from models import schemas
 
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+import config
+
 from api.routers import _deps as _d
 
 logger = logging.getLogger(__name__)

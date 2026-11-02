@@ -20,6 +20,12 @@ from core.errors import SoundBotAPIError
 from core.database import is_safe_project_id
 from models import schemas
 
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+import config
+
 from api.routers import _deps as _d
 
 logger = logging.getLogger(__name__)
@@ -82,3 +88,7 @@ async def cancel_background_job(job_id: str):
     except Exception as exc:
         logger.debug("取消时重启 mel worker 失败: %s", exc)
     return {"job_id": job_id, "state": job["state"], "cancel_requested": True}
+
+
+def get_ws_manager():
+    return _d.call("get_ws_manager")

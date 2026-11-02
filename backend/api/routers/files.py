@@ -16,6 +16,14 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Path as PathParam
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+from core.database import is_safe_project_id, canonicalize_path
+from models import schemas
+import config
+
 from api.routers import _deps as _d
 
 logger = logging.getLogger(__name__)
@@ -357,3 +365,5 @@ async def get_playback_source(file_id: str, project_id: Optional[str] = None):
             retryable=exc.retryable,
             details=exc.details,
         )
+
+from core.errors import SoundBotAPIError

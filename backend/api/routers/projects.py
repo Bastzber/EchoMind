@@ -20,6 +20,13 @@ from core.errors import SoundBotAPIError
 from core.database import is_safe_project_id
 from models import schemas
 
+import config
+
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+
 from api.routers import _deps as _d
 
 logger = logging.getLogger(__name__)
@@ -847,3 +854,15 @@ async def update_folder_mapping(
     except Exception as e:
         logger.error(f"更新文件夹映射失败: {e}")
         raise HTTPException(status_code=500, detail="更新文件夹映射失败，请检查日志")
+
+
+def get_ws_manager():
+    return _d.call("get_ws_manager")
+
+
+def _automatic_index_tasks():
+    return _d.attr("_automatic_index_tasks")
+
+
+def reset_searcher(*a, **k):
+    return _d.call("reset_searcher", *a, **k)

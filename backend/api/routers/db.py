@@ -20,9 +20,25 @@ from core.errors import SoundBotAPIError
 from core.database import is_safe_project_id
 from models import schemas
 
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+import config
+
+from core.database import AudioFileRecord
+
 from api.routers import _deps as _d
 
 logger = logging.getLogger(__name__)
+
+
+def get_ws_manager():
+    return _d.call("get_ws_manager")
+
+
+def _projects_deleting():
+    return _d.attr("_projects_deleting")
 router = APIRouter(tags=["db"])
 
 

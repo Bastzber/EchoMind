@@ -19,6 +19,14 @@ from pydantic import BaseModel, Field
 from core.errors import SoundBotAPIError
 from core import task_flags
 
+import config
+
+import sys
+import uuid
+from datetime import datetime
+from core.database import is_safe_project_id, canonicalize_path
+from models import schemas
+
 from api.routers import _deps as _d
 
 logger = logging.getLogger(__name__)

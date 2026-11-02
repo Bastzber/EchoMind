@@ -15,6 +15,20 @@ router = APIRouter(tags=["descriptions"])
 from typing import Any, Dict, List, Optional  # noqa: E402
 from fastapi import BackgroundTasks, Query  # noqa: E402
 
+import os
+import json
+import time
+import math
+import asyncio
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+from core.database import is_safe_project_id, canonicalize_path
+from models import schemas
+import config
+
 from api.routers import _deps as _d  # noqa: E402
 
 
@@ -403,3 +417,7 @@ async def import_descriptions(
     except Exception as exc:
         logger.error("导入描述包失败: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+def _projects_deleting():
+    return _d.attr("_projects_deleting")

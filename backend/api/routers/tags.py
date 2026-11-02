@@ -14,7 +14,28 @@ router = APIRouter(tags=["tags"])
 from typing import Any, Dict, List, Optional  # noqa: E402
 from fastapi import BackgroundTasks, Query  # noqa: E402
 
+import os
+import json
+import time
+import math
+import asyncio
+import tempfile
+import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+from core.database import is_safe_project_id, canonicalize_path
+from pydantic import BaseModel, Field
+from models import schemas
+import config
+
 from api.routers import _deps as _d  # noqa: E402
+
+
+class TagAutoUndoRequest(BaseModel):
+    """撤销自动补全标签：batch 为空则回滚最近一批。"""
+
+    batch: Optional[str] = None
 
 
 # ---- 主模块里还没搬过来的东西：运行时取，避免循环 import ----

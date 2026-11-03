@@ -1242,7 +1242,9 @@ function createBackendRequest(action, data = {}) {
           body: JSON.stringify({
             tags: data.tags || [],
             // 自定义标签（左侧「我的标签」那套）：后端按路径反查 uuid 写 tags/file_tags
-            custom: Array.isArray(data.custom) ? data.custom : []
+            custom: Array.isArray(data.custom) ? data.custom : [],
+            // scene（场景，互斥）/ attr（属性，可多选）。默认 attr。
+            custom_layer: data.customLayer === 'scene' ? 'scene' : 'attr'
           })
         }
       };

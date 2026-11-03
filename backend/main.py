@@ -4662,6 +4662,10 @@ async def _repair_index_task_locked(
 
 # ==================== 文件列表 ====================
 
+# 标签筛选结果缓存：(project, tag, limit) -> (时间戳, payload)。
+# 系统标签的 JSON 展开要 2 秒，同一标签反复点没必要重扫。
+_TAG_QUERY_CACHE: Dict[Any, Any] = {}
+
 @app.get("/api/v1/files")
 async def get_indexed_files(
     project_id: Optional[str] = None,
@@ -4680,7 +4684,15 @@ async def get_indexed_files(
         if not is_safe_project_id(effective_project) or not db_manager.get_project(effective_project):
             raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
         if tag:
-            # 标签筛选：走 file_tags 连接，分页简单起见一次返回上限
+            # 标签筛选：先走 file_tags（左侧「我的标签」那套）。
+            # 系统标签只存在 files.tags 里，JSON 展开一次 2 秒；按 tag 缓存 60 秒，
+            # 同一标签第二次点就是 0ms。
+            cache_key = (effective_project, tag, limit)
+            cached = _TAG_QUERY_CACHE.get(cache_key)
+            if cached and time.monotonic() - cached[0] < 60.0:
+                return cached[1]
+            # 查不到再落到 files.tags 的 JSON 里 —— 系统标签（环境/紧张/循环）
+            # 只存在 files.tags，不在 tags 表，原来只查 file_tags 会返回空列表。
             with db_manager.get_cursor() as tag_cursor:
                 rows = tag_cursor.execute(
                     """
@@ -4695,6 +4707,21 @@ async def get_indexed_files(
                     """,
                     (effective_project, tag, limit),
                 ).fetchall()
+                if not rows:
+                    # json_each 比 LIKE '%"tag"%' 准（不会把 环境声 当成 环境）
+                    rows = tag_cursor.execute(
+                        """
+                        SELECT f.file_uuid, f.path, f.filename, f.duration, f.file_size,
+                               f.sample_rate, f.channels, f.channels, f.tags, f.ai_description
+                        FROM files f, json_each(f.tags) j
+                        WHERE f.project_id=?
+                          AND json_valid(f.tags)
+                          AND trim(CAST(j.value AS TEXT)) = ?
+                        ORDER BY f.filename
+                        LIMIT ?
+                        """,
+                        (effective_project, tag, limit),
+                    ).fetchall()
             files = [
                 {
                     "id": r[0],
@@ -4709,7 +4736,12 @@ async def get_indexed_files(
                 }
                 for r in rows
             ]
-            return {"project_id": effective_project, "total": len(files), "files": files, "next_cursor": None}
+            payload = {"project_id": effective_project, "total": len(files), "files": files, "next_cursor": None}
+            _TAG_QUERY_CACHE[cache_key] = (time.monotonic(), payload)
+            if len(_TAG_QUERY_CACHE) > 64:
+                oldest = min(_TAG_QUERY_CACHE.items(), key=lambda kv: kv[1][0])[0]
+                _TAG_QUERY_CACHE.pop(oldest, None)
+            return payload
 
         files, next_cursor = db_manager.get_files_cursor_page(
             effective_project, limit=limit, before_id=cursor, folder=folder

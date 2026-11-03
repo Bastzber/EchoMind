@@ -370,11 +370,18 @@ async def update_file_tags(
 
     file_path = path
     custom_tags: List[str] = []
+    # 新标签归到哪一层：scene（场景，互斥）/ attr（属性，可多选）。
+    # 只影响本次新建的标签，已有标签不动。以前写死 attr，
+    # 左侧「场景」分组永远不会有新标签（11-03 用户反馈）。
+    custom_layer = "attr"
     if isinstance(payload, dict):
         tags = payload.get("tags") or []
         raw_custom = payload.get("custom") or []
         if isinstance(raw_custom, list):
             custom_tags = [str(t).strip() for t in raw_custom if str(t).strip()]
+        requested = str(payload.get("custom_layer") or "").strip().lower()
+        if requested in tag_layers.VALID_LAYERS:
+            custom_layer = requested
     elif isinstance(payload, list):
         tags = payload
     else:
@@ -407,10 +414,16 @@ async def update_file_tags(
                             resolved.append(str(row[0]))
                         else:
                             new_id = uuid.uuid4().hex
+                            # 新标签归哪一层由前端指定。以前写死 attr，导致左侧「场景」
+                            # 分组永远不会有新标签 —— 用户以为是不刷新，其实压根没进去
+                            # （11-03 反馈）。已有标签保持原层，不覆盖。
+                            new_layer = tag_layers.LAYER_ATTR
+                            if str(custom_layer or "").lower() in tag_layers.VALID_LAYERS:
+                                new_layer = str(custom_layer).lower()
                             cursor.execute(
                                 "INSERT INTO tags (id, project_id, name, layer, created_at) "
                                 "VALUES (?,?,?,?,?)",
-                                (new_id, current_project_id, tag_name, "attr",
+                                (new_id, current_project_id, tag_name, new_layer,
                                  datetime.now().isoformat()),
                             )
                             resolved.append(new_id)
@@ -421,6 +434,8 @@ async def update_file_tags(
                         custom_written = len(resolved)
                     except Exception as exc:
                         logger.warning("[标签] 写入我的标签失败: %s", exc)
+        # 标签统计缓存作废，否则左侧树的计数要等 60 秒才更新
+        db_manager.invalidate_all_tags()
         try:
             asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:

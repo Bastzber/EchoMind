@@ -507,11 +507,29 @@ function showTagModal(sound) {
     input.placeholder = '还可以自己输入，用逗号分隔多个';
     panel.appendChild(input);
 
+    // 自己输入的标签进左侧哪一组：以前固定 attr，左侧「场景」分组永远没有新标签
+    const layerRow = document.createElement('div');
+    layerRow.className = 'flex items-center gap-2 mt-1';
+    const layerLabel = document.createElement('span');
+    layerLabel.className = 'text-[11px] opacity-50 whitespace-nowrap';
+    layerLabel.textContent = '新标签归到';
+    const layerSelect = document.createElement('select');
+    layerSelect.id = 'tagLayerSelect';
+    layerSelect.className = 'px-2 py-0.5 rounded text-[11px]';
+    layerSelect.style.cssText = 'background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)';
+    layerSelect.innerHTML = [
+        '<option value="attr">属性（可多选，如 空灵 / 温暖）</option>',
+        '<option value="scene">场景（互斥，如 片头 / 追逐）</option>',
+    ].join('');
+    layerRow.appendChild(layerLabel);
+    layerRow.appendChild(layerSelect);
+    panel.appendChild(layerRow);
+
     const footer = document.createElement('div');
     footer.className = 'flex items-center justify-between mt-1';
     const hint = document.createElement('span');
     hint.className = 'text-[11px] opacity-50';
-    hint.textContent = '预设词来自系统词表；自己输入的会自动归到左侧「我的标签」';
+    hint.textContent = '预设词来自系统词表；自己输入的会进左侧「我的标签」';
     const actions = document.createElement('div');
     actions.className = 'flex gap-2';
     const cancel = document.createElement('button');
@@ -536,6 +554,7 @@ function showTagModal(sound) {
         const presetSet = new Set(Object.values(TAG_PRESETS || {}).flat());
         const systemTags = all.filter(t => presetSet.has(t));
         const customTags = all.filter(t => !presetSet.has(t));
+        const customLayer = layerSelect.value === 'scene' ? 'scene' : 'attr';
 
         // 一次请求搞定两批：后端按路径反查 uuid，自己写 tags/file_tags。
         // 之前分成两个请求、第二个依赖 sound.fileId，列表里拿不到 uuid 时
@@ -544,7 +563,7 @@ function showTagModal(sound) {
             const result = await window.electronAPI.backendAPI.updateFileTags(
                 sound.filePath,
                 systemTags,
-                { custom: customTags },
+                { custom: customTags, customLayer },
             );
             const written = Number(result?.custom_written || 0);
             sound.tags = systemTags;

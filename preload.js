@@ -227,7 +227,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getDbFile: (path) => invokeBackend('db-file', path),
 
         // 更新文件标签
-        updateFileTags: (path, tags, options = {}) => invokeBackend('db-file-tags', { path, tags, custom: options.custom || [] }),
+        updateFileTags: (path, tags, options = {}) => invokeBackend('db-file-tags', {
+            path, tags,
+            custom: options.custom || [],
+            // 新标签归到 scene（场景）/ attr（属性），以前固定 attr，场景组永远是空的
+            customLayer: options.customLayer || 'attr',
+        }),
 
         // 获取全部标签及计数（标签管理面板）
         getTags: () => invokeBackend('db-tags'),

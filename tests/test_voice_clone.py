@@ -52,8 +52,15 @@ class VoiceCloneTests(unittest.TestCase):
         self.assertFalse(result["ok"])
 
     def test_missing_key_is_explicit(self) -> None:
+        # engine_name() 现在按实际可用性返回，Breeze 在跑时会返回 breeze。
+        # 这个用例测的是「豆包通道没配 Key」的提示，所以要显式钉成 volc。
+        original_engine = self.module.engine_name
+        self.module.engine_name = lambda: "volc"
         self.module._api_key = lambda: ""
-        result = self.module.clone_voice(str(self.sample), "没钥匙", duration=15.0)
+        try:
+            result = self.module.clone_voice(str(self.sample), "没钥匙", duration=15.0)
+        finally:
+            self.module.engine_name = original_engine
         self.assertFalse(result["ok"])
         self.assertIn("API Key", result["error"])
 

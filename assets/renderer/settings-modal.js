@@ -9,6 +9,7 @@ function openSettingsModal() {
     // loadWindowPrefs 定义在「设置」初始化作用域里，这里通过全局钩子调用，
     // 直接引用该标识符会抛 ReferenceError（它在别的作用域里）
     try { window.__loadWindowPrefs?.(); } catch (error) { console.warn('[Settings] 读取窗口设置失败:', error); }
+    try { initDataAdminPanel(); refreshDataUsage(); } catch (error) { console.warn('[Settings] 本地数据面板初始化失败:', error); }
 }
 
 function closeSettingsModal() {
@@ -503,3 +504,76 @@ async function saveAiConfig() {
     }
 }
 
+
+// ===== 本地数据管理（设置 → 关于与更新 → 本地数据）=====
+// 卸载只删安装目录，%APPDATA%\EchoMind 会留着；用户以为「没卸干净」（11-03 报告）。
+// 这里给一个显式入口：看占用 + 清理，不用去翻文件夹。
+async function refreshDataUsage() {
+    const listEl = document.getElementById('dataUsageList');
+    const rootEl = document.getElementById('dataRootPath');
+    if (!listEl) return;
+    listEl.textContent = '读取中…';
+    try {
+        const data = await rendererApi.get('/api/v1/data/usage');
+        if (rootEl && data.root) rootEl.textContent = data.root;
+        const fmt = (bytes) => {
+            const n = Number(bytes || 0);
+            if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + ' GB';
+            if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + ' MB';
+            return Math.round(n / 1024) + ' KB';
+        };
+        listEl.innerHTML = '';
+        (data.items || []).forEach((item) => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between';
+            row.innerHTML = `<span>${item.label}</span><span class="font-mono opacity-80">${item.exists ? fmt(item.bytes) : '—'}</span>`;
+            listEl.appendChild(row);
+        });
+        const total = document.createElement('div');
+        total.className = 'flex items-center justify-between pt-1 mt-1 border-t';
+        total.style.borderColor = 'var(--border-color)';
+        total.innerHTML = `<span class="font-medium">合计</span><span class="font-mono">${fmt(data.total_bytes)}</span>`;
+        listEl.appendChild(total);
+    } catch (error) {
+        listEl.textContent = '读取失败：' + (error.message || error);
+    }
+}
+
+async function clearLocalData(scopes, confirmWord) {
+    try {
+        const res = await rendererApi.post('/api/v1/data/reset', { scopes, confirm: confirmWord });
+        return res;
+    } catch (error) {
+        showNotification('清除失败: ' + (error.message || error), 'error');
+        return null;
+    }
+}
+
+function initDataAdminPanel() {
+    const refreshBtn = document.getElementById('dataRefreshBtn');
+    const cacheBtn = document.getElementById('dataClearCacheBtn');
+    const resetBtn = document.getElementById('dataResetBtn');
+    if (refreshBtn) refreshBtn.addEventListener('click', refreshDataUsage);
+    if (cacheBtn) {
+        cacheBtn.addEventListener('click', async () => {
+            if (!confirm('清理缓存（TTS 缓存、面板音频缓存等）？不影响工程和索引。')) return;
+            const res = await clearLocalData(['cache'], 'DELETE');
+            if (res) { showNotification('缓存已清理 ' + res.removed.length + ' 个目录', 'success'); refreshDataUsage(); }
+        });
+    }
+    if (resetBtn) {
+        resetBtn.addEventListener('click', async () => {
+            const typed = prompt(
+                '这会删除所有工程、标签、描述、克隆音色和索引，且不可恢复。\n'
+                + '（磁盘上的音效文件不受影响）\n\n'
+                + '确认请输出 DELETE：',
+            );
+            if (!typed) return;
+            const res = await clearLocalData(['db', 'chroma', 'voice', 'cache'], typed.trim());
+            if (res) {
+                showNotification(res.message || '已清除，请重启应用', res.success ? 'success' : 'error');
+                refreshDataUsage();
+            }
+        });
+    }
+}

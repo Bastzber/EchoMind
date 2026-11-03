@@ -64,7 +64,8 @@ async def search_audio(request: schemas.SearchRequest):
     _t_handler_start = time.time()
     try:
         project_id = request.project_id
-        if not is_safe_project_id(project_id) or not get_db_manager().get_project(project_id):
+        db_manager = get_db_manager()
+        if not is_safe_project_id(project_id) or not db_manager.get_project(project_id):
             raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
         searcher = _get_project_searcher(project_id)
 

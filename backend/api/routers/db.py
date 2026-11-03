@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, Field
 
 from core.errors import SoundBotAPIError
-from core.database import is_safe_project_id
+from core.database import canonicalize_path, is_safe_project_id
 from models import schemas
 
 import tempfile

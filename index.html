@@ -6240,6 +6240,21 @@
                         </div>
                     </div>
                     <p class="text-xs opacity-50 mt-4">更新信息放 Gitee，安装包走百度网盘；用户不需要 GitHub，也不需要代理。</p>
+
+                    <div class="mt-6 pt-6 border-t" style="border-color: var(--border-color);">
+                        <h4 class="text-sm font-medium mb-1">本地数据</h4>
+                        <p class="text-xs opacity-60 mb-3">
+                            卸载程序只删安装目录，数据在 <code id="dataRootPath" class="font-mono text-[11px]">%APPDATA%\EchoMind</code>。
+                            要做干净重装，在这里清。
+                        </p>
+                        <div id="dataUsageList" class="text-xs space-y-1 mb-3 opacity-70">读取中…</div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button id="dataRefreshBtn" class="px-2.5 py-1 rounded text-xs border" style="border-color: var(--border-color);">刷新占用</button>
+                            <button id="dataClearCacheBtn" class="px-2.5 py-1 rounded text-xs border" style="border-color: var(--border-color);">清理缓存</button>
+                            <button id="dataResetBtn" class="px-2.5 py-1 rounded text-xs text-white" style="background-color: #dc2626;">清除全部数据…</button>
+                        </div>
+                        <p id="dataResetHint" class="text-[11px] opacity-50 mt-2">清除工程库时会连向量库一起清，否则索引会不一致。清除后需要重启。</p>
+                    </div>
                 </div>
             </div>
             

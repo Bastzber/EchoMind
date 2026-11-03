@@ -9,7 +9,7 @@
 
 - **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 
-## [0.3.0-beta.14] - 2026-11-03
+## [0.3.0-beta.15] - 2026-11-03
 
 > 测试版 V14。可用性清账：导入 6.5 万条压到 1 分钟内、保存标签 10 秒 → 0.5 秒、 / 
 > 两套标签合成一个入口、后端主文件拆成 21 个模块（10,147 → 5,330 行）。 / Beta 14 is a usability pass: importing 65k files down to under a minute, saving tags from 10s to 0.5s, unified tag entry, and the backend main file split into 21 modules.
@@ -31,6 +31,8 @@
 
 ### Fixed / 修复
 
+- 重新读取目录报 canonicalize_path 未定义 / Library rescan failed with canonicalize_path undefined
+- 设置里新增本地数据面板：查看占用、清理缓存、清除全部数据 / Settings gained a Local Data panel: usage, cache clear, full reset
 - 一句话描述保存失败：`canonical_path` 未命中时按 `file_uuid` 兜底写入 / One-line description save failure: falls back to `file_uuid` when `canonical_path` misses
 - 系统标签与右键加标签保存失败：`_projects_deleting` 漏了调用括号 / Tag save failure: a missing call parenthesis on `_projects_deleting`
 - 重新读取目录扫到父目录：`list_library_roots` 改为按盘符求公共前缀 / Library rescan no longer walks the parent folder: roots are computed per drive via common prefix

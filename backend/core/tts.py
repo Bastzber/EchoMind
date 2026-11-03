@@ -200,6 +200,22 @@ def register_saved_voice(profile: Dict[str, Any], name: str, timeout: float = 12
     ref_text = str(profile.get('ref_text') or '').strip()
     if not sample or not ref_text or not Path(sample).is_file():
         return None
+    # Breeze 的 voice id 会直接变成 voices/<name>.breeze 文件名，只接受
+    # 字母/数字/短横线/下划线（实测中文名直接 400：name can only use letters, digits,
+    # dash and underscore）。之前只在这里传 name 不做处理，中文音色名注册就失败。
+    # 注意 isalnum() 对中文返回 True，必须加 isascii()。
+    id_source = str(name or '') or str(profile.get('id') or '')
+    safe_name = ''.join(
+        ch for ch in id_source if ch.isascii() and (ch.isalnum() or ch in '-_')
+    )[:64]
+    # 中文名会被过滤光（或只剩 "AI" 这种两字母前缀），太短容易撞名，
+    # 统一补成 echomind-<profile id>，和助理音色走同一套命名。
+    if len(safe_name) < 4:
+        ident = ''.join(
+            ch for ch in str(profile.get('id') or uuid.uuid4().hex) if ch.isascii() and ch.isalnum()
+        )[:12]
+        safe_name = 'echomind-' + (ident or uuid.uuid4().hex[:12])
+    name = safe_name
     try:
         payload = Path(sample).read_bytes()
     except Exception as exc:
@@ -269,7 +285,10 @@ def assistant_voice_id() -> Optional[str]:
     if not profile:
         return None
 
-    safe = ''.join(ch for ch in str(profile.get('id') or 'default') if ch.isalnum() or ch in '-_')[:24]
+    safe = ''.join(
+        ch for ch in str(profile.get('id') or 'default')
+        if ch.isascii() and (ch.isalnum() or ch in '-_')
+    )[:24]
     name = 'echomind-' + (safe or 'default')
     if name in saved:
         _breeze_voice_cache[target] = name

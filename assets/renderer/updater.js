@@ -145,7 +145,8 @@ async function installLocalUpdate() {
     const summary = '更新完成：替换 ' + (result.replaced || 0) + ' 个文件'
         + (result.removed ? '，清理 ' + result.removed + ' 个旧文件' : '')
         + (result.needsRestart ? '，' + (result.pendingCount || 0) + ' 个文件需要退出后替换' : '');
-    showNotification(summary, 'success');
+    // 还有文件要等退出才换的话，别用绿色的「成功」——用户会以为已经生效
+    showNotification(summary, result.needsRestart ? 'info' : 'success');
     if (confirm(summary + '\n\n需要重启才能生效，现在重启吗？\n（重启时会自动完成剩余文件的替换）')) {
         await api.restart();
     }

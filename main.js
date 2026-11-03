@@ -2199,6 +2199,14 @@ ipcMain.handle('dialog-save', async (event, options) => {
   ipcMain.handle('updater-apply', async (event, zipPath) => {
     const installRoot = path.dirname(app.getPath('exe'));
     let backupRoot = UPDATER_BACKUP_ROOT();
+    // 先干掉后端进程。soundbot-backend.exe 常驻，是最常见的占用源；
+    // 不杀就会走「留 .updating 等下次启动」那条路，用户看到「更新成功」
+    // 却还是旧版本（M14：公司电脑连装三次都没落地）。
+    try {
+      const { execSync } = require('child_process');
+      execSync('taskkill /F /IM soundbot-backend.exe /T', { stdio: 'ignore', windowsHide: true });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    } catch (_) { /* 本来就没在跑 */ }
     try {
       const result = await updaterApply.apply(zipPath, installRoot, backupRoot);
       if (result && result.needsRestart) {

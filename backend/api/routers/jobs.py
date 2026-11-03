@@ -54,11 +54,26 @@ async def list_background_jobs(
     return {"jobs": jobs, "count": len(jobs)}
 
 
+@router.get("/api/v1/jobs/queue")
+async def heavy_task_queue():
+    """重任务队列快照：谁在跑、谁在排队、等了多久。"""
+    from core import heavy_task
+
+    return {"success": True, **heavy_task.queue_status()}
+
+
 @router.get("/api/v1/jobs")
 async def list_background_jobs(state: Optional[str] = None, limit: int = 50):
     """所有后台任务列表（B16：以前只有单个任务查询，UI 看不到「正在跑什么」）。"""
     jobs = get_db_manager().list_jobs(state=state, limit=limit)
-    return {"success": True, "count": len(jobs), "jobs": jobs}
+    from core import heavy_task
+
+    return {
+        "success": True,
+        "count": len(jobs),
+        "jobs": jobs,
+        "queue": heavy_task.queue_status(),
+    }
 
 
 @router.get("/api/v1/jobs/{job_id}")

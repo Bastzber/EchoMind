@@ -111,7 +111,12 @@ async def _knowledge_import_task(job_id: str, project_id: str, zip_path: Path) -
     db_manager = get_db_manager()
     from core import heavy_task as _heavy
 
-    _heavy.enter("knowledge_pack")
+    # 排队等轮到自己（导入在跑时这里会等着，前端能看到队位）
+    try:
+        await asyncio.to_thread(_heavy.wait_turn, "knowledge_pack", 3600.0)
+    except Exception as exc:
+        db_manager.update_job(job_id, state="failed", error=str(exc)[:200])
+        return
     db_manager.update_job(job_id, state="running", stage="unpacking")
 
     def progress(stage: str, done: int, total: int) -> None:

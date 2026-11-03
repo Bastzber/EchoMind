@@ -28,7 +28,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 import httpx
 
@@ -910,105 +910,9 @@ class CLIPEmbedder:
                 result[path] = None
         return result
 
-        # 合并逐文件 inputs 为批量张量，一次批量 forward
-        sample_key = next(iter(inputs_by_path))
-        inputs: Dict[str, Any] = {}
-        for key, value in inputs_by_path[sample_key].items():
-            tensors = []
-            for p in inputs_by_path:
-                t = inputs_by_path[p][key]
-                if isinstance(t, np.ndarray):
-                    t = torch.from_numpy(np.ascontiguousarray(t))
-                tensors.append(t)
-            if all(isinstance(t, torch.Tensor) for t in tensors):
-                inputs[key] = torch.cat(tensors, dim=0).to(self.device)
-            else:
-                inputs[key] = value
-
-        # Sanitize NaN/Inf features: feeding them into the CUDA kernel raises
-        # "device-side assert triggered" and permanently poisons the GPU context.
-        # Beyond replacing values, drop whole windows whose mel rows are
-        # NaN/Inf/all-zero/all-constant (the model's layer-norm divides by zero
-        # on constant rows and asserts on device).
-        for key, value in inputs.items():
-            if isinstance(value, torch.Tensor) and value.dtype.is_floating_point:
-                inputs[key] = torch.nan_to_num(
-                    value, nan=0.0, posinf=0.0, neginf=0.0
-                )
-        feats = inputs.get("input_features")
-        if feats is not None and isinstance(feats, torch.Tensor) and feats.dim() >= 2:
-            # 进一步截断 mel 特征到合理范围（log-mel 正常约 0~20），
-            # 防止个别文件因极端增益产生超范围有限值在模型内部溢出。
-            feats = feats.clamp(-30.0, 30.0)
-            inputs["input_features"] = feats
-            flat = feats.reshape(feats.size(0), -1).float()
-            row_bad = (
-                torch.isnan(flat).any(dim=1)
-                | torch.isinf(flat).any(dim=1)
-                | (flat.std(dim=1) == 0)
-            )
-            if bool(row_bad.any()):
-                keep = ~row_bad
-                for key, value in list(inputs.items()):
-                    if (
-                        isinstance(value, torch.Tensor)
-                        and value.size(0) == feats.size(0)
-                    ):
-                        inputs[key] = value[keep]
-                flat_index = [
-                    flat_index[i] for i, k in enumerate(keep.tolist()) if k
-                ]
-                if len(flat_index) == 0:
-                    return {p: None for p in paths}
-
-        # 分块 GPU forward：单次 forward 窗口数过多时，长时间连续大负载
-        # 会触发偶发性 CUDA 挂起（批量规模相关，无法靠单文件定位）。
-        # 每块 32 窗口 forward 一次（128 窗口实测在 5 万级全量重建落库时
-        # 仍会偶发长时间停滞），块间清空显存缓存，降低挂起概率。
-        CHUNK = 32
-        vectors: Optional[np.ndarray] = None
-        with self._inference_lock:
-            with torch.inference_mode():
-                n_windows = len(flat_index)
-                chunk_vecs: List[np.ndarray] = []
-                for start in range(0, n_windows, CHUNK):
-                    end = min(start + CHUNK, n_windows)
-                    sub_inputs = {
-                        key: (
-                            value[start:end]
-                            if isinstance(value, torch.Tensor)
-                            and value.size(0) == n_windows
-                            else value
-                        )
-                        for key, value in inputs.items()
-                    }
-                    outputs = self.model.get_audio_features(**sub_inputs)
-                    tensor = (
-                        outputs.pooler_output
-                        if hasattr(outputs, "pooler_output")
-                        else outputs
-                    )
-                    chunk_vecs.append(tensor.detach().cpu().numpy())
-                    if start + CHUNK < n_windows:
-                        torch.cuda.empty_cache()
-                if chunk_vecs:
-                    vectors = np.concatenate(chunk_vecs, axis=0)
-
-        accum: Dict[str, List[np.ndarray]] = {p: [] for p in paths}
-        for (path, _win_index), vector in zip(flat_index, vectors):
-            accum[path].append(vector)
-
-        result: Dict[str, Optional[np.ndarray]] = {}
-        for path, vectors_for_file in accum.items():
-            if not vectors_for_file:
-                result[path] = None
-                continue
-            try:
-                pooled = np.stack(vectors_for_file).mean(axis=0)
-                result[path] = normalize_embedding(pooled)
-            except Exception:
-                result[path] = None
-        return result
+        # 这里原来还有一段「逐文件 inputs 合并成批量张量」的旧实现，
+        # mel 子进程化之后就不再有 inputs_by_path 这个变量，941 行已经 return，
+        # 整段不可达（11-03 pyflakes 扫出 4 处 undefined name）。已删除。
 
 
 @runtime_checkable

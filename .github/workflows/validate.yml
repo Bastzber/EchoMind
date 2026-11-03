@@ -48,6 +48,28 @@ jobs:
       - name: Verify repository hygiene
         run: python tests/build/verify_repository_hygiene.py
 
+      - name: Check undefined names (pyflakes F821)
+        shell: bash
+        run: |
+          python -m pip install --quiet pyflakes==3.2.0
+          set +e
+          python -m pyflakes backend scripts tests > pyflakes.log 2>&1
+          status=$?
+          set -e
+          # 只卡 undefined name（F821）。unused import 之类的先只打印不拦，
+          # 否则老代码里的噪音会淹没真正的问题。
+          unresolved=$(grep -c 'undefined name' pyflakes.log || true)
+          if [ "${unresolved:-0}" -gt 0 ]; then
+            grep 'undefined name' pyflakes.log | head -n 20 | while IFS= read -r line; do
+              echo "::error title=undefined name::${line:0:300}"
+            done
+            echo "pyflakes 发现 ${unresolved} 处 undefined name（拆模块最容易漏这类 import 与赋值）"
+            exit 1
+          fi
+          echo "pyflakes: 0 undefined name"
+          # 其余告警只做统计，不阻塞
+          echo "pyflakes 其它告警: $(grep -c . pyflakes.log || true) 行（不阻塞）"
+
       - name: Run Python contracts
         shell: bash
         run: |
@@ -65,6 +87,9 @@ jobs:
             done
           fi
           exit "$status"
+
+      - name: Check code size budgets
+        run: python scripts/check_code_size.py
 
       - name: Run Electron and renderer contracts
         run: |

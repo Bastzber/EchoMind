@@ -650,6 +650,7 @@ app = FastAPI(
 # 按域拆分的路由放在 backend/api/routers/（AGENTS.md：新接口别继续堆这个文件）。
 # 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
 from api.routers import ai as _ai_router  # noqa: E402
+from api.routers import data_admin as _data_admin_router  # noqa: E402
 from api.routers import db as _db_router  # noqa: E402
 from api.routers import knowledge as _knowledge_router  # noqa: E402
 from api.routers import projects as _projects_router  # noqa: E402
@@ -670,6 +671,7 @@ from api.routers import nl_search as _nl_search_router  # noqa: E402
 from api.routers import similar as _similar_router  # noqa: E402
 
 app.include_router(_similar_router.router)
+app.include_router(_data_admin_router.router)
 app.include_router(_nl_search_router.router)
 app.include_router(_media_router.router)
 app.include_router(_favorites_router.router)
@@ -2134,7 +2136,7 @@ async def _scan_and_import_task_locked(
                     logger.info(
                         "[IMPORT] 向量索引已暂停（%d 个文件待处理）：先导描述包，"
                         "再分别修复音频/文本向量",
-                        len(file_paths),
+                        total,
                     )
                 _schedule_waveform_after_import(project_id)
             except Exception as exc:

@@ -18,6 +18,8 @@ import wave
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import config
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_BREEZE_URL = os.environ.get('ECHOMIND_BREEZE_URL', 'http://127.0.0.1:8080')

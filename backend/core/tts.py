@@ -29,6 +29,13 @@ SAMPLE_RATE = 24000
 # 基频从 ~190Hz 抬到 ~240Hz（少女声）。改这里或者设 ECHOMIND_VOICE_STYLE 即可。
 DEFAULT_VOICE_STYLE = '一个十六七岁的少女，声音清亮甜美，语速自然'
 
+# Breeze 内置长文本切分（--split-chars），默认 600 字约等于 120 秒一整段。
+# 但模型在生成 45 秒左右之后开始「记不住原文」——用户 11-03 反馈：超过 45 秒
+# 念出来的内容和稿子对不上。Breeze 文档也写着 the model loses track of the text
+# well before it runs out of frames。所以把每段压到 150 字（约 30 秒），
+# 服务端会按句号切分、逐段生成，并且每段都以第一段为条件，音色不会中途变。
+SPLIT_CHARS = int(os.environ.get('ECHOMIND_TTS_SPLIT_CHARS', '150'))
+
 
 def prune_cache(max_files: int = 300, max_bytes: int = 120 * 1024 * 1024) -> int:
     """清理合成的 wav 缓存，按修改时间保留最新的。
@@ -328,6 +335,7 @@ def breeze_request_parts(
         fields['instruction'] = instruction
     if cfg_scale:
         fields['cfg_scale'] = str(cfg_scale)
+    fields['split_chars'] = str(SPLIT_CHARS)
     body, headers = _multipart(fields, files)
     return breeze_url() + '/v1/audio/speech', body, headers
 
@@ -363,6 +371,7 @@ def breeze_speak(
         fields['instruction'] = instruction
     if cfg_scale:
         fields['cfg_scale'] = str(cfg_scale)
+    fields['split_chars'] = str(SPLIT_CHARS)
     body, headers = _multipart(fields, files)
     request = urllib.request.Request(
         breeze_url() + '/v1/audio/speech', data=body, headers=headers, method='POST'

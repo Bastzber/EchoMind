@@ -651,6 +651,7 @@ app = FastAPI(
 # 静态 import，PyInstaller 打包时能正确收集 backend/api 包。
 from api.routers import ai as _ai_router  # noqa: E402
 from api.routers import data_admin as _data_admin_router  # noqa: E402
+from api.routers import tts_stream as _tts_stream_router  # noqa: E402
 from api.routers import db as _db_router  # noqa: E402
 from api.routers import knowledge as _knowledge_router  # noqa: E402
 from api.routers import projects as _projects_router  # noqa: E402
@@ -672,6 +673,7 @@ from api.routers import similar as _similar_router  # noqa: E402
 
 app.include_router(_similar_router.router)
 app.include_router(_data_admin_router.router)
+app.include_router(_tts_stream_router.router)
 app.include_router(_nl_search_router.router)
 app.include_router(_media_router.router)
 app.include_router(_favorites_router.router)

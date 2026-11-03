@@ -1,0 +1,306 @@
+/* tts-long.js —— 长文本转语音
+ * 为什么单独一个面板：一次十分钟的稿子要跑六分钟，
+ * 没有进度条用户会以为卡死，所以做成「起任务 → 轮询进度」。
+ */
+
+const ttsLongState = {
+    jobId: null,
+    timer: null,
+    outDir: '',
+    filename: '',
+};
+
+function _fmtSeconds(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function _fmtBytes(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + ' GB';
+    if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + ' MB';
+    return Math.round(n / 1024) + ' KB';
+}
+
+async function showLongTtsModal() {
+    document.getElementById('longTtsOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'longTtsOverlay';
+    overlay.className = 'fixed inset-0 flex items-center justify-center';
+    overlay.style.cssText = 'z-index:330;background:rgba(0,0,0,0.6)';
+    overlay.innerHTML = `
+        <div class="rounded-xl shadow-2xl w-[640px] max-h-[88vh] overflow-y-auto p-5 flex flex-col gap-3"
+             style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+            <div class="flex items-center gap-2">
+                <span class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:rgba(142,167,255,0.15)">
+                    <i data-lucide="file-audio" class="w-4 h-4" style="color:#8ea7ff"></i>
+                </span>
+                <div class="flex flex-col leading-tight">
+                    <span class="text-sm font-semibold">长文本转语音</span>
+                    <span class="text-[11px] opacity-50">粘贴整章文字，按 150 字分段生成，边生成边落盘</span>
+                </div>
+                <button id="longTtsClose" class="ml-auto text-xs opacity-50 hover:opacity-100">关闭</button>
+            </div>
+
+            <div class="rounded-lg p-3" style="border:1px solid var(--border-color)">
+                <div class="text-xs font-medium mb-2">① 文本</div>
+                <textarea id="longTtsText" rows="7" placeholder="粘贴要念的整段文字…"
+                    class="w-full px-2 py-1.5 rounded text-xs resize-y"
+                    style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary);"></textarea>
+                <div class="flex items-center gap-2 mt-1.5">
+                    <span id="longTtsCount" class="text-[11px] opacity-50">0 字 · 预计 00:00</span>
+                    <span class="text-[11px] opacity-35">中文约 5.3 字/秒</span>
+                    <button id="longTtsSplitOversize" class="ml-auto px-2 py-0.5 rounded text-[11px] border"
+                        style="border-color: var(--border-color);">按 150 字预览分段</button>
+                </div>
+            </div>
+
+            <div class="rounded-lg p-3" style="border:1px solid var(--border-color)">
+                <div class="text-xs font-medium mb-2">② 音色</div>
+                <div class="flex items-center gap-2 mb-2">
+                    <select id="longTtsVoice" class="flex-1 px-2 py-1 rounded text-xs"
+                        style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary);">
+                        <option value="">声音设计（不克隆，按下面的描述构造音色）</option>
+                    </select>
+                    <span id="longTtsEngine" class="text-[11px] opacity-50"></span>
+                </div>
+                <input id="longTtsInstruction" class="w-full px-2 py-1 rounded text-xs"
+                    placeholder="音色描述，如：低沉男声，语速偏慢，纪录片旁白"
+                    style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary);">
+            </div>
+
+            <div class="rounded-lg p-3" style="border:1px solid var(--border-color)">
+                <div class="text-xs font-medium mb-2">③ 保存位置</div>
+                <div class="flex items-center gap-2">
+                    <input id="longTtsDir" class="flex-1 px-2 py-1 rounded text-xs font-mono" readonly
+                        style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-secondary);">
+                    <button id="longTtsPickDir" class="px-2.5 py-1 rounded text-xs border whitespace-nowrap"
+                        style="border-color: var(--border-color);">选文件夹…</button>
+                </div>
+                <div class="flex items-center gap-2 mt-2">
+                    <span class="text-[11px] opacity-50 whitespace-nowrap">文件名</span>
+                    <input id="longTtsFilename" class="flex-1 px-2 py-1 rounded text-xs"
+                        placeholder="留空用时间戳"
+                        style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary);">
+                    <span class="text-[11px] opacity-40">.wav</span>
+                </div>
+                <div id="longTtsDirHint" class="text-[11px] opacity-50 mt-1.5"></div>
+            </div>
+
+            <div id="longTtsProgressBox" class="rounded-lg p-3 hidden" style="border:1px solid var(--border-color)">
+                <div class="flex items-center justify-between mb-1.5">
+                    <span id="longTtsStatusText" class="text-xs">准备中…</span>
+                    <span id="longTtsPct" class="text-xs font-mono opacity-70">0%</span>
+                </div>
+                <div class="h-1.5 rounded-full overflow-hidden" style="background: var(--bg-tertiary)">
+                    <div id="longTtsBar" class="h-full transition-all" style="width:0%;background:#8ea7ff"></div>
+                </div>
+                <div id="longTtsDetail" class="text-[11px] opacity-50 mt-1.5"></div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button id="longTtsStart" class="px-4 py-1.5 rounded-md text-sm text-white"
+                    style="background:#3b5bdb">开始生成</button>
+                <button id="longTtsCancel" class="px-3 py-1.5 rounded-md text-sm border hidden"
+                    style="border-color: var(--border-color);">停止</button>
+                <button id="longTtsReveal" class="px-3 py-1.5 rounded-md text-sm border hidden"
+                    style="border-color: var(--border-color);">打开所在文件夹</button>
+                <span class="text-[11px] opacity-40 ml-auto">生成过程可关闭窗口，任务继续跑</span>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    if (window.lucide?.createIcons) window.lucide.createIcons();
+
+    const $ = (id) => document.getElementById(id);
+    const textEl = $('longTtsText');
+    const countEl = $('longTtsCount');
+    const voiceEl = $('longTtsVoice');
+    const dirEl = $('longTtsDir');
+    const nameEl = $('longTtsFilename');
+    const hintEl = $('longTtsDirHint');
+    const progressBox = $('longTtsProgressBox');
+    const statusEl = $('longTtsStatusText');
+    const pctEl = $('longTtsPct');
+    const barEl = $('longTtsBar');
+    const detailEl = $('longTtsDetail');
+    const startBtn = $('longTtsStart');
+    const cancelBtn = $('longTtsCancel');
+    const revealBtn = $('longTtsReveal');
+
+    // 读默认值：目录 / 音色 / 引擎状态
+    try {
+        const defaults = await rendererApi.get('/api/v1/tts/long/defaults');
+        ttsLongState.outDir = defaults.default_dir || '';
+        dirEl.value = ttsLongState.outDir;
+        (defaults.voices || []).forEach((v) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = '音色：' + v;
+            voiceEl.appendChild(opt);
+        });
+        $('longTtsEngine').textContent = defaults.available
+            ? ('本地 Breeze · 每段 ' + (defaults.split_chars || 150) + ' 字')
+            : '本地 Breeze 未启动';
+        if (!defaults.available) {
+            startBtn.disabled = true;
+            startBtn.style.opacity = '0.5';
+            hintEl.textContent = 'breeze-server 没在跑，先在设置里确认本地语音服务';
+        }
+    } catch (error) {
+        hintEl.textContent = '读取默认值失败：' + (error.message || error);
+    }
+
+    const refreshCount = () => {
+        const chars = (textEl.value || '').trim().length;
+        const est = chars / 5.3;
+        countEl.textContent = chars + ' 字 · 预计 ' + _fmtSeconds(est);
+    };
+    textEl.addEventListener('input', refreshCount);
+    refreshCount();
+
+    $('longTtsClose').addEventListener('click', () => {
+        if (ttsLongState.timer) clearInterval(ttsLongState.timer);
+        ttsLongState.timer = null;
+        overlay.remove();
+    });
+
+    $('longTtsPickDir').addEventListener('click', async () => {
+        try {
+            const res = await window.electronAPI?.showOpenDialog?.({
+                properties: ['openDirectory', 'createDirectory'],
+            });
+            if (res?.canceled || !res?.filePaths?.length) return;
+            const picked = res.filePaths[0];
+            const check = await rendererApi.get('/api/v1/tts/long/dir/check?path=' + encodeURIComponent(picked));
+            if (!check.usable) {
+                hintEl.textContent = '这个目录不能用：' + check.reason;
+                return;
+            }
+            ttsLongState.outDir = picked;
+            dirEl.value = picked;
+            hintEl.textContent = check.free_bytes
+                ? '可写，剩余空间 ' + _fmtBytes(check.free_bytes)
+                : '可写';
+        } catch (error) {
+            hintEl.textContent = '选目录失败：' + (error.message || error);
+        }
+    });
+
+    $('longTtsSplitOversize').addEventListener('click', () => {
+        const chars = (textEl.value || '').trim().length;
+        const pieces = Math.max(1, Math.ceil(chars / 150));
+        hintEl.textContent = chars + ' 字会切成 ' + pieces + ' 段（每段约 '
+            + _fmtSeconds(150 / 5.3) + '），预计总长 ' + _fmtSeconds(chars / 5.3);
+    });
+
+    const stopPolling = () => {
+        if (ttsLongState.timer) clearInterval(ttsLongState.timer);
+        ttsLongState.timer = null;
+    };
+
+    const renderJob = (job) => {
+        const pct = Number(job.progress || 0);
+        barEl.style.width = Math.min(100, pct) + '%';
+        pctEl.textContent = pct.toFixed(0) + '%';
+        const statusMap = {
+            queued: '排队中…',
+            running: '生成中…',
+            done: '完成',
+            failed: '失败',
+            cancelled: '已停止',
+        };
+        statusEl.textContent = statusMap[job.status] || job.status;
+        const bits = [];
+        if (job.seconds_generated) bits.push('已生成 ' + _fmtSeconds(job.seconds_generated));
+        if (job.estimated_seconds) bits.push('预计 ' + _fmtSeconds(job.estimated_seconds));
+        if (job.bytes) bits.push(_fmtBytes(job.bytes));
+        if (job.elapsed) bits.push('耗时 ' + _fmtSeconds(job.elapsed));
+        if (job.error) bits.push(job.error);
+        detailEl.textContent = bits.join(' · ');
+        if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') {
+            stopPolling();
+            startBtn.disabled = false;
+            startBtn.style.opacity = '1';
+            cancelBtn.classList.add('hidden');
+            if (job.status === 'done') {
+                revealBtn.classList.remove('hidden');
+                revealBtn.dataset.path = job.path || '';
+                showNotification('已生成 ' + _fmtSeconds(job.seconds_generated) + ' → ' + (job.path || ''), 'success');
+            } else if (job.status === 'failed') {
+                showNotification('生成失败: ' + (job.error || ''), 'error');
+            }
+        }
+    };
+
+    const poll = async () => {
+        if (!ttsLongState.jobId) return;
+        try {
+            const data = await rendererApi.get('/api/v1/tts/long/' + ttsLongState.jobId);
+            if (data?.job) renderJob(data.job);
+        } catch (error) {
+            stopPolling();
+            statusEl.textContent = '查询进度失败';
+            detailEl.textContent = String(error.message || error);
+        }
+    };
+
+    startBtn.addEventListener('click', async () => {
+        const text = (textEl.value || '').trim();
+        if (!text) {
+            showNotification('先粘贴要念的文字', 'error');
+            return;
+        }
+        startBtn.disabled = true;
+        startBtn.style.opacity = '0.5';
+        progressBox.classList.remove('hidden');
+        revealBtn.classList.add('hidden');
+        statusEl.textContent = '提交中…';
+        try {
+            const res = await rendererApi.post('/api/v1/tts/long', {
+                text,
+                voice_id: voiceEl.value || '',
+                instruction: $('longTtsInstruction').value || '',
+                out_dir: ttsLongState.outDir || '',
+                filename: (nameEl.value || '').trim(),
+            });
+            if (!res?.job?.job_id) throw new Error('没有返回任务号');
+            ttsLongState.jobId = res.job.job_id;
+            renderJob(res.job);
+            cancelBtn.classList.remove('hidden');
+            stopPolling();
+            ttsLongState.timer = setInterval(poll, 1000);
+        } catch (error) {
+            startBtn.disabled = false;
+            startBtn.style.opacity = '1';
+            statusEl.textContent = '提交失败';
+            detailEl.textContent = String(error.message || error);
+            showNotification('提交失败: ' + (error.message || error), 'error');
+        }
+    });
+
+    cancelBtn.addEventListener('click', async () => {
+        if (!ttsLongState.jobId) return;
+        try {
+            await rendererApi.post('/api/v1/tts/long/' + ttsLongState.jobId + '/cancel', {});
+            showNotification('已请求停止，已生成部分会保留', 'info');
+        } catch (error) {
+            showNotification('停止失败: ' + (error.message || error), 'error');
+        }
+    });
+
+    revealBtn.addEventListener('click', () => {
+        const p = revealBtn.dataset.path;
+        if (!p) return;
+        // preload 把 revealInExplorer 挂在 electronAPI.fileImport 下
+        const api = window.electronAPI;
+        const fn = api?.fileImport?.revealInExplorer;
+        if (typeof fn === 'function') {
+            fn(p);
+        } else {
+            showNotification('这个版本没有打开文件夹的能力，路径已复制', 'info');
+            navigator.clipboard?.writeText(p);
+        }
+    });
+}

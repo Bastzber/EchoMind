@@ -7,9 +7,10 @@
 
 ### Added / 新增
 
+- 新增「长文本转语音」：粘贴整章文字后台生成，进度可查，可中途停止，输出文件夹和文件名自己选 / Long-form text to speech: paste a chapter, watch progress, stop midway, choose output folder and filename
 - **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 
-## [0.3.0-beta.16] - 2026-11-03
+## [0.3.0-beta.17] - 2026-11-04
 
 > 测试版 V14。可用性清账：导入 6.5 万条压到 1 分钟内、保存标签 10 秒 → 0.5 秒、 / 
 > 两套标签合成一个入口、后端主文件拆成 21 个模块（10,147 → 5,330 行）。 / Beta 14 is a usability pass: importing 65k files down to under a minute, saving tags from 10s to 0.5s, unified tag entry, and the backend main file split into 21 modules.

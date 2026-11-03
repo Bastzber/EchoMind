@@ -13,8 +13,7 @@ async function showVoiceLibraryModal(options = {}) {
         '    <span class="text-sm font-semibold">音色库</span>',
         '    <span id="voiceLibCount" class="text-[11px] opacity-50"></span>',
         '    <span id="voiceLibEngine" class="text-[11px] opacity-45 ml-2"></span>',
-        '    <button id="voiceLibLongTts" class="ml-auto px-2 py-1 rounded text-[11px] border" style="border-color:var(--border-color)">长文本转语音</button>',
-        '    <button id="voiceLibClose" class="ml-2 text-xs opacity-50 hover:opacity-100">关闭</button>',
+        '    <button id="voiceLibClose" class="ml-auto text-xs opacity-50 hover:opacity-100">关闭</button>',
         '  </div>',
         '  <div class="px-4 py-2 text-[11px] opacity-45 border-b" style="border-color:var(--border-color)">',
         '    本地音色：参考音频 + 文稿，零样本克隆，不联网；云端音色走豆包 API。',
@@ -25,10 +24,7 @@ async function showVoiceLibraryModal(options = {}) {
     document.body.appendChild(overlay);
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) overlay.remove(); });
     overlay.querySelector('#voiceLibClose').addEventListener('click', () => overlay.remove());
-    overlay.querySelector('#voiceLibLongTts')?.addEventListener('click', () => {
-        overlay.remove();
-        if (typeof showVoiceCloneModal === 'function') showVoiceCloneModal({ tab: 'long' });
-    });
+
 
     const body = overlay.querySelector('#voiceLibBody');
     const countEl = overlay.querySelector('#voiceLibCount');

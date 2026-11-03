@@ -119,7 +119,23 @@ def _api_key() -> str:
 
 
 def engine_name() -> str:
-    return (os.environ.get("ECHOMIND_TTS_ENGINE") or "volc").strip().lower()
+    """当前实际生效的合成引擎。
+
+    以前直接返回 ECHOMIND_TTS_ENGINE 或默认字面量 volc —— 但 tts.py 里
+    Breeze 是优先的，用户界面因此显示「引擎：volc」，而他的音色全是本地
+    breeze 克隆的（11-04 截图反馈）。改成按实际可用性判断。
+    """
+    configured = (os.environ.get("ECHOMIND_TTS_ENGINE") or "").strip().lower()
+    if configured:
+        return configured
+    try:
+        from core import tts
+
+        if tts.breeze_available():
+            return "breeze"
+    except Exception:
+        pass
+    return "volc"
 
 
 def clone_voice(

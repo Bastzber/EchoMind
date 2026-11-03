@@ -159,7 +159,7 @@ def get_chroma_db_path(project_id: str = "default") -> Path:
 # ==================== 项目基础配置 ====================
 
 APP_NAME = "EchoMind"
-APP_VERSION = "0.3.0-beta.18"
+APP_VERSION = "0.3.0-beta.19"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # 导入完音效文件夹后是否立刻自动跑向量索引。

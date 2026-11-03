@@ -127,22 +127,18 @@ async function renderLongTtsPanel(container, options = {}) {
         const defaults = await rendererApi.get('/api/v1/tts/long/defaults');
         ttsLongState.outDir = defaults.default_dir || '';
         dirEl.value = ttsLongState.outDir;
-        // 音色有两个来源：Breeze 已注册的 voice id，和短音频克隆登记的 profiles。
-        // 后者有中文名，优先显示名字，value 仍用 Breeze 的 id。
-        const idToName = new Map();
-        (options.profiles || (typeof voiceState !== 'undefined' ? voiceState.profiles : []) || [])
-            .forEach((pf) => {
-                const key = String(pf.speaker_id || pf.name || '');
-                if (key) idToName.set(key, pf.name || key);
-            });
+        // 后端把 echomind-<profile.id> 反查成用户起的名字后以 {id,name} 返回，
+        // 直接用它，别在前端再猜一次（猜不准会显示成 echomind-07e096ecca39）。
+        // 同时兼容纯字符串的老返回格式。
         const seenIds = new Set();
         (defaults.voices || []).forEach((v) => {
-            const id = String(v);
-            if (seenIds.has(id)) return;
+            const id = String(typeof v === 'string' ? v : (v?.id || ''));
+            if (!id || seenIds.has(id)) return;
             seenIds.add(id);
+            const label = typeof v === 'string' ? id : String(v?.name || id);
             const opt = document.createElement('option');
             opt.value = id;
-            opt.textContent = idToName.has(id) ? idToName.get(id) : ('音色：' + id);
+            opt.textContent = label;
             voiceEl.appendChild(opt);
         });
         $('longTtsEngine').textContent = defaults.available

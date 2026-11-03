@@ -32,12 +32,45 @@ class LongTTSRequest(BaseModel):
 
 @router.get("/api/v1/tts/long/defaults")
 async def long_tts_defaults():
-    """前端弹窗打开时读一次：默认目录、可用音色、默认切分粒度。"""
+    """前端打开长音频页时读一次：默认目录、音色（带人类可读名）、切分粒度。"""
     try:
-        voices = tts.list_saved_voices()
+        saved = tts.list_saved_voices()
     except Exception as exc:
         logger.debug("读取音色列表失败: %s", exc)
-        voices = []
+        saved = []
+
+    # Breeze 里的 voice id 是 echomind-<profile.id>，直接给前端只能看到一串十六进制。
+    # 这里用 profile 反查回用户起的名字，长音频下拉才和短音频克隆那边一致。
+    voices = []
+    matched = set()
+    try:
+        from core.voice_clone import load_profiles
+
+        for profile in load_profiles():
+            ident = "".join(
+                ch for ch in str(profile.get("id") or "")
+                if ch.isascii() and ch.isalnum()
+            )[:12]
+            if not ident:
+                continue
+            voice_id = "echomind-" + ident
+            if voice_id not in saved:
+                continue
+            voices.append({"id": voice_id, "name": str(profile.get("name") or voice_id)})
+            matched.add(voice_id)
+    except Exception as exc:
+        logger.debug("读取音色档案失败: %s", exc)
+
+    # Breeze 里还有没对上档案的音色。echomind-assistant 是助理播报用的固定音色，
+    # 给它一个人话名字；其余实在认不出来的，至少把 echomind- 前缀去掉再显示。
+    for voice_id in saved:
+        if voice_id in matched:
+            continue
+        if voice_id == "echomind-assistant":
+            voices.append({"id": voice_id, "name": "助理音色（默认）"})
+            continue
+        label = voice_id[len("echomind-"):] if voice_id.startswith("echomind-") else voice_id
+        voices.append({"id": voice_id, "name": label})
     return {
         "success": True,
         "default_dir": str(tts_long.default_out_dir()),

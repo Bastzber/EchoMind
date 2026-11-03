@@ -392,6 +392,15 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         logger.debug(f"[Bootstrap] 环境检查跳过: {_e}")
 
+    # Breeze 是 C++ 原生进程，畸形输入或驱动问题会直接退出；崩了之后语音功能全废。
+    # 起一个守护线程每 15 秒探一次 /health，连续 3 次失败就自动拉起。
+    try:
+        from core import breeze_guard
+
+        breeze_guard.start()
+    except Exception as exc:
+        logger.warning("[Breeze] 守护线程启动失败: %s", exc)
+
     # 注入豆包 LLM/Embedding 配置（密钥仅进内存，不落盘）
     _inject_ark_config()
     # 创造音效的语音 Key 独立加载：LLM 换成 DeepSeek 时也必须恢复

@@ -198,6 +198,26 @@ def list_saved_voices(timeout: float = 5.0) -> list:
     ]
 
 
+def _reference_upload(sample: str) -> Optional[tuple]:
+    """读参考音频并标准化成 Breeze 能安全吃的格式，返回 multipart 用的 (文件名, bytes)。"""
+    try:
+        payload = Path(sample).read_bytes()
+    except Exception as exc:
+        logger.warning('[TTS] 读取参考音频失败: %s', exc)
+        return None
+    # Breeze 的解码器不做输入校验：畸形 WAV（RIFF 长度 0xffffffff、32-bit float、
+    # 24-bit、头部损坏）会直接 0xc0000005 崩掉进程，之后所有合成全废。实测复现四次。
+    try:
+        from core import ref_audio
+
+        normalized = ref_audio.normalize_reference(payload)
+        if normalized:
+            payload = normalized
+    except Exception as exc:
+        logger.debug('[TTS] 参考音频标准化跳过: %s', exc)
+    return ('reference.wav', payload)
+
+
 def register_saved_voice(profile: Dict[str, Any], name: str, timeout: float = 120.0) -> Optional[str]:
     """把一个复刻音色注册成 Breeze 的保存音色，返回 voice_id。
 
@@ -223,13 +243,11 @@ def register_saved_voice(profile: Dict[str, Any], name: str, timeout: float = 12
         )[:12]
         safe_name = 'echomind-' + (ident or uuid.uuid4().hex[:12])
     name = safe_name
-    try:
-        payload = Path(sample).read_bytes()
-    except Exception as exc:
-        logger.warning('[TTS] 读取参考音频失败: %s', exc)
+    upload = _reference_upload(sample)
+    if not upload:
         return None
     fields = {'name': name, 'ref_text': ref_text}
-    files = {'ref_audio': (Path(sample).name, payload)}
+    files = {'ref_audio': upload}
     body, headers = _multipart(fields, files)
     request = urllib.request.Request(
         breeze_url() + '/v1/voices', data=body, headers=headers, method='POST'
@@ -327,7 +345,9 @@ def breeze_request_parts(
         fields['voice_id'] = voice_id
     elif ref_audio and ref_text:
         try:
-            files['ref_audio'] = (Path(ref_audio).name, Path(ref_audio).read_bytes())
+            upload = _reference_upload(ref_audio)
+            if upload:
+                files['ref_audio'] = upload
             fields['ref_text'] = ref_text
         except Exception as exc:
             logger.warning('[TTS] 读取参考音频失败: %s', exc)
@@ -363,7 +383,9 @@ def breeze_speak(
         fields['voice_id'] = voice_id
     elif ref_audio and ref_text:
         try:
-            files['ref_audio'] = (Path(ref_audio).name, Path(ref_audio).read_bytes())
+            upload = _reference_upload(ref_audio)
+            if upload:
+                files['ref_audio'] = upload
             fields['ref_text'] = ref_text
         except Exception as exc:
             logger.warning('[TTS] 读取参考音频失败: %s', exc)

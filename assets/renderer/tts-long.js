@@ -1,6 +1,6 @@
-/* tts-long.js —— 长文本转语音
- * 为什么单独一个面板：一次十分钟的稿子要跑六分钟，
- * 没有进度条用户会以为卡死，所以做成「起任务 → 轮询进度」。
+/* tts-long.js —— 长音频克隆（长文本转语音）
+ * 并以「声音克隆」的第二个标签页存在，和短音频克隆共用同一个音色库。
+ * 一次十分钟的稿子要跑六分钟，所以做成「起任务 → 轮询进度」。
  */
 
 const ttsLongState = {
@@ -24,25 +24,19 @@ function _fmtBytes(bytes) {
     return Math.round(n / 1024) + ' KB';
 }
 
-async function showLongTtsModal() {
-    document.getElementById('longTtsOverlay')?.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'longTtsOverlay';
-    overlay.className = 'fixed inset-0 flex items-center justify-center';
-    overlay.style.cssText = 'z-index:330;background:rgba(0,0,0,0.6)';
-    overlay.innerHTML = `
-        <div class="rounded-xl shadow-2xl w-[640px] max-h-[88vh] overflow-y-auto p-5 flex flex-col gap-3"
-             style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
-            <div class="flex items-center gap-2">
-                <span class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:rgba(142,167,255,0.15)">
-                    <i data-lucide="file-audio" class="w-4 h-4" style="color:#8ea7ff"></i>
-                </span>
-                <div class="flex flex-col leading-tight">
-                    <span class="text-sm font-semibold">长文本转语音</span>
-                    <span class="text-[11px] opacity-50">粘贴整章文字，按 150 字分段生成，边生成边落盘</span>
-                </div>
-                <button id="longTtsClose" class="ml-auto text-xs opacity-50 hover:opacity-100">关闭</button>
-            </div>
+/**
+ * 把长音频面板渲染进 container（现在并进「声音克隆」的第二个标签页）。
+ * options.profiles —— 克隆那边已加载好的音色列表，直接复用，不再重复请求。
+ */
+async function renderLongTtsPanel(container, options = {}) {
+    if (!container) return;
+    if (ttsLongState.timer) { clearInterval(ttsLongState.timer); ttsLongState.timer = null; }
+    ttsLongState.jobId = null;
+    container.innerHTML = `
+        <div class="flex flex-col gap-3">
+            <p class="text-[11px] opacity-50 leading-5">
+                粘贴整章文字，按 150 字分段生成，边生成边落盘。音色和「短音频克隆」共用同一个音色库。
+            </p>
 
             <div class="rounded-lg p-3" style="border:1px solid var(--border-color)">
                 <div class="text-xs font-medium mb-2">① 文本</div>
@@ -107,13 +101,12 @@ async function showLongTtsModal() {
                     style="border-color: var(--border-color);">停止</button>
                 <button id="longTtsReveal" class="px-3 py-1.5 rounded-md text-sm border hidden"
                     style="border-color: var(--border-color);">打开所在文件夹</button>
-                <span class="text-[11px] opacity-40 ml-auto">生成过程可关闭窗口，任务继续跑</span>
+                <span class="text-[11px] opacity-40 ml-auto">生成过程可切换标签页，任务继续跑</span>
             </div>
         </div>`;
-    document.body.appendChild(overlay);
     if (window.lucide?.createIcons) window.lucide.createIcons();
 
-    const $ = (id) => document.getElementById(id);
+    const $ = (id) => container.querySelector('#' + id);
     const textEl = $('longTtsText');
     const countEl = $('longTtsCount');
     const voiceEl = $('longTtsVoice');
@@ -134,10 +127,22 @@ async function showLongTtsModal() {
         const defaults = await rendererApi.get('/api/v1/tts/long/defaults');
         ttsLongState.outDir = defaults.default_dir || '';
         dirEl.value = ttsLongState.outDir;
+        // 音色有两个来源：Breeze 已注册的 voice id，和短音频克隆登记的 profiles。
+        // 后者有中文名，优先显示名字，value 仍用 Breeze 的 id。
+        const idToName = new Map();
+        (options.profiles || (typeof voiceState !== 'undefined' ? voiceState.profiles : []) || [])
+            .forEach((pf) => {
+                const key = String(pf.speaker_id || pf.name || '');
+                if (key) idToName.set(key, pf.name || key);
+            });
+        const seenIds = new Set();
         (defaults.voices || []).forEach((v) => {
+            const id = String(v);
+            if (seenIds.has(id)) return;
+            seenIds.add(id);
             const opt = document.createElement('option');
-            opt.value = v;
-            opt.textContent = '音色：' + v;
+            opt.value = id;
+            opt.textContent = idToName.has(id) ? idToName.get(id) : ('音色：' + id);
             voiceEl.appendChild(opt);
         });
         $('longTtsEngine').textContent = defaults.available
@@ -160,11 +165,6 @@ async function showLongTtsModal() {
     textEl.addEventListener('input', refreshCount);
     refreshCount();
 
-    $('longTtsClose').addEventListener('click', () => {
-        if (ttsLongState.timer) clearInterval(ttsLongState.timer);
-        ttsLongState.timer = null;
-        overlay.remove();
-    });
 
     $('longTtsPickDir').addEventListener('click', async () => {
         try {

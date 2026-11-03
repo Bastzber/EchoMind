@@ -1,7 +1,7 @@
 # 🎵 回声 EchoMind - AI Sound Effect Manager
 
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta.14-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.17)
+[![Version](https://img.shields.io/badge/version-v0.3.0--beta.14-orange.svg)](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.18)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Electron](https://img.shields.io/badge/electron-28.3.3-9feaf9.svg)](https://www.electronjs.org/)
 
@@ -13,9 +13,9 @@
 >
 > A local-first, AI-powered desktop sound-effect manager.
 
-The current source version is **v0.3.0-beta.17 (prerelease)**.
+The current source version is **v0.3.0-beta.18 (prerelease)**.
 
-Windows x64 test build · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.17) · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.17)
+Windows x64 test build · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.18) · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.18)
 
 > **This repository is a modified fork of [SoundBot](https://github.com/Huckrick/SoundBot)** (original author Nagisa_Huckrick, GPL-3.0-or-later).
 > The license and attribution are preserved. See [Differences from upstream](#differences-from-upstream) for what changed.
@@ -68,7 +68,7 @@ names, tags, descriptions, or anything that identifies a person. You can turn it
 
 ## ✨ What it does
 
-| Capability | Behaviour in v0.3.0-beta.17 |
+| Capability | Behaviour in v0.3.0-beta.18 |
 | --- | --- |
 | Import | Native file/folder picker through a minimal IPC bridge, plus drag-and-drop of folders or audio files onto the window |
 | Waveforms | 2,000 finite peaks per file fetched on demand; invalidated when the source or algorithm changes |

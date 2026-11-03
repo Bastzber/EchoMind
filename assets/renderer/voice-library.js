@@ -26,7 +26,8 @@ async function showVoiceLibraryModal(options = {}) {
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) overlay.remove(); });
     overlay.querySelector('#voiceLibClose').addEventListener('click', () => overlay.remove());
     overlay.querySelector('#voiceLibLongTts')?.addEventListener('click', () => {
-        if (typeof showLongTtsModal === 'function') showLongTtsModal();
+        overlay.remove();
+        if (typeof showVoiceCloneModal === 'function') showVoiceCloneModal({ tab: 'long' });
     });
 
     const body = overlay.querySelector('#voiceLibBody');

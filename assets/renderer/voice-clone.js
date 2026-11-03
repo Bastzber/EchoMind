@@ -15,7 +15,7 @@ async function loadVoiceProfiles() {
     return voiceState.profiles;
 }
 
-function showVoiceCloneModal() {
+function showVoiceCloneModal(options = {}) {
     document.getElementById('voiceCloneOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'voiceCloneOverlay';
@@ -34,6 +34,11 @@ function showVoiceCloneModal() {
         "                        </div>",
         "                        <button id=\"voiceCloseBtn\" class=\"ml-auto text-xs opacity-50 hover:opacity-100\">关闭</button>",
         "                    </div>",
+        "                    <div class=\"flex items-center gap-1 p-1 rounded-lg\" style=\"background:var(--bg-tertiary)\">",
+        "                        <button id=\"voiceTabShort\" class=\"flex-1 px-3 py-1.5 rounded-md text-xs font-medium\" style=\"background:var(--accent-color,#6b8afd);color:#fff\">短音频克隆</button>",
+        "                        <button id=\"voiceTabLong\" class=\"flex-1 px-3 py-1.5 rounded-md text-xs font-medium\" style=\"color:var(--text-secondary)\">长音频克隆</button>",
+        "                    </div>",
+        "                    <div id=\"voiceShortPane\" class=\"flex flex-col gap-3\">",
         "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
         "                        <div class=\"text-xs font-medium mb-2\">① 选择样音</div>",
         "                        <div class=\"flex items-center gap-2 mb-2\">",
@@ -87,11 +92,38 @@ function showVoiceCloneModal() {
         "                            <span id=\"voiceSpeakStatus\" class=\"text-[11px] opacity-55\"></span>",
         "                        </div>",
         "                    </div>",
+        "                    </div>",
+        "                    <div id=\"voiceLongPane\" class=\"hidden\"></div>",
         "                </div>"
     ].join('');
     document.body.appendChild(overlay);
     overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
     overlay.querySelector('#voiceCloseBtn').addEventListener('click', () => overlay.remove());
+
+    // ===== 两个模式共用一个音色库（voiceState.profiles），只是承接的文本长度不同 =====
+    const shortPane = overlay.querySelector('#voiceShortPane');
+    const longPane = overlay.querySelector('#voiceLongPane');
+    const tabShort = overlay.querySelector('#voiceTabShort');
+    const tabLong = overlay.querySelector('#voiceTabLong');
+    let activeTab = 'short';
+    const setTab = (tab) => {
+        activeTab = tab;
+        const isShort = tab === 'short';
+        shortPane?.classList.toggle('hidden', !isShort);
+        longPane?.classList.toggle('hidden', isShort);
+        const on = 'background:var(--accent-color,#6b8afd);color:#fff';
+        const off = 'color:var(--text-secondary)';
+        if (tabShort) tabShort.style.cssText = isShort ? on : off;
+        if (tabLong) tabLong.style.cssText = isShort ? off : on;
+        // 长文本面板按需挂载：每次切过去重建，避免它和短音频那套状态互相干扰
+        if (!isShort && typeof renderLongTtsPanel === 'function' && longPane) {
+            renderLongTtsPanel(longPane, { profiles: voiceState.profiles });
+        }
+    };
+    tabShort?.addEventListener('click', () => setTab('short'));
+    tabLong?.addEventListener('click', () => setTab('long'));
+    // 从音色库的「长文本转语音」进来，直接落在长音频页
+    if (options?.tab === 'long') setTab('long');
 
     const sampleInfo = overlay.querySelector('#voiceSampleInfo');
     const nameInput = overlay.querySelector('#voiceNameInput');
@@ -291,6 +323,11 @@ function showVoiceCloneModal() {
         loadVoiceProfiles().then(renderProfiles);
     });
 
-    loadVoiceProfiles().then(renderProfiles);
+    loadVoiceProfiles().then(renderProfiles).then(() => {
+        // 面板已打开在长音频页时，音色列表刷新了要跟着重建下拉
+        if (activeTab === 'long' && typeof renderLongTtsPanel === 'function' && longPane) {
+            renderLongTtsPanel(longPane, { profiles: voiceState.profiles });
+        }
+    });
 }
 

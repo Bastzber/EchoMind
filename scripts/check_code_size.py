@@ -31,9 +31,9 @@ KNOWN_DEBT = {
     # 这里按实测收口，从此只允许变短。
     "backend/core/database.py": 4478,   # 11-04：工件计数缓存 + 标签统计 json_each/缓存（+53）
     "backend/core/search_engine.py": 1800,
-    # 11-04：index.html 的 4301 行内联脚本原样搬到 app-inline.js。
-    # 纯搬家，逻辑零改动；下一步按功能再拆成 3~4 个文件。
-    "assets/renderer/app-inline.js": 4255,
+    # 11-04：index.html 的 4301 行内联脚本拆成 app-core / app-ui / app-data 三段。
+    # app-data 里是大量 const fn = () => {} 形式，行内切点不好找，先保持。
+    "assets/renderer/app-data.js": 2414,
 }
 # 这些目录下的文件参与单文件检查
 SCAN_DIRS = ["assets/renderer", "backend/core", "scripts"]

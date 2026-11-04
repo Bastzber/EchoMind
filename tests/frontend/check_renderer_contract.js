@@ -61,7 +61,7 @@ async function main() {
   assert(mainJs.includes('if (owner.isMinimized()) owner.restore()'), 'native dialog owner is not restored before opening');
   assert(mainJs.includes("loadFile(path.join(__dirname, 'splash.html'))"), 'splash is not loaded from the packaged local page');
   assert(mainJs.includes('pendingSplashState') && mainJs.includes('applySplashState()'), 'early splash state is not queued until load');
-  // 内联脚本已搬进 assets/renderer/app-inline.js，这几条同样改成看整个渲染层
+  // 内联脚本已搬进 assets/renderer/app-*.js，这几条同样改成看整个渲染层
   assert(pageCode.includes('if (!window.electronAPI?.fileImport)'), 'file/folder selection does not check the desktop bridge');
   assert(pageCode.includes('if (!window.electronAPI?.backendAPI?.importFolderAsync)'), 'folder import backend check is missing');
   assert(
@@ -294,7 +294,7 @@ async function main() {
   const leftoverInline = [...indexHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
     .filter((match) => match[1].trim().length > 0);
   assert.strictEqual(leftoverInline.length, 0, 'index.html still has inline renderer scripts');
-  for (const name of ['app-inline.js', 'app-tail.js']) {
+  for (const name of ['app-core.js', 'app-ui.js', 'app-data.js', 'app-tail.js']) {
     const source = read(`assets/renderer/${name}`);
     assert(source.trim().length > 0, `${name} is empty`);
     new vm.Script(source, { filename: name });

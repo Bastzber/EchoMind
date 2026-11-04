@@ -29,6 +29,13 @@ MANIFEST_DIR = ROOT / 'manifests'
 EXCLUDE_DIRS = {'userdata', 'data', 'logs', 'cache', '.git'}
 EXCLUDE_SUFFIXES = {'.log', '.tmp', '.updating'}
 
+# 顺带排除的重量级目录：只按安装根目录下的相对路径剪，不按名字剪
+# （包内深层同名目录是真代码，见 walk_files 里的注释）。
+#   breeze —— Breeze TTS 的 exe + GGUF 权重，3.5 GB，用户机器上本来就有，
+#             跟着增量包走会把 71 MB 的包变成 3.5 GB（11-04 实测）。
+EXCLUDE_ROOT_DIRS = {'breeze'}
+EXCLUDE_ROOT_PREFIXES = ('breeze/',)
+
 
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     digest = hashlib.sha256()
@@ -55,6 +62,9 @@ def walk_files(root: Path) -> dict:
                 continue
             full = Path(dirpath) / name
             rel = full.relative_to(root).as_posix()
+            # breeze 目录整块跳过（模型权重 3.5 GB，用户本地已有）
+            if rel.split('/')[0].lower() in EXCLUDE_ROOT_DIRS:
+                continue
             try:
                 result[rel] = (full, full.stat().st_size)
             except OSError:

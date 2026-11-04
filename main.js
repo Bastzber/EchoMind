@@ -605,9 +605,49 @@ function toBackendError(error, context = {}) {
 
 // 自定义协议要自己给 Content-Type，否则 <audio> 拿不到正确的解码提示，
 // 部分格式（flac/m4a）会直接报「不支持」。
+// 按扩展名猜 Content-Type 会出事：库里就有 .mp3 后缀、内容其实是 24 位 WAV 的文件
+// （节奏循环.mp3，5.4 MB，44.1k / 2ch / 24bit）。声明成 audio/mpeg 之后，
+// 解码器按 MP3 去读 WAV 的字节 —— 出来的就是一片雪花噪声。
+// 全库扫过一遍：扩展名和真实容器对不上的有 1,040 个（mp3 实为 wav 400、aac 实为 mp3 350 等）。
+// 所以先看文件头，认得出就按真实容器给类型，认不出才退回扩展名。
+const AUDIO_MAGIC = [
+  { ext: '.wav', ok: (h) => h.slice(0, 4) === 'RIFF' && h.slice(8, 12) === 'WAVE' },
+  { ext: '.aiff', ok: (h) => h.slice(0, 4) === 'FORM' && (h.slice(8, 12) === 'AIFF' || h.slice(8, 12) === 'AIFC') },
+  { ext: '.flac', ok: (h) => h.slice(0, 4) === 'fLaC' },
+  { ext: '.ogg', ok: (h) => h.slice(0, 4) === 'OggS' },
+  { ext: '.mp3', ok: (h) => h.slice(0, 3) === 'ID3' },
+  { ext: '.m4a', ok: (h) => h.slice(4, 8) === 'ftyp' },
+  { ext: '.caf', ok: (h) => h.slice(0, 4) === 'caff' },
+  { ext: '.ape', ok: (h) => h.slice(0, 3) === 'MAC' },
+  // ASF 容器头，WMA 就是它：30 26 B2 75
+  { ext: '.wma', ok: (h) => h.charCodeAt(0) === 0x30 && h.charCodeAt(1) === 0x26 && h.charCodeAt(2) === 0xb2 && h.charCodeAt(3) === 0x75 },
+  // MP3 帧同步字
+  { ext: '.mp3', ok: (h) => h.charCodeAt(0) === 0xff && (h.charCodeAt(1) & 0xe0) === 0xe0 },
+];
+
+function sniffAudioContainer(filePath) {
+  let fd = null;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(16);
+    const read = fs.readSync(fd, buffer, 0, 16, 0);
+    if (read < 12) return null;
+    const head = buffer.slice(0, read).toString('latin1');
+    for (const item of AUDIO_MAGIC) {
+      if (item.ok(head)) return item.ext;
+    }
+    return null;
+  } catch (_error) {
+    return null;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (_error) { /* 关不掉就算了 */ }
+    }
+  }
+}
+
 function guessAudioContentType(filePath) {
-  const ext = path.extname(String(filePath || '')).toLowerCase();
-  const map = {
+  const typeByExt = {
     '.wav': 'audio/wav',
     '.mp3': 'audio/mpeg',
     '.m4a': 'audio/mp4',
@@ -617,8 +657,16 @@ function guessAudioContentType(filePath) {
     '.aiff': 'audio/aiff',
     '.aif': 'audio/aiff',
     '.wma': 'audio/x-ms-wma',
+    '.ape': 'audio/x-ape',
+    '.caf': 'audio/x-caf',
   };
-  return map[ext] || 'application/octet-stream';
+  const declared = path.extname(String(filePath || '')).toLowerCase();
+  const sniffed = sniffAudioContainer(filePath);
+  const real = sniffed || declared;
+  if (sniffed && sniffed !== declared) {
+    console.warn('[AudioProtocol] 扩展名与真实格式不一致，按真实格式处理: ' + path.basename(filePath) + ' (' + declared + ' -> ' + sniffed + ')');
+  }
+  return typeByExt[real] || 'application/octet-stream';
 }
 
 function registerAudioProtocol() {

@@ -180,11 +180,56 @@ class AudioService:
     def is_supported(path: os.PathLike[str] | str) -> bool:
         return Path(path).suffix.lower() in AUDIO_FORMAT_CAPABILITIES
 
+    # 浏览器（Chromium/Electron）自己能解的容器。其余的一律先转成 16 位 WAV 再播。
+    # 背景：用户库里有一批「扩展名骗人」的文件 —— 有 400 个 .mp3 其实是 WAV，
+    # 56 个 .mp3 其实是 AIFF，还有 .aac 实为 mp3、.wav 实为 flac 等等，全库 1,040 个。
+    # 以前按扩展名给解码提示，AIFF 的字节喂给 MP3 解码器，出来就是一片雪花噪声。
+    BROWSER_SAFE_CONTAINERS = ('.wav', '.mp3', '.m4a', '.aac', '.ogg', '.flac')
+
+    @staticmethod
+    def _sniff_container(path: os.PathLike[str] | str) -> str:
+        """读文件头判断真实容器，认不出返回空串。"""
+        try:
+            with open(path, 'rb') as handle:
+                head = handle.read(16)
+        except OSError:
+            return ''
+        if len(head) < 12:
+            return ''
+        if head[:4] == b'RIFF' and head[8:12] == b'WAVE':
+            return '.wav'
+        if head[:4] == b'FORM' and head[8:12] in (b'AIFF', b'AIFC'):
+            return '.aiff'
+        if head[:4] == b'fLaC':
+            return '.flac'
+        if head[:4] == b'OggS':
+            return '.ogg'
+        if head[:3] == b'ID3':
+            return '.mp3'
+        if head[4:8] == b'ftyp':
+            return '.m4a'
+        if head[:4] == b'caff':
+            return '.caf'
+        if head[:3] == b'MAC':
+            return '.ape'
+        if head[:4] in (b'\x30\x26\xb2\x75',):
+            return '.wma'
+        if head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+            return '.mp3'
+        return ''
+
     @staticmethod
     def requires_playback_transcode(path: os.PathLike[str] | str) -> bool:
         suffix = Path(path).suffix.lower()
         capability = AUDIO_FORMAT_CAPABILITIES.get(suffix)
         if capability and capability['requires_playback_transcode']:
+            return True
+        # 真实容器说了算：认出来且浏览器解不了（aiff/ape/wma/caf…）就转码
+        real = AudioService._sniff_container(path)
+        if real and real not in AudioService.BROWSER_SAFE_CONTAINERS:
+            return True
+        # 真身是 WAV、但里面是 ADPCM/ALaw 这类浏览器不认的编码，也转
+        if real == '.wav' and not AudioService._wav_is_browser_pcm(path):
             return True
         # .wav 可能是 ADPCM/ALaw 等非 PCM 压缩编码，浏览器无法直接播放，
         # 需内容探测后转码为标准 PCM。
@@ -209,7 +254,9 @@ class AudioService:
             if cid == b'fmt ' and size >= 16:
                 tag = int.from_bytes(head[pos + 8:pos + 10], 'little')
                 # 1=PCM；3=IEEE float（Chromium 支持 32-bit float）；
-                # 其余（17 IMA ADPCM、2 MS ADPCM、6 ALaw、7 MuLaw…）浏览器不支持
+                # 其余（17 IMA ADPCM、2 MS ADPCM、6 ALaw、7 MuLaw…）浏览器不支持。
+                # 位深不设卡：24 位 PCM 实测 Chromium 解得对（峰值 0.989、频谱正常），
+                # 要是把 24 位也算成「要转码」，全库会多出 1.7 万个文件首次播放都要转一遍。
                 return tag in (1, 3)
             pos += 8 + size + (size & 1)
         return False

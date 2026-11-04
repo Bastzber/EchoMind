@@ -30,12 +30,10 @@ KNOWN_DEBT = {
     # 11-04 夜：4,478 行拆完了 —— 引擎本体留在 database.py（1,469 行），
     # 文件/标签/工程目录/向量工件/任务 各自一个 mixin（core/db_*.py）。
     # 现在它不再超限，从债务名单里摘掉，重新受 1,500 行的常规红线管着。
-    # 11-04：把「引擎指纹检查」从事件循环里挪到线程（+1 行），换来搜索不再卡 3 秒一次。
-    # 这次是实打实的功能需要，按实测收口到 1801，之后仍只允许变短。
-    "backend/core/search_engine.py": 1801,
-    # 11-04：index.html 的 4301 行内联脚本拆成 app-core / app-ui / app-data 三段。
-    # app-data 里是大量 const fn = () => {} 形式，行内切点不好找，先保持。
-    "assets/renderer/app-data.js": 2415,
+    # 11-05 夜：1,801 行拆完 —— 缓存/中文处理/文件快照各自成模块，主文件 1,150 行，
+    # 从债务名单里摘掉，重新受 1,500 行常规红线管。
+    # 11-05 夜：2,415 行拆成 app-data.js（1,443）+ app-data-2.js（982），
+    # 后者接着注册同一个 DOMContentLoaded 流程，顺序不变。两段都在 1,500 行红线内。
 }
 # 这些目录下的文件参与单文件检查
 SCAN_DIRS = ["assets/renderer", "backend/core", "scripts"]

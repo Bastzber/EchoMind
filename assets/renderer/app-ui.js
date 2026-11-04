@@ -711,12 +711,20 @@ async function checkFolderDrift({ notify = false } = {}) {
     try {
         const health = await rendererApi.get('/api/v1/db/library/folder-health');
         if (!health || health.success === false) return null;
-        const drifted = Number(health.missing_count || 0) > 0;
+        // 两种不一致都要管：整目录没了，或者目录还在但个别文件被移走
+        const missingDirs = Number(health.missing_count || 0);
+        const missingFiles = Number(health.missing_file_count || 0);
+        const drifted = missingDirs > 0 || missingFiles > 0;
         const btn = document.getElementById('syncFoldersBtn');
         if (btn) {
-            btn.title = drifted
-                ? `${health.missing_count} 个目录在磁盘上不存在（涉及 ${health.missing_files} 个文件），点这里修复`
-                : '目录与磁盘一致';
+            if (!drifted) {
+                btn.title = '目录与磁盘一致';
+            } else {
+                const bits = [];
+                if (missingDirs) bits.push(missingDirs + ' 个目录不存在');
+                if (missingFiles) bits.push(missingFiles + ' 个文件不在原位');
+                btn.title = bits.join('，') + '，点这里修复';
+            }
             btn.classList.toggle('text-amber-400', drifted);
         }
         if (drifted && notify && !folderDriftNotified) {
@@ -736,7 +744,8 @@ async function syncLibraryFolders() {
     try {
         const health = await checkFolderDrift();
         if (!health) { showNotification('无法读取目录状态', 'error'); return; }
-        if (!health.missing_count) {
+        // 文件级也要算：目录还在但个别文件被移走时 missing_count 是 0（11-04）
+        if (!health.missing_count && !health.missing_file_count) {
             showNotification(`目录与磁盘一致（${health.total_dirs} 个目录）`, 'success');
             return;
         }
@@ -744,7 +753,7 @@ async function syncLibraryFolders() {
         const ok = confirm(
             `检测到 ${health.missing_count} 个目录在磁盘上不存在，涉及 ${health.missing_files} 个文件。\n\n` +
             sample + (health.missing_count > 5 ? '\n…' : '') +
-            '\n\n是否扫描磁盘、按「同名同大小」把路径修回来？\n（只改数据库路径，不动磁盘文件）'
+            '\n\n是否扫描磁盘、按「同名同大小」把路径修回来？（能修回的保留原有向量和标签）\n（只改数据库路径，不动磁盘文件）'
         );
         if (!ok) return;
         const roots = health.root ? [health.root] : [];

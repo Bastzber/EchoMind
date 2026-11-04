@@ -50,18 +50,45 @@ def common_root(paths: Iterable[str]) -> str:
     return os.path.dirname(prefix)
 
 
+def detect_missing_files(paths: Iterable[str], limit: int = 200) -> tuple:
+    """找出磁盘上已经不存在的**单个文件**。
+
+    目录级检测（detect_missing）抓不到「文件夹还在、里面个别文件被移走」这种情况：
+    用户把几个音效从 A 文件夹拖到 B 文件夹，A 还在，于是 missing_count=0，
+    界面显示「目录与磁盘一致」，但列表里点不响、波形显示感叹号（11-04 实测）。
+
+    返回 (缺失数量, 样本列表)。19 万个 os.path.exists 在 SSD 上约 1~2 秒。
+    """
+    missing: List[str] = []
+    total = 0
+    for path in paths:
+        text = str(path or "")
+        if not text:
+            continue
+        if os.path.exists(text):
+            continue
+        total += 1
+        if len(missing) < limit:
+            missing.append(text)
+    return total, missing
+
+
 def folder_health(paths: Iterable[str], limit: int = 200) -> Dict[str, object]:
-    """一次算完：目录总数、缺失目录、涉及文件数、库根。"""
+    """一次算完：目录总数、缺失目录、缺失文件、库根。"""
     path_list = [str(p) for p in paths if p]
     directories = collect_directories(path_list)
     missing = detect_missing(directories)
     missing_files = sum(int(item["files"]) for item in missing)
+    missing_file_count, missing_file_sample = detect_missing_files(path_list, limit)
     return {
         "total_files": len(path_list),
         "total_dirs": len(directories),
         "missing_count": len(missing),
         "missing_files": missing_files,
         "missing": missing[: max(1, int(limit))],
+        # 文件级：文件夹还在但里面的文件被移走时，这里才有数
+        "missing_file_count": int(missing_file_count),
+        "missing_file_sample": missing_file_sample[: max(1, int(limit))],
         "root": common_root(path_list),
-        "healthy": not missing,
+        "healthy": not missing and missing_file_count == 0,
     }

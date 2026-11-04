@@ -41,11 +41,10 @@ function addChatMessage(html, isUser = false) {
     lucide.createIcons();
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+// escapeHtml 已挪到 utils.js（最早加载），这里不再定义。
+// 原因：它原来只在本文件定义、其它脚本靠全局取用，一旦本文件加载失败全站渲染都崩；
+// 而且旧实现走 textContent→innerHTML 只转 & < >，不转引号，
+// 用在属性上下文（title="..."、data-path="..."）时一个引号就能注入属性。
 
 function addLoadingMessage() {
     const container = document.getElementById('chatMessages');

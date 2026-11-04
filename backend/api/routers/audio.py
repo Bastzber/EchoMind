@@ -87,6 +87,17 @@ class StemsSaveRequest(BaseModel):
     overwrite: bool = False
 
 
+def _library_roots_for_guard() -> list:
+    """素材库根目录（路径边界校验用），从索引读，不信请求。"""
+    import config as _config
+
+    try:
+        project_id = getattr(_config, "CURRENT_PROJECT_ID", "default")
+        return get_db_manager().list_library_roots(project_id)
+    except Exception:
+        return []
+
+
 @router.post("/api/v1/audio/export-effect")
 async def export_effect_endpoint(payload: EffectExportRequest):
     """处理并落盘：默认输出到原文件同目录 <名字>_<预设>.wav。"""
@@ -95,14 +106,27 @@ async def export_effect_endpoint(payload: EffectExportRequest):
 
     if not payload.path:
         raise HTTPException(status_code=422, detail="path 不能为空")
+    # 边界：源文件和输出目录都必须在素材库内。
+    # out_dir 不设防等于「可往任意可写目录落盘」，而同机进程都能调这个接口。
+    from core.path_guard import PathOutsideLibrary, resolve_in_library
+
+    roots = _library_roots_for_guard()
+    try:
+        safe_source = resolve_in_library(payload.path, roots, field="path")
+        safe_out = (
+            resolve_in_library(payload.out_dir, roots, field="out_dir")
+            if payload.out_dir else safe_source.parent
+        )
+    except PathOutsideLibrary as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     loop = asyncio.get_running_loop()
     wet = -1.0 if payload.wet is None else float(payload.wet)
     result = await loop.run_in_executor(None, apply_effect, payload.path, payload.preset, wet)
     if not result.get("ok"):
         raise SoundBotAPIError("effect_failed", str(result.get("error") or "处理失败"), status_code=500)
 
-    source = Path(payload.path)
-    out_dir = Path(payload.out_dir) if payload.out_dir else source.parent
+    source = safe_source
+    out_dir = safe_out
     out_dir.mkdir(parents=True, exist_ok=True)
     preset_name = (PRESETS.get(payload.preset) or {}).get("name") or payload.preset
     target = out_dir / f"{source.stem}_{preset_name}.wav"

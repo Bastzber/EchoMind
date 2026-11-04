@@ -139,6 +139,17 @@ async def decode_test(path: str = Query(...)):
 
     from pathlib import Path as _Path
 
+    # 边界：path 来自查询参数，谁都能传。不加限制的话，这个接口就是
+    # 「对机器上任意文件跑一遍完整解码链路」的入口（CPU/内存都能被拉满）。
+    from core.path_guard import is_inside as _path_is_inside
+
+    try:
+        _roots = get_db_manager().list_library_roots(getattr(config, "CURRENT_PROJECT_ID", "default"))
+    except Exception:
+        _roots = []
+    if not _path_is_inside(path, _roots):
+        raise HTTPException(status_code=403, detail="只允许诊断素材库内的文件：" + str(path))
+
     source = _Path(path)
     if not source.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")

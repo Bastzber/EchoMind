@@ -209,13 +209,32 @@ async def files_meta_endpoint(payload: FileMetaRequest):
     return {"success": True, "items": items}
 
 
+def _library_roots_for_guard() -> list:
+    """素材库根目录（路径边界校验用），从索引读，不信请求。"""
+    import config as _config
+
+    try:
+        project_id = getattr(_config, "CURRENT_PROJECT_ID", "default")
+        return get_db_manager().list_library_roots(project_id)
+    except Exception:
+        return []
+
+
 @router.post("/api/v1/files/copy")
 async def files_copy_endpoint(payload: FileCopyRequest):
     """把生成的语音等文件另存到用户指定位置。"""
     import shutil
 
-    src = Path(payload.source)
-    dest = Path(payload.destination)
+    # source 与 destination 都来自请求体，谁都能构造。
+    # 不设边界的话，同机任意进程或经 CORS 进来的页面都能借这里写任意目录。
+    from core.path_guard import PathOutsideLibrary, resolve_in_library
+
+    roots = _library_roots_for_guard()
+    try:
+        src = resolve_in_library(payload.source, roots, field="source")
+        dest = resolve_in_library(payload.destination, roots, field="destination")
+    except PathOutsideLibrary as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     if not src.is_file():
         raise HTTPException(status_code=404, detail="源文件不存在")
     if not dest.parent.is_dir():

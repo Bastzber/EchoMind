@@ -1579,6 +1579,22 @@ async def delete_broken_file(path: str, delete_source: bool = Query(default=Fals
     if not delete_source:
         return await delete_db_file(path)
 
+    # 边界：这个 path 来自 URL 路径参数，谁都能构造。
+    # 只许删素材库里的文件 —— 否则一个请求就能把用户任意目录下的东西送进回收站。
+    from core.path_guard import PathOutsideLibrary
+    from core.path_guard import is_inside as _path_is_inside
+
+    _guard_project = getattr(config, "CURRENT_PROJECT_ID", "default")
+    try:
+        _guard_roots = get_db_manager().list_library_roots(_guard_project)
+    except Exception:
+        _guard_roots = []
+    if not _path_is_inside(path, _guard_roots):
+        raise HTTPException(
+            status_code=403,
+            detail="这个路径不在素材库范围内，已拒绝删除：" + str(path),
+        )
+
     # 删源文件前先重探一次：能读出来的文件一律不删（F1 的兜底，
     # 面板可能是旧状态，别让误判把有效音频送进回收站）
     from core import broken_files as _broken_files

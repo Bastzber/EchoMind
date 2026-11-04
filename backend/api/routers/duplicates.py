@@ -90,6 +90,19 @@ async def merge_duplicates_into_tags(payload: Dict[str, Any], project_id: str = 
     if not keep_path or not remove_paths:
         raise HTTPException(status_code=422, detail="keep_path 和 paths 都不能为空")
 
+    # 边界：这些 path 全来自请求体，而且 delete_source 默认是 True。
+    # 没这道校验，一个请求就能把任意目录的文件送进回收站。
+    from core.path_guard import is_inside as _path_is_inside
+
+    try:
+        _guard_roots = get_db_manager().list_library_roots(project_id)
+    except Exception:
+        _guard_roots = []
+    _checked = [keep_path] + remove_paths
+    _outside = [p for p in _checked if not _path_is_inside(p, _guard_roots)]
+    if _outside:
+        raise HTTPException(status_code=403, detail="有路径不在素材库范围内，已拒绝：" + _outside[0])
+
     db_manager = get_db_manager()
 
     derived = []

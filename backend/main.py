@@ -765,9 +765,15 @@ async def unhandled_error_handler(_request, exc: Exception):
     )
 
 # 添加 CORS 中间件
+# allow_origins 是精确字符串匹配，写 "http://127.0.0.1:*" 一条都不会命中——
+# 审计实测过：那些带 * 的条目形同虚设，真正生效的只有字面量 null。
+# 这里改成显式列举 + 正则兜住端口，让每一条都真的在起作用。
+# null 必须留着：主窗口是 loadFile 加载的，页面 Origin 就是 null，
+# 去掉它界面所有直连请求都会被浏览器拦掉。真正的防线是 API_TOKEN（见下）。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
+    allow_origin_regex=config.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-EchoMind-Token"],

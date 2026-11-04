@@ -2,6 +2,15 @@
  * 从 index.html 原样搬出的完整顶层函数。
  */
 async function showVoiceLibraryModal(options = {}) {
+    // 重新打开时先把上一轮的试听停掉：这里是直接 remove 旧面板，不走 closeOverlay，
+    // 声音会留在背景里继续响（11-04 反馈「关掉界面还有声音」的一种路径）。
+    try {
+        if (typeof audioPlayer !== 'undefined' && audioPlayer) {
+            audioPlayer.pause();
+            audioPlayer.src = '';
+        }
+        if (typeof isPlaying !== 'undefined') isPlaying = false;
+    } catch (_e) { /* 播放器还没初始化过 */ }
     document.getElementById('voiceLibOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'voiceLibOverlay';
@@ -29,6 +38,8 @@ async function showVoiceLibraryModal(options = {}) {
             if (audioPlayer) {
                 audioPlayer.pause();
                 audioPlayer.removeAttribute('src');
+                audioPlayer.src = '';
+                try { audioPlayer.currentTime = 0; } catch (_e) {}
                 audioPlayer.load();
             }
             isPlaying = false;

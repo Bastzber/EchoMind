@@ -1,6 +1,18 @@
 /* utils.js —— 工具函数
  * 从 index.html 原样搬出的完整顶层函数。
  */
+// HTML 转义：五个字符全转（含单双引号），这样它能同时用在文本节点和属性值里。
+// 旧实现走 textContent→innerHTML，只转 & < >，属性上下文里一个引号就能注入。
+// 放在 utils.js 是因为它最早加载，避免别的脚本靠「全局侥幸」拿到它。
+function escapeHtml(text) {
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;

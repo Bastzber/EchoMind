@@ -184,13 +184,17 @@ API_PREFIX = "/api/v1"
 # 去掉它界面所有直连请求都会被浏览器拦掉。
 # 所以防线不设在 CORS 上，改为 API_TOKEN 鉴权（见 main.py 的 require_api_token）：
 # 恶意页面即使能发请求、能过 CORS，没有 token 也拿不到任何数据。
+# CORSMiddleware 的 allow_origins 是精确匹配，不接受通配符。
+# 所以带 * 的写法一条都不生效（审计实测确认），这里拆成两部分：
+#   精确值  -> 那些真正需要逐字匹配的来源
+#   正则    -> 本机任意端口的 http / electron 页面
 CORS_ORIGINS = [
-    "http://127.0.0.1:*",
-    "http://localhost:*",
-    "electron://*",
-    "file://*",
-    "null",
+    "null",          # loadFile 加载的界面，Origin 就是字面量 null
+    "file://",
 ]
+
+# 本机回环的任意端口，以及 electron 自定义来源
+CORS_ORIGIN_REGEX = r"^(https?://(127\.0\.0\.1|localhost|\[::1\]):\d+|electron://.*|file://.*)$"
 
 # 主进程启动后端时注入的一次性令牌。为空表示不校验（仅开发调试用）。
 # 有值时 /api/v1/* 全部要求 X-EchoMind-Token 头匹配。

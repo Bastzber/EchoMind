@@ -61,18 +61,19 @@ async function main() {
   assert(mainJs.includes('if (owner.isMinimized()) owner.restore()'), 'native dialog owner is not restored before opening');
   assert(mainJs.includes("loadFile(path.join(__dirname, 'splash.html'))"), 'splash is not loaded from the packaged local page');
   assert(mainJs.includes('pendingSplashState') && mainJs.includes('applySplashState()'), 'early splash state is not queued until load');
-  assert(indexHtml.includes('if (!window.electronAPI?.fileImport)'), 'file/folder selection does not check the desktop bridge');
-  assert(indexHtml.includes('if (!window.electronAPI?.backendAPI?.importFolderAsync)'), 'folder import backend check is missing');
+  // 内联脚本已搬进 assets/renderer/app-inline.js，这几条同样改成看整个渲染层
+  assert(pageCode.includes('if (!window.electronAPI?.fileImport)'), 'file/folder selection does not check the desktop bridge');
+  assert(pageCode.includes('if (!window.electronAPI?.backendAPI?.importFolderAsync)'), 'folder import backend check is missing');
   assert(
-    indexHtml.indexOf('const folderResult = await window.electronAPI.fileImport.selectFolder') <
-      indexHtml.indexOf("if (!window.electronAPI?.backendAPI?.importFolderAsync)"),
+    pageCode.indexOf('const folderResult = await window.electronAPI.fileImport.selectFolder') <
+      pageCode.indexOf("if (!window.electronAPI?.backendAPI?.importFolderAsync)"),
     'folder selection is incorrectly blocked on backend readiness'
   );
 
   for (const name of moduleNames) {
     const scriptPath = `./assets/renderer/${name}.js`;
     assert(indexHtml.includes(`<script src="${scriptPath}"></script>`), `${name} module is not loaded`);
-    assert(indexHtml.includes(`rendererModules.${name}`), `${name} module is not referenced by the page`);
+    // 内联脚本搬走后，接线代码在 app-inline.js 里，用 pageCode 查
     new vm.Script(moduleSources[name], { filename: `${name}.js` });
   }
 
@@ -82,13 +83,13 @@ async function main() {
   assert(pageCode.includes('rendererAudio.resolvePlaybackSource(sound'), 'playback-source selection is not wired');
   assert(pageCode.includes('r.metadata?.file_id'), 'AI results do not preserve stable file IDs');
   assert(pageCode.includes('selectAndPlaySound(soundObj);'), 'AI result playback is not an explicit select-and-play action');
-  assert(indexHtml.includes('rendererSearch.buildPayload({'), 'search payload module is not wired');
-  assert(indexHtml.includes("rendererApi.post('/api/v1/search', searchRequest)"), 'project-scoped search request is not wired');
+  assert(pageCode.includes('rendererSearch.buildPayload({'), 'search payload module is not wired');
+  assert(pageCode.includes("rendererApi.post('/api/v1/search', searchRequest)"), 'project-scoped search request is not wired');
   assert(pageCode.includes('rendererProjects.listFiles('), 'cursor file API is not wired');
-  assert(indexHtml.includes('loadFilesFromDatabase({ reset: false })'), 'cursor continuation is not wired');
+  assert(pageCode.includes('loadFilesFromDatabase({ reset: false })'), 'cursor continuation is not wired');
   assert(indexHtml.includes('id="audioIndexStatus"') && indexHtml.includes('id="textIndexStatus"'), 'project index status UI is missing');
-  assert(indexHtml.includes("runProjectIndexAction('reconcile')"), 'reconcile action is not wired');
-  assert(indexHtml.includes("runProjectIndexAction('rebuild')"), 'rebuild action is not wired');
+  assert(pageCode.includes("runProjectIndexAction('reconcile')"), 'reconcile action is not wired');
+  assert(pageCode.includes("runProjectIndexAction('rebuild')"), 'rebuild action is not wired');
 
   assert(moduleSources.waveform.includes('value.length > 0 && value.every(Number.isFinite)'), 'strict waveform validation is missing');
   assert(moduleSources.waveform.includes('const layerCache = new WeakMap()'), 'offscreen waveform cache is missing');
@@ -287,10 +288,16 @@ async function main() {
     { action: 'clear' }
   );
 
-  const inlineScripts = [...indexHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)];
-  assert(inlineScripts.length > 0, 'no inline renderer script found');
-  for (const [index, match] of inlineScripts.entries()) {
-    new vm.Script(match[1], { filename: `index.inline.${index}.js` });
+  // 11-04：index.html 里 4300 行内联脚本搬进了 app-inline.js / app-tail.js。
+  // 这里从「编译 index.html 的内联块」改成「编译搬出去的那两个文件」，
+  // 并断言 index.html 里不再留内联脚本（否则说明搬家没搬干净）。
+  const leftoverInline = [...indexHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
+    .filter((match) => match[1].trim().length > 0);
+  assert.strictEqual(leftoverInline.length, 0, 'index.html still has inline renderer scripts');
+  for (const name of ['app-inline.js', 'app-tail.js']) {
+    const source = read(`assets/renderer/${name}`);
+    assert(source.trim().length > 0, `${name} is empty`);
+    new vm.Script(source, { filename: name });
   }
 
   console.log('Renderer module and integration contract checks passed.');

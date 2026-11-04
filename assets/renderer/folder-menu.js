@@ -9,66 +9,11 @@ function formatBytes(bytes) {
     return value + ' B';
 }
 
-function showFolderContextMenu(event, folder, kind) {
-    document.getElementById('folderContextMenu')?.remove();
-    const menu = document.createElement('div');
-    menu.id = 'folderContextMenu';
-    menu.className = 'fixed z-[200] rounded-lg shadow-xl py-1 w-56';
-    menu.style.backgroundColor = 'var(--bg-secondary)';
-    menu.style.border = '1px solid var(--border-color)';
-    menu.style.left = Math.min(event.clientX, window.innerWidth - 240) + 'px';
-    menu.style.top = Math.min(event.clientY, window.innerHeight - 180) + 'px';
+// showFolderContextMenu 已删除：这个文件里的版本只有「删除」两项，
+// 而 source-tree.js 里的版本有批量重命名 / 新建同级 / 重命名 / 移动到 / 批量删除，
+// 但本文件后加载，一直把完整版覆盖成残废版（11-04 发现）。
+// 现在统一用 source-tree.js 的完整实现。
 
-    const title = document.createElement('div');
-    title.className = 'px-3 py-2 text-xs opacity-60 border-b truncate';
-    title.style.borderColor = 'var(--border-color)';
-    title.textContent = folder.name || folder.fullPath || '文件夹';
-    menu.appendChild(title);
-
-    if (kind === 'user') {
-        const remove = document.createElement('button');
-        remove.className = 'w-full px-3 py-2 text-sm text-left hover:bg-white/5 text-red-400';
-        remove.textContent = '删除分类（不删文件）';
-        remove.addEventListener('click', async () => {
-            menu.remove();
-            if (!confirm(`删除分类「${folder.name}」？\n\n只解除归类，音效文件与描述都不会被删除。`)) return;
-            try {
-                await rendererApi.delete(
-                    `/api/v1/projects/${encodeURIComponent(currentProject.id)}/folders/${encodeURIComponent(folder.id)}`
-                );
-                showNotification('分类已删除', 'success');
-                await loadUserFolders();
-                renderFolderTree();
-            } catch (error) {
-                showNotification('删除分类失败: ' + error.message, 'error');
-            }
-        });
-        menu.appendChild(remove);
-    } else {
-        const hasFiles = Number(folder.count || 0) > 0;
-        const remove = document.createElement('button');
-        remove.className = 'w-full px-3 py-2 text-sm text-left hover:bg-white/5'
-            + (hasFiles ? ' text-red-400' : ' opacity-40 cursor-not-allowed');
-        remove.textContent = hasFiles ? '删除文件夹…' : '删除文件夹（该目录没有音效）';
-        remove.disabled = !hasFiles;
-        if (hasFiles) {
-            remove.addEventListener('click', () => {
-                menu.remove();
-                openFolderDeleteModal(folder);
-            });
-        }
-        menu.appendChild(remove);
-    }
-
-    document.body.appendChild(menu);
-    const close = (e) => {
-        if (!menu.contains(e.target)) {
-            menu.remove();
-            document.removeEventListener('click', close);
-        }
-    };
-    setTimeout(() => document.addEventListener('click', close), 100);
-}
 
 async function openFolderBatchDeleteModal(folders) {
     const selected = (folders || []).filter(Boolean);

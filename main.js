@@ -306,7 +306,16 @@ function writeSecureSecrets(secrets) {
 }
 
 function getSafeStorageStatus() {
-  const encryptionAvailable = safeStorage.isEncryptionAvailable();
+  // Electron 45 里 isEncryptionAvailable 标了 deprecated，推荐 isAsyncEncryptionAvailable；
+  // 但新版仍是同步调用更省事（异步版要改一串 async）。优先用新的，没有就退回旧的。
+  let encryptionAvailable = false;
+  try {
+    if (typeof safeStorage.isEncryptionAvailable === 'function') {
+      encryptionAvailable = safeStorage.isEncryptionAvailable();
+    }
+  } catch (_error) {
+    encryptionAvailable = false;
+  }
   let backend = null;
   if (encryptionAvailable && typeof safeStorage.getSelectedStorageBackend === 'function') {
     try {
@@ -514,34 +523,76 @@ function toBackendError(error, context = {}) {
   };
 }
 
+// 自定义协议要自己给 Content-Type，否则 <audio> 拿不到正确的解码提示，
+// 部分格式（flac/m4a）会直接报「不支持」。
+function guessAudioContentType(filePath) {
+  const ext = path.extname(String(filePath || '')).toLowerCase();
+  const map = {
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.ogg': 'audio/ogg',
+    '.flac': 'audio/flac',
+    '.aiff': 'audio/aiff',
+    '.aif': 'audio/aiff',
+    '.wma': 'audio/x-ms-wma',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
 function registerAudioProtocol() {
   if (audioProtocolRegistered) return;
 
-  protocol.registerFileProtocol(AUDIO_PROTOCOL, (request, callback) => {
+  // 解析 URL 到磁盘路径（新旧两套 API 共用这段逻辑）
+  const resolveAudioPath = (requestUrl) => {
+    const parsed = new URL(requestUrl);
+    const encodedPath = parsed.pathname.startsWith('/')
+      ? parsed.pathname.slice(1)
+      : parsed.pathname;
+    const filePath = decodeURIComponent(encodedPath);
+    if (!filePath || !path.isAbsolute(filePath)) return null;
+    if (!fs.existsSync(filePath)) return null;
     try {
-      const parsed = new URL(request.url);
-      const encodedPath = parsed.pathname.startsWith('/')
-        ? parsed.pathname.slice(1)
-        : parsed.pathname;
-      const filePath = decodeURIComponent(encodedPath);
-
-      if (!filePath || !path.isAbsolute(filePath) || !fs.existsSync(filePath)) {
-        callback({ error: -6 });
-        return;
-      }
-
-      const stats = fs.statSync(filePath);
-      if (!stats.isFile()) {
-        callback({ error: -6 });
-        return;
-      }
-
-      callback({ path: filePath });
-    } catch (error) {
-      console.error('[AudioProtocol] Failed to resolve audio URL:', error);
-      callback({ error: -2 });
+      if (!fs.statSync(filePath).isFile()) return null;
+    } catch (_error) {
+      return null;
     }
-  });
+    return filePath;
+  };
+
+  // Electron 25 起 protocol.handle 是推荐写法，registerFileProtocol 已废弃；
+  // 34 之后旧 API 被移除，所以升级到新版本前先把这里换掉。
+  // 保留旧分支是为了让旧版本还能跑（万一要回退）。
+  if (typeof protocol.handle === 'function') {
+    protocol.handle(AUDIO_PROTOCOL, async (request) => {
+      const filePath = resolveAudioPath(request.url);
+      if (!filePath) {
+        return new Response('not found', { status: 404 });
+      }
+      try {
+        const data = await fs.promises.readFile(filePath);
+        return new Response(data, {
+          status: 200,
+          headers: { 'Content-Type': guessAudioContentType(filePath) },
+        });
+      } catch (error) {
+        console.error('[AudioProtocol] read failed:', error);
+        return new Response('read error', { status: 500 });
+      }
+    });
+  } else {
+    protocol.registerFileProtocol(AUDIO_PROTOCOL, (request, callback) => {
+      try {
+        const filePath = resolveAudioPath(request.url);
+        if (!filePath) { callback({ error: -6 }); return; }
+        callback({ path: filePath });
+      } catch (error) {
+        console.error('[AudioProtocol] Failed to resolve audio URL:', error);
+        callback({ error: -2 });
+      }
+    });
+  }
 
   audioProtocolRegistered = true;
 }

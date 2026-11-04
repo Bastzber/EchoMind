@@ -91,8 +91,15 @@ async function rescanLibraryInto(setBusy) {
             setBusy(false);
             return;
         }
-        const samples = (preview?.missing_sample || []).slice(0, 3).join('\n');
-        if (!confirm(`扫描了 ${preview.scanned} 个音频，其中 ${missing} 个磁盘上有、库里没有。\n\n库目录：${roots}\n示例：\n${samples}\n\n要把这 ${missing} 个补录进库吗？（补录后会自动计算哈希）`)) {
+        // 以前只列 3 条当示例，用户手上明明有 9 个，看不全（11-04 反馈）。
+        // 改成全列：50 条以内一次列完；超过 50 条列前 50 条，剩下的给个数。
+        const allMissing = preview?.missing_sample || [];
+        const shown = allMissing.slice(0, 50);
+        const samples = shown.map((item, i) => (i + 1) + '. ' + item).join('\n');
+        const moreLine = allMissing.length > shown.length
+            ? '\n…还有 ' + (allMissing.length - shown.length) + ' 个'
+            : '';
+        if (!confirm(`扫描了 ${preview.scanned} 个音频，其中 ${missing} 个磁盘上有、库里没有。\n\n库目录：${roots}\n\n清单（共 ${allMissing.length} 个）：\n${samples}${moreLine}\n\n要把这 ${missing} 个补录进库吗？（补录后会自动计算哈希）`)) {
             setBusy(false);
             return;
         }

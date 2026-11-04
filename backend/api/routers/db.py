@@ -857,6 +857,10 @@ async def start_library_rescan(payload: Dict[str, Any] = None, background_tasks:
                     known.add(canonicalize_path(str(path)))
         missing_count = 0
         samples: List[str] = []
+        # 以前只收 20 条样本，确认框里只能给用户看个「示例」；
+        # 手上几十个待补录的文件时看不全（11-04 反馈）。放到 200 条，
+        # 这个数量级塞进确认框还看得清，再多就在前端折成「还有 N 个」。
+        MAX_SAMPLES = 200
         scanned = 0
         for root_dir in roots:
             base = _Path(root_dir)
@@ -867,7 +871,7 @@ async def start_library_rescan(payload: Dict[str, Any] = None, background_tasks:
                     scanned += 1
                     if canonicalize_path(str(entry)) not in known:
                         missing_count += 1
-                        if len(samples) < 20:
+                        if len(samples) < MAX_SAMPLES:
                             samples.append(str(entry))
         return {
             "success": True,

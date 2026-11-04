@@ -22,8 +22,25 @@ async function showVoiceLibraryModal(options = {}) {
         '</div>'
     ].join('');
     document.body.appendChild(overlay);
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) overlay.remove(); });
-    overlay.querySelector('#voiceLibClose').addEventListener('click', () => overlay.remove());
+    // 关闭界面时把试听也停掉：以前只 remove 了 overlay，audioPlayer 还挂在全局，
+    // 声音会一直放到结束（11-04 反馈）。统一走 closeOverlay，三种关闭方式都停。
+    const stopPreview = () => {
+        try {
+            if (audioPlayer) {
+                audioPlayer.pause();
+                audioPlayer.removeAttribute('src');
+                audioPlayer.load();
+            }
+            isPlaying = false;
+        } catch (_) { /* 播放器没初始化过就跳过 */ }
+    };
+    const closeOverlay = () => {
+        stopPreview();
+        overlay.remove();
+    };
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeOverlay(); });
+    overlay.querySelector('#voiceLibClose').addEventListener('click', closeOverlay);
+    overlay.addEventListener('remove', stopPreview);
 
 
     const body = overlay.querySelector('#voiceLibBody');
@@ -33,6 +50,8 @@ async function showVoiceLibraryModal(options = {}) {
     const playPath = async (path) => {
         if (!path) return;
         if (!audioPlayer) initAudioPlayer();
+        // 连点两个「试听原声」时，先停上一条再放新的，不然会叠着响
+        try { audioPlayer.pause(); } catch (_) {}
         audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(path);
         audioPlayer.load();
         await audioPlayer.play().catch(() => { });

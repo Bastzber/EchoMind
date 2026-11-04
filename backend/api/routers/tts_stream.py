@@ -54,9 +54,17 @@ async def long_tts_defaults():
             if not ident:
                 continue
             voice_id = "echomind-" + ident
-            if voice_id not in saved:
-                continue
-            voices.append({"id": voice_id, "name": str(profile.get("name") or voice_id)})
+            name = str(profile.get("name") or voice_id)
+            # 以前这里要求 voice_id 已经在 Breeze 里注册过才列出来，结果
+            # Breeze 没启动、或者重启后丢了内存里的音色，下拉就是空的（11-04 反馈）。
+            # 改成档案里的音色全部列出来，没注册的标记 registered=False，
+            # 真正要用的时候（start_long_tts）再按需注册。
+            voices.append({
+                "id": voice_id,
+                "name": name,
+                "registered": voice_id in saved,
+                "profile_id": str(profile.get("id") or ""),
+            })
             matched.add(voice_id)
     except Exception as exc:
         logger.debug("读取音色档案失败: %s", exc)
@@ -95,6 +103,34 @@ async def start_long_tts(payload: LongTTSRequest):
 
     voice_id = (payload.voice_id or "").strip() or None
     instruction = (payload.instruction or "").strip() or None
+
+    # 选中的音色如果还没在 Breeze 里注册（比如 Breeze 重启后内存缓存丢了），
+    # 这里先按需注册一次，不然生成时会 404 unknown voice_id。
+    if voice_id:
+        try:
+            known = tts.list_saved_voices()
+        except Exception:
+            known = []
+        if voice_id not in known:
+            try:
+                from core.voice_clone import load_profiles
+
+                target = None
+                for profile in load_profiles():
+                    ident = "".join(
+                        ch for ch in str(profile.get("id") or "")
+                        if ch.isascii() and ch.isalnum()
+                    )[:12]
+                    if ident and ("echomind-" + ident) == voice_id:
+                        target = profile
+                        break
+                if target is not None:
+                    registered = tts.register_saved_voice(target, voice_id)
+                    if registered:
+                        voice_id = registered
+                        logger.info("[TTS-Long] 已按需注册音色 %s", voice_id)
+            except Exception as exc:
+                logger.warning("[TTS-Long] 按需注册音色失败: %s", exc)
     split = int(payload.split_chars or 0) or tts.SPLIT_CHARS
     split = max(40, min(600, split))
 

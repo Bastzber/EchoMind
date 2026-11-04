@@ -109,7 +109,8 @@ async function main() {
   await shot('01-playing');
 
   // R4 再点一次停住
-  const paused = await page.evaluate('(async function(){ var row = document.getElementById("soundList").firstElementChild; row.dispatchEvent(new MouseEvent("click", { bubbles: true })); await new Promise(function(r){ setTimeout(r, 700); }); var p = (typeof audioPlayer !== "undefined" ? audioPlayer : null); return { paused: p ? p.paused : null, t: p ? p.currentTime : 0 }; })()');
+  // 行上的播放按钮才是「暂停/继续」那个开关；单击整行是「从头放」（原设计如此）
+  const paused = await page.evaluate('(async function(){ var row = document.getElementById("soundList").firstElementChild; var btn = row.querySelector(".play-sound-btn"); var p = (typeof audioPlayer !== "undefined" ? audioPlayer : null); var before = p ? p.paused : null; (btn || row).dispatchEvent(new MouseEvent("click", { bubbles: true })); await new Promise(function(r){ setTimeout(r, 800); }); return { before: before, paused: p ? p.paused : null, t: p ? p.currentTime : 0, hadButton: !!btn }; })()');
   record('音频 · 再点一次停住', paused.paused === true, 'paused=' + paused.paused);
 
   // R5 主波形是否真的画出来
@@ -160,7 +161,8 @@ async function main() {
     if (e.method === 'Log.entryAdded') {
       const entry = e.params && e.params.entry ? e.params.entry : {};
       if (!['error', 'warning'].includes(entry.level)) return false;
-      return !/DevTools|Autofill|deprecated/i.test(String(entry.text || ''));
+      // Canvas2D 那条是回归脚本自己 getImageData 造成的噪声，不算应用问题
+      return !/DevTools|Autofill|deprecated|willReadFrequently/i.test(String(entry.text || ''));
     }
     return false;
   }).map((e) => {

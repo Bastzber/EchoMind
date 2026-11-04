@@ -6,9 +6,6 @@
  */
 
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, protocol, shell, safeStorage, clipboard } = require('electron');
-// electron 的 net 和 node 的 net 重名，这里改名，别让下面那行把协议处理器搞坏
-const electronNet = require('electron').net;
-const { pathToFileURL } = require('url');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
@@ -620,15 +617,15 @@ function registerAudioProtocol() {
       if (!filePath) {
         return new Response('not found', { status: 404 });
       }
-      // 用 net.fetch(file://) 而不是 readFile 再塞进 Response：
-      // 直接返回 Buffer 时响应是「不知道总长度」的流，音频元素算不出时长，
-      // 播放条上就会显示 Infinity:NaN:NaN，也没法拖动进度。
-      // net.fetch 会带 Content-Length 和支持 Range 的语义，时长和拖动都正常。
-      try {
-        return await electronNet.fetch(pathToFileURL(filePath).toString());
-      } catch (error) {
-        console.warn('[AudioProtocol] net.fetch failed, falling back to buffer:', error?.message || error);
-      }
+      // 这里必须自己读成 Buffer 并显式给 Content-Length。
+      // 换成 net.fetch(file://) 或者不带长度的流，Chromium 拿不到总字节数，
+      // 音频元素算出的 duration 就是 Infinity —— 播放条显示 Infinity:NaN:NaN，
+      // 点波形跳转时 currentTime 被设成 NaN，直接抛
+      // "Failed to set the 'currentTime' ... non-finite" 红条。
+      // 11-04 实测（同一个 mp3，三种写法）：
+      //   net.fetch            → duration = Infinity
+      //   读 Buffer + 带长度    → duration = 190.0112  ✅
+      //   registerFileProtocol → duration = 190.0112  ✅（Electron 45 已移除，不用）
       try {
         const data = await fs.promises.readFile(filePath);
         return new Response(data, {

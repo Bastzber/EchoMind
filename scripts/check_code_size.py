@@ -30,7 +30,9 @@ KNOWN_DEBT = {
     # 4,258 是 10-29 的基线；之后未经登记长到 4,332，10-31 清理孤儿工件注释再 +5。
     # 这里按实测收口，从此只允许变短。
     "backend/core/database.py": 4478,   # 11-04：工件计数缓存 + 标签统计 json_each/缓存（+53）
-    "backend/core/search_engine.py": 1800,
+    # 11-04：把「引擎指纹检查」从事件循环里挪到线程（+1 行），换来搜索不再卡 3 秒一次。
+    # 这次是实打实的功能需要，按实测收口到 1801，之后仍只允许变短。
+    "backend/core/search_engine.py": 1801,
     # 11-04：index.html 的 4301 行内联脚本拆成 app-core / app-ui / app-data 三段。
     # app-data 里是大量 const fn = () => {} 形式，行内切点不好找，先保持。
     "assets/renderer/app-data.js": 2415,

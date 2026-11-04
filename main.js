@@ -233,15 +233,48 @@ function initializeMainLogging() {
       fs.renameSync(mainLogPath, previous);
     }
     const stream = fs.createWriteStream(mainLogPath, { flags: 'a', encoding: 'utf8' });
+    // 日志攒着写。
+    // 老写法是一条日志一次 stream.write，索引/检索跑起来一秒几十上百条，
+    // 全是同步小写入，白磨硬盘还占着事件循环。现在先进内存队列，
+    // 攒够 64 KB 或者过 400 毫秒再一次性落盘；退出前强制冲一次。
+    const LOG_FLUSH_MS = 400;
+    const LOG_FLUSH_BYTES = 64 * 1024;
+    let pendingLines = [];
+    let pendingBytes = 0;
+    let flushTimer = null;
+    const flushLogs = () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (!pendingLines.length) return;
+      const chunk = pendingLines.join('');
+      pendingLines = [];
+      pendingBytes = 0;
+      try {
+        stream.write(chunk);
+      } catch (_error) {
+        // 写不进就算了，日志不能反过来拖垮程序
+      }
+    };
+    const scheduleFlush = () => {
+      if (flushTimer) return;
+      flushTimer = setTimeout(flushLogs, LOG_FLUSH_MS);
+      if (typeof flushTimer.unref === 'function') flushTimer.unref();
+    };
     for (const level of ['log', 'warn', 'error']) {
       console[level] = (...args) => {
         original[level](...args);
         const message = args.map(formatDiagnosticValue).join(' ');
-        stream.write(
-          `${new Date().toISOString()} | ${level.toUpperCase()} | ${redactDiagnosticText(message)}\n`
-        );
+        const line = `${new Date().toISOString()} | ${level.toUpperCase()} | ${redactDiagnosticText(message)}\n`;
+        pendingLines.push(line);
+        pendingBytes += line.length;
+        if (pendingBytes >= LOG_FLUSH_BYTES) flushLogs();
+        else scheduleFlush();
       };
     }
+    app.on('before-quit', flushLogs);
+    process.on('exit', flushLogs);
     process.on('uncaughtExceptionMonitor', error => {
       console.error('[Main] Uncaught exception:', error);
     });
@@ -1055,7 +1088,13 @@ async function waitForBackendHealth(timeoutMs = 300000, onProgress = null) {
     const controller = new AbortController();
     const requestTimer = setTimeout(() => controller.abort(), 2000);
     try {
-      const res = await fetch(`${apiBaseUrl}/health`, { signal: controller.signal });
+      // /api/v1/health 也在令牌闸门后面（H1 把 /api/v1/* 全收了）。
+      // 不带这个头，新后端一律 401，健康检查永远不通过 —— 老的后端 exe 没有这道闸门，
+      // 所以「重打后端」之后才会暴露：这正是 11-04 这台机器上打不开的原因之一。
+      const res = await fetch(`${apiBaseUrl}/health`, {
+        signal: controller.signal,
+        headers: backendApiToken ? { 'X-EchoMind-Token': backendApiToken } : {}
+      });
       if (res.ok) {
         const payload = await res.json().catch(() => null);
         if (payload?.status === 'degraded' && payload?.audio_decoder_available === false) {
@@ -1216,9 +1255,14 @@ async function requestBackendJson(url, options = {}) {
   const timeoutMs = Number(options.timeoutMs || 60000);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // 走 IPC 代理的每一个后端请求都得带令牌。
+  // 老的后端 exe 没有这道闸门，所以一直没人发现这里漏了；换成 beta.20 之后
+  // 界面上一片 401（列表、波形、标签全拿不到），才暴露出来。
+  const authHeaders = backendApiToken ? { 'X-EchoMind-Token': backendApiToken } : {};
+  const mergedHeaders = { ...authHeaders, ...(options.headers || {}) };
   let response;
   try {
-    response = await fetch(url, { ...options, signal: options.signal || controller.signal });
+    response = await fetch(url, { ...options, headers: mergedHeaders, signal: options.signal || controller.signal });
   } catch (error) {
     if (error && error.name === 'AbortError') {
       const timeoutError = new Error('后端无响应（可能正在索引），请稍后重试');
@@ -1624,6 +1668,34 @@ async function stopBackend() {
 }
 
 // ==================== 窗口管理 ====================
+
+// 后端接口令牌：除了渲染层自己在请求头里带一份，这里再兜一层。
+// 页面里有些请求根本不经过 api.js —— 启动阶段那几个预热请求、
+// 以及 <audio>/<img> 这类由浏览器直接发的资源请求，都没法自己加头；
+// 换成带令牌闸门的 beta.20 后端之后，它们就是一片 401（日志实测四条：
+// broken-files / effect-presets / assistant-events / favorites）。
+// 在主进程的会话层统一补头，只补 127.0.0.1 和 localhost 的 /api/ 请求，令牌不外泄。
+let backendAuthHeaderInstalled = false;
+function installBackendAuthHeader() {
+  if (backendAuthHeaderInstalled) return;
+  try {
+    const { session } = require('electron');
+    // 过滤交给回调里的正则判断：URL 匹配模式对端口不敏感，写 127.0.0.1 带不带端口都容易漏，
+    // 用 <all_urls> 全量过一遍回调，只对回环地址的 /api/ 请求补头。
+    const filter = { urls: ['<all_urls>'] };
+    session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+      const requestHeaders = { ...(details.requestHeaders || {}) };
+      const isApi = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api\//i.test(details.url || '');
+      if (isApi && backendApiToken) {
+        requestHeaders['X-EchoMind-Token'] = backendApiToken;
+      }
+      callback({ requestHeaders });
+    });
+    backendAuthHeaderInstalled = true;
+  } catch (error) {
+    console.warn('[Backend] 安装令牌注入头失败:', error?.message || error);
+  }
+}
 
 function applyCSP(win) {
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
@@ -3135,6 +3207,7 @@ function closeSplashWindow() {
 app.whenReady().then(async () => {
   initializeMainLogging();
   registerAudioProtocol();
+  installBackendAuthHeader();
   await primeSafeStorageStatus();
 
   // 创建启动窗口

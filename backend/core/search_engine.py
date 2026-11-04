@@ -1462,8 +1462,9 @@ class OptimizedAudioSearcher(AudioSearcher):
             and not self.needs_rebuild
             and int(self.collection.count()) > 0
             and artifact_counts["audio_vector"]["ready"] > 0
-            and self.is_compatible_with(audio_fingerprint)
         )
+        if audio_available:  # 指纹检查会扫 collection，丢线程里做
+            audio_available = await self.is_compatible_with_async(audio_fingerprint)
         if audio_available:
             # CLAP 文本塔以英文为主，中文查询几乎无信号（实测"下雨的声音"
             # 会召回倒地声）。这里补一次中文→英文翻译，按查询缓存。

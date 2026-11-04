@@ -497,28 +497,52 @@ async def lifespan(app: FastAPI):
     await preload_models_on_startup()
 
     async def _loop_lag_watchdog() -> None:
-        """事件循环卡顿探针：卡住超过 3 秒就记一条日志，带卡了多久。
+        """事件循环卡顿探针：卡住超过 3 秒就记一条日志，带上「到底堵在哪」。
 
-        用户报过「索引一跑，/health 九分钟没响应」。有这条日志就能确认是
-        事件循环被谁堵住了，而不是靠猜（B3）。
+        老写法有个要命的毛病：探针本身跑在事件循环里，它自己也要等循环转起来
+        才能醒；等它醒过来再去取主线程栈，取到的永远是「探针自己那一帧」。
+        11-04 翻日志复现过：一整天 125 条卡顿记录，栈全是 main.py 的 _loop_lag_watchdog，
+        等于什么都没查出来，白记。
+
+        现在改成两个角色：事件循环只负责往前推心跳（每 0.25 秒一次），
+        另起一个守护线程盯这个心跳。心跳三秒没动，就由那个线程去 dump
+        主线程此刻的调用栈 —— 那才是真正堵住循环的代码。
         """
         import sys as _sys
         import traceback as _traceback
 
-        interval = 1.0
-        while True:
-            started = time.monotonic()
-            await asyncio.sleep(interval)
-            drift = (time.monotonic() - started) - interval
-            if drift > 3.0:
-                # 光有"卡了多久"定位不了代码，把主线程栈一起打出来
+        heartbeat = {"at": time.monotonic()}
+        threshold = 3.0
+        stopped = threading.Event()
+
+        def _sampler() -> None:
+            main_ident = threading.main_thread().ident
+            while not stopped.is_set():
+                time.sleep(0.5)
+                if stopped.is_set():
+                    return
+                idle = time.monotonic() - heartbeat["at"]
+                if idle <= threshold:
+                    continue
                 try:
                     frames = _sys._current_frames()
-                    stack = _traceback.format_stack(frames.get(threading.main_thread().ident))
-                    detail = "".join(stack[-6:]).strip()
+                    stack = _traceback.format_stack(frames.get(main_ident))
+                    detail = "".join(stack[-8:]).strip()
                 except Exception as exc:
                     detail = f"(取栈失败: {exc})"
-                logger.warning("[Loop] 事件循环卡顿 %.1fs\n%s", drift, detail)
+                logger.warning("[Loop] 事件循环卡顿 %.1fs\n%s", idle, detail)
+                # 同一次卡顿只记一条：等循环重新转起来再继续盯
+                while not stopped.is_set() and (time.monotonic() - heartbeat["at"]) <= threshold:
+                    time.sleep(0.2)
+                heartbeat["at"] = time.monotonic()
+
+        threading.Thread(target=_sampler, name="loop-lag-sampler", daemon=True).start()
+        try:
+            while True:
+                heartbeat["at"] = time.monotonic()
+                await asyncio.sleep(0.25)
+        finally:
+            stopped.set()
 
     try:
         asyncio.create_task(_loop_lag_watchdog(), name="loop-lag-watchdog")

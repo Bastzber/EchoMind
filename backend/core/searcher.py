@@ -134,12 +134,20 @@ class AudioSearcher:
             )
         )
 
+    async def is_compatible_with_async(self, fingerprint: Optional[str]) -> bool:
+        """在线程里做兼容性检查。
+
+        这个检查要把整个 collection 的 metadata 扫一遍（缓存没命中时 3 秒起），
+        直接在事件循环里做，整个界面就跟着卡住 —— 11-04 日志里那一串
+        「[Loop] 事件循环卡顿 3.xs」就是它。"""
+        return await asyncio.to_thread(self.is_compatible_with, fingerprint)
+
     def is_compatible_with(self, fingerprint: Optional[str]) -> bool:
         """Reject vectors produced by a different CLAP/preprocessing revision."""
         if self.collection.count() <= 0:
             return True
         self._engine_fingerprints, self._unknown_engine_metadata = (
-            collection_engine_fingerprints(self.collection)
+            collection_engine_fingerprints(self.collection, cached=True)
         )
         if (
             self._unknown_engine_metadata
@@ -338,7 +346,7 @@ class MetadataTextSearcher:
         if self.collection.count() <= 0:
             return True
         self._engine_fingerprints, self._unknown_engine_metadata = (
-            collection_engine_fingerprints(self.collection)
+            collection_engine_fingerprints(self.collection, cached=True)
         )
         if (
             self._unknown_engine_metadata
@@ -368,7 +376,7 @@ class MetadataTextSearcher:
         if count <= 0 or self.needs_rebuild:
             return []
         provider = self._provider()
-        if not self._is_compatible_with(provider.fingerprint):
+        if not await asyncio.to_thread(self._is_compatible_with, provider.fingerprint):
             logger.warning(
                 "文本索引 fingerprint 未知、混合或不匹配（stored=%s current=%s），等待重建",
                 sorted(self._engine_fingerprints),

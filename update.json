@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0-beta.19",
+  "version": "0.3.0-beta.20",
   "released_at": "2026-11-04",
   "notes": [
     "长音频克隆的音色名字和短音频一致了：下拉里显示你起的名字，不再是 echomind-07e096ecca39 这种内部 id",

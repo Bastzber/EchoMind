@@ -162,12 +162,52 @@ def collection_uses_cosine(collection: Any) -> bool:
     return metadata.get("hnsw:space") == COSINE_SPACE
 
 
-def collection_engine_fingerprints(collection: Any) -> Tuple[set[str], bool]:
+# 引擎指纹扫描的缓存。
+# 每次搜索都会问「这个 collection 的向量是不是同一个模型产的」，而回答这个问题
+# 要把整个 collection 的 metadata 全捞一遍（6.5 万行 = 65 次 collection.get）。
+# 2026-11-04 实测：一次搜索里这个检查被问 3 遍，每遍 3 秒，全都堵在事件循环上，
+# 日志里就是一条条「[Loop] 事件循环卡顿 3.xs」。
+# 指纹只在重建/写入时才会变，所以按（集合名, 行数）缓存一小段时间足够。
+_FINGERPRINT_CACHE_TTL = 20.0
+_fingerprint_cache: Dict[tuple, tuple] = {}
+_fingerprint_lock = threading.RLock()
+
+
+def invalidate_engine_fingerprints(collection_name: Optional[str] = None) -> None:
+    with _fingerprint_lock:
+        if collection_name is None:
+            _fingerprint_cache.clear()
+            return
+        for key in [k for k in _fingerprint_cache if k[0] == collection_name]:
+            _fingerprint_cache.pop(key, None)
+
+
+def collection_engine_fingerprints(
+    collection: Any, *, cached: bool = False
+) -> Tuple[set[str], bool]:
     """Return every persisted engine fingerprint and whether any row lacks one.
 
     Pulls in bounded batches to avoid chroma's SQL variable limit on very
-    large collections (>=50000 rows raise 'too many SQL variables')."""
+    large collections (>=50000 rows raise 'too many SQL variables').
+
+    默认每次真扫（清单/自愈这类判断要的是当下事实，缓存会骗人）。
+    只有搜索热路径传 cached=True —— 那里一次搜索要问三遍，每遍 3 秒，
+    不缓存就把事件循环按住不动了。"""
     total = int(collection.count())
+    if not cached:
+        return _scan_collection_engine_fingerprints(collection, total)
+    cache_key = (str(getattr(collection, "name", "") or ""), total)
+    with _fingerprint_lock:
+        hit = _fingerprint_cache.get(cache_key)
+    if hit is not None and (time.monotonic() - hit[0]) < _FINGERPRINT_CACHE_TTL:
+        return set(hit[1]), hit[2]
+    result = _scan_collection_engine_fingerprints(collection, total)
+    with _fingerprint_lock:
+        _fingerprint_cache[cache_key] = (time.monotonic(), set(result[0]), result[1])
+    return result
+
+
+def _scan_collection_engine_fingerprints(collection: Any, total: int) -> Tuple[set[str], bool]:
     if total <= 0:
         return set(), False
     fingerprints: set[str] = set()
@@ -215,7 +255,10 @@ def bump_collection_revision(persist_directory: str, collection_name: str) -> in
     key = _revision_key(persist_directory, collection_name)
     with _revision_lock:
         _collection_revisions[key] = _collection_revisions.get(key, 0) + 1
-        return _collection_revisions[key]
+        revision = _collection_revisions[key]
+    # 写过东西了，引擎指纹的缓存就地作废（四次 upsert 都走这里，不用逐个补）
+    invalidate_engine_fingerprints(collection_name)
+    return revision
 
 
 def get_chroma_client(persist_directory: Optional[str] = None) -> chromadb.PersistentClient:

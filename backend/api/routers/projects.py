@@ -167,10 +167,16 @@ async def get_project_index_status(project_id: str):
     except Exception as exc:
         logger.debug("读取活跃索引任务失败: %s", exc)
 
+    # 这几处都是同步数据库调用：全表 JOIN 一次实测 3.5 秒，直接 await 在事件循环上，
+    # 界面上的每次轮询都会把整个后端按住（日志里的「[Loop] 事件循环卡顿 3.5s」）。
+    # 全部丢线程池，循环该干嘛干嘛。
+    total_files = await asyncio.to_thread(db_manager.get_file_count, project_id)
+    artifact_counts = await asyncio.to_thread(db_manager.get_artifact_counts, project_id)
+
     return {
         "project_id": project_id,
-        "total_files": db_manager.get_file_count(project_id),
-        "artifacts": db_manager.get_artifact_counts(project_id),
+        "total_files": total_files,
+        "artifacts": artifact_counts,
         "active_job": active_job,
         "progress": {**_index_progress(), **(lambda: __import__("core.index_progress", fromlist=["stats"]).stats())()},
         "manifests": {

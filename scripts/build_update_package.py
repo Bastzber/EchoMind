@@ -179,7 +179,35 @@ def main() -> int:
         if base_size != size or sha256_file(full) != (base_hash or sha256_file(_base_full)):
             changed.append((rel, full, size))
 
-    removed = [rel for rel in base_files if rel not in target_files]
+    # 「基线里有、这次包里没有」不等于「该删」。"
+    # 下面这几类文件本来就不随增量包走，把它们列进删除清单会出大事：
+    #   EchoMind-描述包/标签包/知识包.json/zip  —— 用户自己导入的资源包
+    #   breeze/                                 —— 本地语音引擎，打包时按体积排除的
+    #   locales/                                —— 按语言裁剪，不归增量包管
+    # 11-04 实测：直接按差集生成删除清单，会让安装包去删用户的描述包和 Breeze。
+    REMOVE_EXCLUDE_PREFIXES = (
+        "breeze/",
+        "locales/",
+    )
+    REMOVE_EXCLUDE_EXACT = {
+        "EchoMind-描述包.json",
+        "EchoMind-标签包.json",
+        "EchoMind-知识包.zip",
+        "EchoMind.exe",
+        "LICENSE.electron.txt",
+        "chrome_100_percent.pak",
+        "chrome_200_percent.pak",
+    }
+    def _keep_in_remove(rel: str) -> bool:
+        if rel in REMOVE_EXCLUDE_EXACT:
+            return False
+        if rel.startswith("EchoMind-"):
+            return False
+        for prefix in REMOVE_EXCLUDE_PREFIXES:
+            if rel.startswith(prefix):
+                return False
+        return True
+    removed = [rel for rel in base_files if rel not in target_files and _keep_in_remove(rel)]
 
     manifest = {
         'version': args.version,

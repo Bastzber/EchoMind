@@ -72,7 +72,10 @@ async function main() {
 
   for (const name of moduleNames) {
     const scriptPath = `./assets/renderer/${name}.js`;
-    assert(indexHtml.includes(`<script src="${scriptPath}"></script>`), `${name} module is not loaded`);
+    // 全部 script 现在带 defer（首屏不再被 57 个同步脚本堵住），两种写法都算加载
+    const plain = indexHtml.includes(`<script src="${scriptPath}"></script>`);
+    const deferred = indexHtml.includes(`<script defer src="${scriptPath}"></script>`);
+    assert(plain || deferred, `${name} module is not loaded`);
     // 内联脚本搬走后，接线代码在 app-inline.js 里，用 pageCode 查
     new vm.Script(moduleSources[name], { filename: `${name}.js` });
   }

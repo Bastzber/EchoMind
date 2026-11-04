@@ -40,6 +40,11 @@
     "electronDownload": {
       "mirror": "https://npmmirror.com/mirrors/electron/"
     },
+    "electronLanguages": [
+      "zh-CN",
+      "zh-TW",
+      "en-US"
+    ],
     "extraFiles": [
       {
         "from": "assets/descriptions/EchoMind-描述包.json",
@@ -54,6 +59,7 @@
       "tailwindcss.js",
       "lucide.min.js",
       "assets/**/*",
+      "!assets/descriptions/**",
       "config/**/*",
       "lib/**/*",
       "!backend/**",

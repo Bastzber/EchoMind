@@ -1481,7 +1481,12 @@ function applyCSP(win) {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "script-src 'self' 'unsafe-inline'; " +
+          // script-src 去掉 unsafe-inline：index.html 里已经没有内联脚本了
+          // （11-04 把 4301 行内联 JS 拆成 app-core/app-ui/app-data 三个文件），
+          // 保留 unsafe-inline 等于把 XSS 的最后一道网也撤了。
+          "script-src 'self'; " +
+          // style-src 还得留 unsafe-inline：界面里有 250+ 个内联 style 属性
+          // （动态主题色、面板宽度都靠它），改成 nonce 要动整站渲染，另开一次做。
           "style-src 'self' 'unsafe-inline'; " +
           "font-src 'self'; " +
           "img-src 'self' data: blob:; " +
@@ -1489,7 +1494,13 @@ function applyCSP(win) {
           `connect-src 'self' blob: ${backendOrigin} ${backendWsOrigin} ` +
           "https://api.openai.com https://api.moonshot.cn https://api.anthropic.com " +
           "https://api.deepseek.com https://api.siliconflow.cn " +
-          "https://generativelanguage.googleapis.com;"
+          "https://generativelanguage.googleapis.com; " +
+          // 下面三条是纵深：禁插件、禁 <base> 劫持、禁被 iframe 嵌套。
+          "object-src 'none'; " +
+          "base-uri 'none'; " +
+          "frame-src 'none'; " +
+          "frame-ancestors 'none'; " +
+          "form-action 'self';"
         ]
       }
     });
@@ -1509,12 +1520,37 @@ function readSavedWindowBounds() {
   }
 }
 
-function saveWindowBounds(win) {
+// 拖拽窗口时 resize/move 每秒能触发上百次，每次同步写盘会把主进程拖住。
+// 改成 400ms 防抖：只在停下来之后落一次盘；窗口关闭时走 flush 立刻写。
+let windowBoundsTimer = null;
+let windowBoundsPending = null;
+
+function writeWindowBoundsNow() {
+  if (!windowBoundsPending) return;
+  const bounds = windowBoundsPending;
+  windowBoundsPending = null;
   try {
-    if (!win || win.isDestroyed() || win.isMinimized() || win.isMaximized()) return;
-    const bounds = win.getBounds();
     const file = path.join(app.getPath('userData'), 'window-bounds.json');
     fs.writeFileSync(file, JSON.stringify(bounds), 'utf8');
+  } catch (error) {
+    console.warn('[Window] 保存窗口尺寸失败:', error?.message);
+  }
+}
+
+function saveWindowBounds(win, { immediate = false } = {}) {
+  try {
+    if (!win || win.isDestroyed() || win.isMinimized() || win.isMaximized()) return;
+    windowBoundsPending = win.getBounds();
+    if (immediate) {
+      if (windowBoundsTimer) { clearTimeout(windowBoundsTimer); windowBoundsTimer = null; }
+      writeWindowBoundsNow();
+      return;
+    }
+    if (windowBoundsTimer) clearTimeout(windowBoundsTimer);
+    windowBoundsTimer = setTimeout(() => {
+      windowBoundsTimer = null;
+      writeWindowBoundsNow();
+    }, 400);
   } catch (error) {
     console.warn('[Window] 保存窗口尺寸失败:', error?.message);
   }
@@ -1630,7 +1666,8 @@ function createWindow() {
   // browser-only fallback to masquerade as a working installed application.
   mainWindow.on('resize', () => saveWindowBounds(mainWindow));
   mainWindow.on('move', () => saveWindowBounds(mainWindow));
-  mainWindow.on('close', () => saveWindowBounds(mainWindow));
+  // 关闭时立刻落盘，别让防抖把最后一次尺寸丢掉
+  mainWindow.on('close', () => saveWindowBounds(mainWindow, { immediate: true }));
 
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     rendererPreloadFailure = {
@@ -1643,6 +1680,41 @@ function createWindow() {
     if (channel === 'renderer-bridge-ready' && payload?.version === 1) {
       rendererBridgeReady = true;
     }
+  });
+
+  // 导航与开窗拦截：以前只有启动窗装了，主窗口和浮窗都没装。
+  // 不装的后果是把一个网址拖进界面就可能把主窗口整个导航走，
+  // 或者 target=_blank 开出一个没有 preload 的裸窗（那窗里 nodeIntegration 依然是关的，
+  // 但它是个完全不受管的浏览器，等于给攻击者一块干净的画布）。
+  // 规则：只允许留在本地 file:// 页面内，其它一律拦下；外链交给系统浏览器。
+  const isLocalAppUrl = (targetUrl) => {
+    const value = String(targetUrl || '');
+    if (!value) return false;
+    if (!value.startsWith('file://')) return false;
+    try {
+      const decoded = decodeURIComponent(value.replace(/^file:\/\//, ''));
+      return path.resolve(decoded).startsWith(path.resolve(__dirname));
+    } catch (_error) {
+      return false;
+    }
+  };
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    if (isLocalAppUrl(targetUrl)) return;
+    event.preventDefault();
+    console.warn('[Window] 拦截导航: ' + String(targetUrl).slice(0, 120));
+    try {
+      if (/^https?:/i.test(targetUrl)) shell.openExternal(targetUrl);
+    } catch (_error) { /* 打不开就算了，至少没导航走 */ }
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) {
+      try { shell.openExternal(url); } catch (_error) { /* ignore */ }
+    }
+    return { action: 'deny' };
+  });
+  // 禁止 webview 与外部协议跳转
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
   });
 
   // 设置 CSP
@@ -2710,7 +2782,30 @@ ipcMain.handle('dialog-save', async (event, options) => {
             return { success: false, error: '文件不存在' };
           }
           try {
-            // Windows 原生 CF_HDROP：System.Windows.Forms.SetFileDropList，
+            // 先试 Electron 原生 clipboard：进程内调用，几毫秒出结果。
+            // 以前一律起 powershell.exe -STA，每次 200~500ms，连点几次就明显卡。
+            try {
+              const { clipboard } = require('electron');
+              if (clipboard && typeof clipboard.writeBuffer === 'function') {
+                // CF_HDROP（15）的缓冲区格式：DROPFILES 头 + UTF-16 路径 + 双 NUL
+                const headerSize = 20;
+                const fileList = Buffer.from(target + '\u0000\u0000', 'utf16le');
+                const dropfiles = Buffer.alloc(headerSize + fileList.length);
+                dropfiles.writeUInt32LE(headerSize, 0);   // pFiles 偏移
+                dropfiles.writeUInt32LE(0, 4);            // pt.x
+                dropfiles.writeUInt32LE(0, 8);            // pt.y
+                dropfiles.writeUInt32LE(0, 12);           // fNC
+                dropfiles.writeUInt32LE(1, 16);           // fWide = 1（UTF-16）
+                fileList.copy(dropfiles, headerSize);
+                clipboard.writeBuffer('CF_HDROP', dropfiles);
+                if (clipboard.availableFormats().includes('FileNameW')) {
+                  return { success: true, method: 'clipboard-native' };
+                }
+              }
+            } catch (nativeClipboardError) {
+              console.warn('[FileOps] 原生剪贴板失败，回退 powershell:', nativeClipboardError?.message);
+            }
+            // 兜底：Windows 原生 CF_HDROP via System.Windows.Forms.SetFileDropList，
             // 与资源管理器 100% 兼容（含中文路径）。
             // -STA 线程为剪贴板访问所必需；-EncodedCommand 避免中文编码问题。
             const escaped = target.replace(/'/g, "''");

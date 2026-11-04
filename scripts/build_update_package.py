@@ -38,6 +38,12 @@ EXCLUDE_SUFFIXES = {'.log', '.tmp', '.updating'}
 EXCLUDE_ROOT_DIRS = {'breeze'}
 EXCLUDE_ROOT_PREFIXES = ('breeze/',)
 
+# 跟安装根目录平级的三个资源包也不进增量包。
+# 它们是「用户自己导入的数据」（描述包/标签包/知识包，合计 188 MB），
+# 老用户机器上可能已经有、也可能被手工改过；跟着更新包走只会把包撑到 353 MB，
+# 还会在用户那边覆盖成我们导出的版本。11-05 实测：加进来之前 353 MB，加进来之后应该回到 60 MB 级。
+EXCLUDE_ROOT_FILES = {'EchoMind-描述包.json', 'EchoMind-标签包.json', 'EchoMind-知识包.zip'}
+
 
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     digest = hashlib.sha256()
@@ -66,6 +72,9 @@ def walk_files(root: Path) -> dict:
             rel = full.relative_to(root).as_posix()
             # breeze 目录整块跳过（模型权重 3.5 GB，用户本地已有）
             if rel.split('/')[0].lower() in EXCLUDE_ROOT_DIRS:
+                continue
+            # 根目录下那三个资源包也跳过（用户自有数据，不该被更新包覆盖）
+            if '/' not in rel and rel in EXCLUDE_ROOT_FILES:
                 continue
             try:
                 result[rel] = (full, full.stat().st_size)

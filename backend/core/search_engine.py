@@ -76,7 +76,10 @@ from core.search_text import ChineseTextProcessor  # noqa: F401
 from core.search_files_mixin import FileSnapshotMixin
 
 
-class OptimizedAudioSearcher(FileSnapshotMixin):
+# 注意继承顺序：AudioSearcher 必须在前。
+# 拆分时一度写成 (FileSnapshotMixin)，结果 super().__init__(*args) 一路走到 object，
+# 搜索接口直接 500：object.__init__() takes exactly one argument。
+class OptimizedAudioSearcher(AudioSearcher, FileSnapshotMixin):
     def __init__(self, *args, **kwargs):
         self.project_id = str(kwargs.pop("project_id", None) or config.CURRENT_PROJECT_ID)
         self.index_revision = int(kwargs.pop("index_revision", 0))
@@ -1050,6 +1053,14 @@ class OptimizedAudioSearcher(FileSnapshotMixin):
         except Exception as e:
             logger.error(f"获取统计信息失败: {e}")
             return {"total_count": 0}
+
+# 拆分时这三个模块级全局被漏掉了（它们夹在类和方法之间，不是独立的定义节点）。
+# 少一个 _optimized_sync_lock，搜索接口就直接 500：name '_optimized_sync_lock' is not defined。
+# 11-05 巡检时抓到的，补回来。
+_optimized_searchers: Dict[str, OptimizedAudioSearcher] = {}
+_searcher_locks: Dict[str, asyncio.Lock] = {}
+_optimized_sync_lock = threading.RLock()
+
 
 def _optimized_key(
     persist_directory: Optional[str],

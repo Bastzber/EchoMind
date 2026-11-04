@@ -242,6 +242,9 @@ function initializeMainLogging() {
     let pendingLines = [];
     let pendingBytes = 0;
     let flushTimer = null;
+    // 攒批效果的计数器：每分钟汇报一次「多少行 / 写了几次 / 多少字节」，
+    // 用来对照老写法（每行一次 write）到底省了多少次系统调用。
+    const logStats = { lines: 0, flushes: 0, bytes: 0, reportedAt: Date.now() };
     const flushLogs = () => {
       if (flushTimer) {
         clearTimeout(flushTimer);
@@ -249,10 +252,13 @@ function initializeMainLogging() {
       }
       if (!pendingLines.length) return;
       const chunk = pendingLines.join('');
+      const flushedBytes = pendingBytes;
       pendingLines = [];
       pendingBytes = 0;
       try {
         stream.write(chunk);
+        logStats.flushes += 1;
+        logStats.bytes += flushedBytes;
       } catch (_error) {
         // 写不进就算了，日志不能反过来拖垮程序
       }
@@ -269,10 +275,25 @@ function initializeMainLogging() {
         const line = `${new Date().toISOString()} | ${level.toUpperCase()} | ${redactDiagnosticText(message)}\n`;
         pendingLines.push(line);
         pendingBytes += line.length;
+        logStats.lines += 1;
         if (pendingBytes >= LOG_FLUSH_BYTES) flushLogs();
         else scheduleFlush();
       };
     }
+    // 每分钟报一次攒批成绩（没有新日志就不报）
+    const statsTimer = setInterval(() => {
+      if (!logStats.lines) return;
+      const windowSeconds = Math.max(1, Math.round((Date.now() - logStats.reportedAt) / 1000));
+      logStats.reportedAt = Date.now();
+      console.log(
+        `[Main] 日志攒批：${logStats.lines} 行 / 写盘 ${logStats.flushes} 次 / ${(logStats.bytes / 1024).toFixed(0)} KB（近 ${windowSeconds}s，老写法要写 ${logStats.lines} 次）`
+      );
+      logStats.lines = 0;
+      logStats.flushes = 0;
+      logStats.bytes = 0;
+    }, 60000);
+    if (typeof statsTimer.unref === 'function') statsTimer.unref();
+
     app.on('before-quit', flushLogs);
     process.on('exit', flushLogs);
     process.on('uncaughtExceptionMonitor', error => {

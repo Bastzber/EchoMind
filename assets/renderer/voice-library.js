@@ -1,16 +1,27 @@
 /* voice-library.js —— 音色库管理
  * 从 index.html 原样搬出的完整顶层函数。
  */
+// 试听专用播放器：自己持有引用，不依赖别的文件的全局变量。
+// new Audio() 不会变成 DOM 节点，所以「遍历 document 里的 audio 元素」抓不到它，
+// 必须靠这个模块级引用才能停干净。
+let __voicePreviewAudio = null;
+
+function stopVoicePreview() {
+    const el = __voicePreviewAudio;
+    if (!el) return;
+    try {
+        el.pause();
+        el.removeAttribute('src');
+        el.src = '';
+        try { el.currentTime = 0; } catch (_e) {}
+        el.load();
+    } catch (_e) { /* 播放器已失效 */ }
+}
+
 async function showVoiceLibraryModal(options = {}) {
     // 重新打开时先把上一轮的试听停掉：这里是直接 remove 旧面板，不走 closeOverlay，
     // 声音会留在背景里继续响（11-04 反馈「关掉界面还有声音」的一种路径）。
-    try {
-        if (typeof audioPlayer !== 'undefined' && audioPlayer) {
-            audioPlayer.pause();
-            audioPlayer.src = '';
-        }
-        if (typeof isPlaying !== 'undefined') isPlaying = false;
-    } catch (_e) { /* 播放器还没初始化过 */ }
+    stopVoicePreview();
     document.getElementById('voiceLibOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'voiceLibOverlay';
@@ -22,7 +33,8 @@ async function showVoiceLibraryModal(options = {}) {
         '    <span class="text-sm font-semibold">音色库</span>',
         '    <span id="voiceLibCount" class="text-[11px] opacity-50"></span>',
         '    <span id="voiceLibEngine" class="text-[11px] opacity-45 ml-2"></span>',
-        '    <button id="voiceLibClose" class="ml-auto text-xs opacity-50 hover:opacity-100">关闭</button>',
+        '    <button id="voiceLibStop" class="ml-auto px-2 py-1 rounded text-xs border" style="border-color: var(--border-color)">⏸ 暂停试听</button>',
+        '    <button id="voiceLibClose" class="ml-2 text-xs opacity-50 hover:opacity-100">关闭</button>',
         '  </div>',
         '  <div class="px-4 py-2 text-[11px] opacity-45 border-b" style="border-color:var(--border-color)">',
         '    本地音色：参考音频 + 文稿，零样本克隆，不联网；云端音色走豆包 API。',
@@ -33,17 +45,39 @@ async function showVoiceLibraryModal(options = {}) {
     document.body.appendChild(overlay);
     // 关闭界面时把试听也停掉：以前只 remove 了 overlay，audioPlayer 还挂在全局，
     // 声音会一直放到结束（11-04 反馈）。统一走 closeOverlay，三种关闭方式都停。
+    // 关面板要把声音停干净。这里不依赖任何单个变量：
+    // 挨个把页面上的 Audio 停掉，再兜一层全局播放器。
+    // 之所以这么写：audioPlayer 会被主界面反复换（换音源时新建 Audio 再赋值），
+    // 只要有一条路径漏了，声音就会留在后台（11-04 反复反馈）。
+    const body = overlay.querySelector('#voiceLibBody');
+    const stopBtn = overlay.querySelector('#voiceLibStop');
+    const countEl = overlay.querySelector('#voiceLibCount');
+    const engineEl = overlay.querySelector('#voiceLibEngine');
+
+    const setPlayBtnState = (state) => {
+        const btn = stopBtn;
+        if (!btn) return;
+        btn.textContent = state === 'playing' ? '⏸ 暂停试听' : '▶ 继续试听';
+        btn.disabled = !__voicePreviewAudio;
+    };
+
+    const togglePreview = () => {
+        const player = __voicePreviewAudio;
+        if (!player || !player.src) {
+            showNotification('先点一个「试听原声」', 'info');
+            return;
+        }
+        if (player.paused) {
+            player.play().then(() => setPlayBtnState('playing')).catch(() => {});
+        } else {
+            player.pause();
+            setPlayBtnState('idle');
+        }
+    };
+
     const stopPreview = () => {
-        try {
-            if (audioPlayer) {
-                audioPlayer.pause();
-                audioPlayer.removeAttribute('src');
-                audioPlayer.src = '';
-                try { audioPlayer.currentTime = 0; } catch (_e) {}
-                audioPlayer.load();
-            }
-            isPlaying = false;
-        } catch (_) { /* 播放器没初始化过就跳过 */ }
+        stopVoicePreview();
+        setPlayBtnState('idle');
     };
     const closeOverlay = () => {
         stopPreview();
@@ -51,23 +85,35 @@ async function showVoiceLibraryModal(options = {}) {
     };
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeOverlay(); });
     overlay.querySelector('#voiceLibClose').addEventListener('click', closeOverlay);
+    if (stopBtn) {
+        stopBtn.disabled = true;
+        stopBtn.addEventListener('click', togglePreview);
+    }
     overlay.addEventListener('remove', stopPreview);
 
 
-    const body = overlay.querySelector('#voiceLibBody');
-    const countEl = overlay.querySelector('#voiceLibCount');
-    const engineEl = overlay.querySelector('#voiceLibEngine');
 
     const playPath = async (path) => {
         if (!path) return;
-        if (!audioPlayer) initAudioPlayer();
-        // 连点两个「试听原声」时，先停上一条再放新的，不然会叠着响
-        try { audioPlayer.pause(); } catch (_) {}
-        audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(path);
-        audioPlayer.load();
-        await audioPlayer.play().catch(() => { });
-        isPlaying = true;
+        stopVoicePreview();
+        try {
+            if (!__voicePreviewAudio) __voicePreviewAudio = new Audio();
+            const player = __voicePreviewAudio;
+            player.preload = 'auto';
+            player.src = 'soundmind-audio://local/' + encodeURIComponent(path);
+            player.load();
+            setPlayBtnState('playing');
+            player.onended = () => setPlayBtnState('idle');
+            player.onerror = () => setPlayBtnState('idle');
+            await player.play().catch(() => { setPlayBtnState('idle'); });
+        } catch (error) {
+            setPlayBtnState('idle');
+            showNotification('试听播放失败: ' + (error?.message || error), 'error');
+        }
     };
+
+    // 暂停/继续：用户手上有个直接能按的开关，比等关闭时自动停更踏实
+
 
     const render = (profiles, engine) => {
         countEl.textContent = '共 ' + profiles.length + ' 个';

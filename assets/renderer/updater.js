@@ -165,7 +165,17 @@ async function checkForUpdatesFromMenu() {
             return;
         }
         if (!res.hasUpdate) {
-            showNotification('已是最新版本 v' + res.current, 'success');
+            // 版本号一直停在 beta.19（按用户要求没动），所以把构建号一起报出来，
+        // 这样一眼能看出机器上装的是哪一次打包的包。
+        let stamp = '';
+        try {
+            const cfg = await window.electronAPI?.runtime?.getConfig?.();
+            stamp = String(cfg?.buildStamp || '');
+        } catch (_e) { stamp = ''; }
+        showNotification(
+            '已是最新版本 v' + res.current + (stamp ? '（构建 ' + stamp + '）' : ''),
+            'success',
+        );
             return;
         }
         showUpdateDialog(res.latest);

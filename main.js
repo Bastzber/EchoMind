@@ -989,9 +989,21 @@ async function ensureBackendStarted() {
   return await backendStartupPromise;
 }
 
+function getBuildStamp() {
+  // package.json 的 version 一直停在 beta.19（按你的要求没动版本号），
+  // 所以界面上看不出装的是哪一次打包。buildStamp 每次打包时改，
+  // 用来分辨「到底装没装上新包」。
+  try {
+    return String(require('./package.json').build?.buildStamp || '');
+  } catch (_error) {
+    return '';
+  }
+}
+
 function getRuntimeConfig() {
   return {
     port: backendPort,
+    buildStamp: getBuildStamp(),
     apiBase: backendOrigin,
     apiV1Base: apiBaseUrl,
     wsBase: backendWsOrigin,

@@ -144,10 +144,49 @@ async function renderLongTtsPanel(container, options = {}) {
         $('longTtsEngine').textContent = defaults.available
             ? ('本地 Breeze · 每段 ' + (defaults.split_chars || 150) + ' 字')
             : '本地 Breeze 未启动';
+        // Breeze 是独立进程，可能这一秒还没起来、过几秒就好了。
+        // 以前只在打开面板时判定一次，判定为「未启动」就一直卡着（11-04 反馈）。
+        // 现在自动重试 12 次（每 3 秒一次，共 36 秒），期间显示「正在启动」。
+        const setEngineState = (ready) => {
+            startBtn.disabled = !ready;
+            startBtn.style.opacity = ready ? '1' : '0.5';
+            if (ready) {
+                $('longTtsEngine').textContent = '本地 Breeze · 每段 ' + (defaults.split_chars || 150) + ' 字';
+            }
+        };
+        setEngineState(!!defaults.available);
         if (!defaults.available) {
-            startBtn.disabled = true;
-            startBtn.style.opacity = '0.5';
-            hintEl.textContent = 'breeze-server 没在跑，先在设置里确认本地语音服务';
+            hintEl.textContent = '本地语音服务还没起来，正在等它启动…';
+            let tries = 0;
+            const retry = async () => {
+                tries += 1;
+                try {
+                    const again = await rendererApi.get('/api/v1/tts/long/defaults');
+                    if (again && again.available) {
+                        defaults.available = true;
+                        defaults.split_chars = again.split_chars || defaults.split_chars;
+                        setEngineState(true);
+                        hintEl.textContent = '本地语音服务已就绪';
+                        return;
+                    }
+                } catch (_) { /* 后端刚启动时接口可能还没通，忽略 */ }
+                if (tries < 12) {
+                    setTimeout(retry, 3000);
+                } else {
+                    hintEl.textContent = '本地语音服务没起来。确认 breeze-server.exe 在运行（127.0.0.1:8080），或点下方「重新检测」';
+                    const retryBtn = document.createElement('button');
+                    retryBtn.className = 'ml-2 px-2 py-0.5 rounded text-[11px] border';
+                    retryBtn.style.borderColor = 'var(--border-color)';
+                    retryBtn.textContent = '重新检测';
+                    retryBtn.addEventListener('click', () => {
+                        tries = 0;
+                        hintEl.textContent = '正在重新检测…';
+                        retry();
+                    });
+                    hintEl.appendChild(retryBtn);
+                }
+            };
+            setTimeout(retry, 2000);
         }
     } catch (error) {
         hintEl.textContent = '读取默认值失败：' + (error.message || error);

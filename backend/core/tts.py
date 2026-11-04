@@ -108,7 +108,9 @@ def voice_style() -> str:
     return os.environ.get('ECHOMIND_VOICE_STYLE', DEFAULT_VOICE_STYLE)
 
 
-def breeze_available(timeout: float = 1.5) -> bool:
+def breeze_available(timeout: float = 3.0) -> bool:
+    # 1.5 秒对冷启动偏紧：breeze-server 刚起来时 /health 可能还没注册路由，
+    # 会把「正在启动」误判成「没装」（11-04 反馈）。放宽容到 3 秒。
     try:
         with urllib.request.urlopen(breeze_url() + '/health', timeout=timeout) as resp:
             return resp.status == 200

@@ -461,7 +461,9 @@ async def list_tags():
     """列出工程内所有标签及使用次数（标签管理面板用）。"""
     db_manager = get_db_manager()
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
-    tags = db_manager.list_all_tags(current_project_id)
+    # 这个统计要扫 6.5 万行的标签 JSON，实测 3 秒；同步跑在事件循环上，
+    # 界面每次开标签面板都把整个后端按住（日志里一串 3.0s 卡顿就是它）。
+    tags = await asyncio.to_thread(db_manager.list_all_tags, current_project_id)
     return {"success": True, "tags": tags, "total": len(tags)}
 
 

@@ -10,14 +10,25 @@
         return resolved.replace(/\/+$/, '');
     }
 
+    // 后端接口令牌：主进程每次启动生成，经 preload 的 getConfig 送到这里。
+    // 后端对着 /api/v1/* 校验，没有它一律 401，外部页面拿不到令牌也就拿不到数据。
+    let apiToken = '';
+
     function configure(config = {}) {
         apiBase = normalizeBase(config.apiBase, apiBase);
         wsBase = normalizeBase(config.wsBase, wsBase);
+        if (config.apiToken) apiToken = String(config.apiToken);
         return getConfig();
     }
 
     function getConfig() {
-        return { apiBase, wsBase };
+        return { apiBase, wsBase, apiToken };
+    }
+
+    function withAuthHeaders(options = {}) {
+        const headers = Object.assign({}, options.headers || {});
+        if (apiToken) headers['X-EchoMind-Token'] = apiToken;
+        return Object.assign({}, options, { headers });
     }
 
     function url(path = '') {
@@ -39,7 +50,7 @@
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            return await global.fetch(url(path), Object.assign({}, options, {
+            return await global.fetch(url(path), Object.assign({}, withAuthHeaders(options), {
                 signal: options.signal || controller.signal
             }));
         } catch (error) {

@@ -1753,7 +1753,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (window.electronAPI?.sfxConfig?.get) {
                 const local = await window.electronAPI.sfxConfig.get();
                 if (local?.success) {
-                    configured = Boolean(local.apiKey);
+                    // 新版只回 has_api_key 掩码（key 已进 DPAPI），旧版回的 apiKey 兼容保留
+                    configured = Boolean(local.has_api_key ?? local.apiKey);
                     saveDir = local.saveDir || '';
                 }
             } else {

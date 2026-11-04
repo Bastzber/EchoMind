@@ -36,6 +36,8 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow;
 let backendProcess = null;
+// 后端接口令牌：每次启动重新生成，只存在内存里，不落盘。
+let backendApiToken = '';
 let backendStartupPromise = null;
 let ipcHandlersInitialized = false;
 let floatWindows = {}; // id → 独立浮动面板窗口
@@ -133,7 +135,47 @@ let pendingSplashState = {
 };
 let nativeOpenDialogActive = false;
 const BACKEND_ERROR_SENTINEL = '__soundbotBackendError';
-const SECRET_KEY_PATTERN = /^(llm|embedding)\.[a-z0-9_-]+\.api_key$/;
+// sfx 也走同一套加密存储：音效生成的 key 同样能计费，不该明文落盘。
+const SECRET_KEY_PATTERN = /^(llm|embedding|sfx)\.[a-z0-9_-]+\.api_key$/;
+// ---------- 文件操作边界 ----------
+// 渲染层是可以被注入的（XSS / 恶意预制件），而主进程在沙箱外有完整文件权限。
+// 凡是「渲染层给路径、主进程落盘」的入口，一律先过这里，只放行素材库根目录以内。
+// 边界来自后端索引状态（真实库根），不信任渲染层传进来的任何根。
+let cachedLibraryRoots = { roots: [], at: 0 };
+const LIBRARY_ROOTS_TTL = 60 * 1000;
+
+async function getLibraryRoots() {
+  const now = Date.now();
+  if (cachedLibraryRoots.roots.length && (now - cachedLibraryRoots.at) < LIBRARY_ROOTS_TTL) {
+    return cachedLibraryRoots.roots;
+  }
+  try {
+    const data = await requestBackendJson(`${apiBaseUrl}/api/v1/library/roots`);
+    const roots = Array.isArray(data?.roots) ? data.roots.map(String).filter(Boolean) : [];
+    cachedLibraryRoots = { roots, at: now };
+    return roots;
+  } catch (_error) {
+    return cachedLibraryRoots.roots;
+  }
+}
+
+function assertInsideRoots(targetPath, roots) {
+  const raw = String(targetPath || '');
+  if (!raw) throw Object.assign(new Error('缺少路径'), { code: 'PATH_REQUIRED' });
+  if (!path.isAbsolute(raw)) throw Object.assign(new Error('只接受绝对路径'), { code: 'PATH_NOT_ABSOLUTE' });
+  if (!roots.length) {
+    // 库还没索引完（首次启动）：退化为「用户数据目录 + 安装目录」两条安全边界
+    roots = [getUserDataDir(), app.getPath('userData'), app.getPath('temp')].filter(Boolean);
+  }
+  const abs = path.resolve(raw);
+  for (const root of roots) {
+    const rootAbs = path.resolve(String(root));
+    const rel = path.relative(rootAbs, abs);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return abs;
+  }
+  throw Object.assign(new Error('路径不在素材库范围内: ' + abs), { code: 'PATH_OUTSIDE_LIBRARY' });
+}
+
 const MAIN_LOG_MAX_BYTES = 5 * 1024 * 1024;
 let mainLogPath = null;
 
@@ -372,6 +414,34 @@ function redactLegacyConfigSecrets(configData) {
     delete providerConfig.api_key;
   }
   return { sanitized, migrated };
+}
+
+// 旧版把音效 key 明文写在 %APPDATA%\soundbot\.sfx_config.json 里。
+// 启动时搬进 DPAPI 存储，搬完把明文那一行删掉（文件留着，save_dir 还在用）。
+function migrateLegacySfxSecret() {
+  const file = path.join(app.getPath('appData'), 'soundbot', '.sfx_config.json');
+  if (!fs.existsSync(file)) return { migrated: false };
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (_error) {
+    return { migrated: false };
+  }
+  const plain = String((parsed && parsed.api_key) || '').trim();
+  if (!plain) return { migrated: false };
+  try {
+    const key = secretKeyFor('sfx', 'default');
+    if (!hasEncryptedSecret(key)) setStoredSecret(key, plain);
+    const next = { ...parsed };
+    delete next.api_key;
+    fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf-8');
+    console.log('[Secrets] Migrated legacy sfx api_key into OS secure storage');
+    return { migrated: true };
+  } catch (error) {
+    // 搬失败就原样留着，至少别把用户的 key 弄丢
+    console.warn('[Secrets] sfx api_key migration deferred:', error && error.message);
+    return { migrated: false, error: String(error && error.message) };
+  }
 }
 
 function migrateLegacyPlaintextSecrets() {
@@ -688,6 +758,7 @@ function updateBackendEndpoint(port) {
  */
 async function startBackend() {
   migrateLegacyPlaintextSecrets();
+  migrateLegacySfxSecret();
   if (backendProcess) {
     console.log('[Backend] Backend service already running');
     return { success: true };
@@ -721,10 +792,17 @@ async function startBackend() {
     return { success: false, error: '后端文件不完整' };
   }
 
+  // 一次性接口令牌：主进程生成，只经环境变量交给后端，渲染层从 preload 取。
+  // 后端对着 /api/v1/* 校验，没有令牌一律 401 —— 本机任意进程或网页都拿不到数据。
+  if (!backendApiToken) {
+    backendApiToken = crypto.randomBytes(24).toString('hex');
+  }
+
   // 设置环境变量
   const env = {
     ...process.env,
     SOUNDBOT_PORT: String(backendPort),
+    ECHOMIND_API_TOKEN: backendApiToken,
     SOUNDBOT_MODELS_PATH: modelStatus.path,
     SOUNDBOT_USER_DATA_DIR: getUserDataDir(),
     PYTHONUNBUFFERED: '1',
@@ -916,7 +994,10 @@ function getRuntimeConfig() {
     port: backendPort,
     apiBase: backendOrigin,
     apiV1Base: apiBaseUrl,
-    wsBase: backendWsOrigin
+    wsBase: backendWsOrigin,
+    // 渲染层用它给每个 /api/v1/* 请求加 X-EchoMind-Token 头。
+    // 走 preload 的 contextBridge，页面脚本能拿到，外部 iframe 拿不到。
+    apiToken: backendApiToken
   };
 }
 
@@ -1783,8 +1864,16 @@ function setupIpcHandlers() {
     try {
         const filePath = String(payload.filePath || '');
         if (!filePath) return { success: false, error: '缺少文件路径' };
-        await fs.promises.writeFile(filePath, String(payload.content ?? ''), 'utf8');
-        return { success: true, path: filePath };
+        // 只允许写素材库以内：渲染层被注入时不能借这里写启动项或系统目录
+        let safePath;
+        try {
+            safePath = assertInsideRoots(filePath, await getLibraryRoots());
+        } catch (boundaryError) {
+            console.warn('[fs-guard] file-write-text 拒绝: ' + boundaryError.message);
+            return { success: false, error: boundaryError.message, code: boundaryError.code };
+        }
+        await fs.promises.writeFile(safePath, String(payload.content ?? ''), 'utf8');
+        return { success: true, path: safePath };
     } catch (error) {
         return { success: false, error: error?.message || String(error) };
     }
@@ -1950,12 +2039,25 @@ ipcMain.handle('dialog-save', async (event, options) => {
 
   // 音频生成配置：直接写本地文件，不依赖（可能正忙的）后端。
   // 写完后在后台重试推送给后端，让运行中的进程立刻拿到 Key。
+  // 音效 key 现在存在 secure_secrets 里（DPAPI），读取时只回掩码 + 是否存在，
+  // 渲染层拿不到明文。旧版的 .sfx_config.json 明文文件会在启动时迁移并删除。
   ipcMain.handle('sfx-config-get', () => {
     try {
       const file = path.join(app.getPath('appData'), 'soundbot', '.sfx_config.json');
-      if (!fs.existsSync(file)) return { success: true, apiKey: '', saveDir: '' };
-      const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      return { success: true, apiKey: String(data.api_key || ''), saveDir: String(data.save_dir || '') };
+      const saveDir = fs.existsSync(file)
+        ? String((JSON.parse(fs.readFileSync(file, 'utf-8')) || {}).save_dir || '')
+        : '';
+      let hasKey = false;
+      let tail = '';
+      try {
+        const key = secretKeyFor('sfx', 'default');
+        hasKey = hasEncryptedSecret(key);
+        if (hasKey) {
+          const plain = decryptStoredSecret(key) || '';
+          tail = plain ? '••••' + plain.slice(-4) : '';
+        }
+      } catch (_e) { hasKey = false; }
+      return { success: true, has_api_key: hasKey, apiKey: '', api_key_tail: tail, saveDir };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -1964,13 +2066,22 @@ ipcMain.handle('dialog-save', async (event, options) => {
   ipcMain.handle('sfx-config-save', async (event, payload = {}) => {
     const apiKey = String(payload.apiKey || '').trim();
     const saveDir = String(payload.saveDir || '').trim();
+    // 密钥进 DPAPI，明文只留在内存里传给后端；磁盘上只存加密后的串。
+    // save_dir 不是机密，继续放在原文件里，保持旧版本能读。
+    if (apiKey) {
+      try {
+        setStoredSecret(secretKeyFor('sfx', 'default'), apiKey);
+      } catch (error) {
+        return { success: false, error: '保存密钥失败: ' + error.message };
+      }
+    }
     try {
       const dir = path.join(app.getPath('appData'), 'soundbot');
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, '.sfx_config.json');
       const current = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
       const next = { ...current };
-      if (apiKey) next.api_key = apiKey;
+      delete next.api_key;      // 明文 key 不留在磁盘上
       if (saveDir) next.save_dir = saveDir;
       fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf-8');
     } catch (error) {
@@ -2555,6 +2666,14 @@ ipcMain.handle('dialog-save', async (event, options) => {
           for (const target of list) {
             try {
               if (!target || !fs.existsSync(target)) { failed.push({ path: target, error: '文件不存在' }); continue; }
+              // 只许删素材库以内的文件：串到别处就是把用户其它资料送进回收站
+              try {
+                assertInsideRoots(target, await getLibraryRoots());
+              } catch (boundaryError) {
+                console.warn('[fs-guard] trash-files 拒绝: ' + boundaryError.message);
+                failed.push({ path: target, error: boundaryError.message });
+                continue;
+              }
               await shell.trashItem(target);   // 送系统回收站，可还原
               ok.push(target);
             } catch (error) {
@@ -2632,8 +2751,20 @@ ipcMain.handle('dialog-save', async (event, options) => {
           if (!oldPath || !newName || !fs.existsSync(oldPath)) {
             return { success: false, error: '源文件不存在' };
           }
-          const dir = path.dirname(oldPath);
-          const newPath = path.join(dir, newName);
+          // newName 只当文件名用：拒绝 ../ 和路径分隔符，避免改名成「跳出当前目录」
+          const baseName = path.basename(String(newName));
+          if (!baseName || baseName === '.' || baseName === '..' || /[\\/]/.test(String(newName))) {
+            return { success: false, error: '新文件名不合法' };
+          }
+          let safeOld;
+          try {
+            safeOld = assertInsideRoots(oldPath, await getLibraryRoots());
+          } catch (boundaryError) {
+            console.warn('[fs-guard] rename-on-disk 拒绝: ' + boundaryError.message);
+            return { success: false, error: boundaryError.message, code: boundaryError.code };
+          }
+          const dir = path.dirname(safeOld);
+          const newPath = path.join(dir, baseName);
           if (fs.existsSync(newPath)) {
             return { success: false, error: '目标文件名已存在' };
           }

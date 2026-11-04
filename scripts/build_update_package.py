@@ -24,6 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_DIR = ROOT / 'manifests'
+sys.path.insert(0, str(ROOT / 'scripts'))
+from update_signing import attach_signature  # noqa: E402
 
 # 这些属于用户数据或临时产物，永远不进增量包
 EXCLUDE_DIRS = {'userdata', 'data', 'logs', 'cache', '.git'}
@@ -147,6 +149,7 @@ def main() -> int:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         started = time.time()
         with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            manifest = attach_signature(manifest)
             archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
             for rel, (full, _size) in sorted(target_files.items()):
                 archive.write(full, rel)
@@ -200,6 +203,7 @@ def main() -> int:
     out_path = Path(args.out).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        manifest = attach_signature(manifest)
         archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
         for rel, full, _size in changed:
             archive.write(full, rel)

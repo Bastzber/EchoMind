@@ -1180,6 +1180,22 @@ async def retry_folder_index(payload: RetryFolderRequest, background_tasks: Back
     return {"success": True, "reset": reset, "job": job, "kinds": kinds}
 
 
+@router.get("/api/v1/library/roots")
+async def library_roots(project_id: str = Query(default="default")):
+    """返回素材库的真实根目录。
+
+    主进程要用它做文件操作边界（写文件、重命名、送回收站只放行这些目录以内）。
+    边界必须来自后端索引，渲染层传什么都不能当边界用。
+    """
+    db_manager = get_db_manager()
+    try:
+        roots = db_manager.list_library_roots(project_id)
+    except Exception as exc:
+        logger.warning("[库根] 读取失败: %s", exc)
+        roots = []
+    return {"success": True, "roots": [str(r) for r in (roots or []) if str(r).strip()]}
+
+
 @router.post("/api/v1/db/library/repair-paths")
 async def repair_library_paths(payload: Dict[str, Any] = Body(default={}), project_id: str = Query(default="default")):
     """磁盘上文件夹改名/移动后，把数据库里的旧路径按"同名同大小"修正回来。

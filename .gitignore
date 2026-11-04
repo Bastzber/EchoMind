@@ -202,3 +202,7 @@ dist-*/
 *.zip
 asar-stage/
 tmp/
+
+# 更新包签名私钥（Ed25519），绝不进仓库
+update-signing-private.pem
+*.pem

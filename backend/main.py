@@ -19,6 +19,7 @@
 
 import os
 import re
+import hmac
 import time
 import uuid
 import tempfile
@@ -65,7 +66,7 @@ def validate_path(path: str, allow_absolute: bool = True) -> bool:
     
     return True
 
-from fastapi import FastAPI, HTTPException, Query, Path as PathParam, BackgroundTasks, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, HTTPException, Query, Path as PathParam, BackgroundTasks, WebSocket, WebSocketDisconnect, Body, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, StreamingResponse, Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -769,8 +770,42 @@ app.add_middleware(
     allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-EchoMind-Token"],
 )
+
+
+# ---------- 接口鉴权 ----------
+# 后端监听在回环地址上没错，但「回环」不等于「只有主程序能访问」：
+# 本机任何进程、以及浏览器里的任意页面（间接）都能打到这个端口。
+# 主进程启动时生成一次性令牌经环境变量注入，渲染层从 preload 取到后放请求头；
+# 没有这个头的请求一律 401，写接口也就跟着安全了。
+# 未注入令牌时（本地开发直接跑 uvicorn）跳过校验，保持调试便利。
+_API_TOKEN = str(getattr(config, "API_TOKEN", "") or "").strip()
+_TOKEN_EXEMPT_PREFIXES = (
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/health",
+)
+
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    if not _API_TOKEN:
+        return await call_next(request)
+    path = request.url.path or ""
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if any(path.startswith(prefix) for prefix in _TOKEN_EXEMPT_PREFIXES):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        provided = request.headers.get("x-echomind-token", "")
+        if not hmac.compare_digest(provided, _API_TOKEN):
+            return JSONResponse(
+                {"detail": "unauthorized", "reason": "missing or invalid X-EchoMind-Token"},
+                status_code=401,
+            )
+    return await call_next(request)
 
 
 # ==================== WebSocket 端点 ====================

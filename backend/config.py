@@ -180,6 +180,10 @@ API_PREFIX = "/api/v1"
 
 # ==================== CORS 配置 ====================
 
+# null 必须留着：主窗口是 loadFile 加载的，页面 Origin 就是 null，
+# 去掉它界面所有直连请求都会被浏览器拦掉。
+# 所以防线不设在 CORS 上，改为 API_TOKEN 鉴权（见 main.py 的 require_api_token）：
+# 恶意页面即使能发请求、能过 CORS，没有 token 也拿不到任何数据。
 CORS_ORIGINS = [
     "http://127.0.0.1:*",
     "http://localhost:*",
@@ -187,6 +191,10 @@ CORS_ORIGINS = [
     "file://*",
     "null",
 ]
+
+# 主进程启动后端时注入的一次性令牌。为空表示不校验（仅开发调试用）。
+# 有值时 /api/v1/* 全部要求 X-EchoMind-Token 头匹配。
+API_TOKEN = os.getenv("ECHOMIND_API_TOKEN", "").strip()
 
 # ==================== 模型配置 ====================
 

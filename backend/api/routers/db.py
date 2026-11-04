@@ -978,6 +978,116 @@ async def review_move_file(payload: ReviewMoveRequest):
     return {"success": True, "path": str(target), "filename": target.name}
 
 
+class BatchMoveRequest(BaseModel):
+    """批量把音频文件移到音效库里的另一个目录（磁盘真移动 + 库内路径同步）。"""
+
+    file_uuids: List[str] = Field(default_factory=list)
+    target_dir: str = ""
+    overwrite: bool = False
+
+
+@router.post("/api/v1/db/files/move")
+async def batch_move_files(payload: BatchMoveRequest):
+    """把选中的文件移动到目标目录。
+
+    与 review/move 的区别是支持批量，并且会逐个回报成功/失败，
+    单个文件失败不影响其它文件（重名、源文件丢失这类情况很常见）。
+    """
+    import shutil
+
+    from core.database import canonicalize_path
+
+    uuids = [str(u).strip() for u in (payload.file_uuids or []) if str(u).strip()]
+    if not uuids:
+        raise HTTPException(status_code=422, detail="没有选中文件")
+    target_dir_raw = str(payload.target_dir or "").strip()
+    if not target_dir_raw:
+        raise HTTPException(status_code=422, detail="没有指定目标目录")
+    target_dir = Path(target_dir_raw)
+    if not target_dir.is_dir():
+        raise HTTPException(status_code=400, detail="目标目录不存在：%s" % target_dir)
+
+    db_manager = get_db_manager()
+    project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+    if project_id in _projects_deleting():
+        raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
+
+    moved: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for file_uuid in uuids:
+        try:
+            with db_manager.get_cursor() as cursor:
+                row = cursor.execute(
+                    "SELECT path FROM files WHERE project_id=? AND file_uuid=?",
+                    (project_id, file_uuid),
+                ).fetchone()
+            if not row:
+                failed.append({"file_uuid": file_uuid, "error": "库中没有这条记录"})
+                continue
+            source = Path(row[0])
+            if not source.is_file():
+                failed.append({"file_uuid": file_uuid, "error": "源文件不存在", "path": str(source)})
+                continue
+            if source.parent.resolve() == target_dir.resolve():
+                failed.append({"file_uuid": file_uuid, "error": "已经在目标目录里", "path": str(source)})
+                continue
+            target = target_dir / source.name
+            if target.exists():
+                if not payload.overwrite:
+                    failed.append({"file_uuid": file_uuid, "error": "目标目录已有同名文件", "path": str(target)})
+                    continue
+                target.unlink()
+            shutil.move(str(source), str(target))
+            try:
+                with db_manager.get_cursor() as cursor:
+                    # files 表没有 folder 列（目录从 path 推出来），只更新路径两列
+                    cursor.execute(
+                        "UPDATE files SET path=?, canonical_path=? "
+                        "WHERE project_id=? AND file_uuid=?",
+                        (
+                            str(target),
+                            canonicalize_path(str(target)),
+                            project_id,
+                            file_uuid,
+                        ),
+                    )
+            except Exception:
+                # 库没写成就把文件挪回去：宁可这次失败，也不能让磁盘和库对不上
+                # （11-04 教训：SQL 报错时文件已经移走，库还指着老路径，等于文件失踪）
+                try:
+                    shutil.move(str(target), str(source))
+                except Exception as rollback_exc:
+                    logger.error(
+                        "[移动] 回滚失败，文件在 %s 但库里还是 %s: %s",
+                        target, source, rollback_exc,
+                    )
+                raise
+            moved.append({"file_uuid": file_uuid, "from": str(source), "to": str(target)})
+        except Exception as exc:
+            logger.warning("[移动] %s 失败: %s", file_uuid, exc)
+            failed.append({"file_uuid": file_uuid, "error": str(exc)[:160]})
+
+    if moved:
+        try:
+            with db_manager.get_cursor() as cursor:
+                cursor.execute(
+                    "UPDATE file_artifacts SET updated_at=? WHERE project_id=? AND source_fingerprint IS NULL",
+                    (datetime.now().isoformat(), project_id),
+                )
+        except Exception:
+            pass
+
+    logger.info("[移动] 成功 %d 个，失败 %d 个 -> %s", len(moved), len(failed), target_dir_raw)
+    return {
+        "success": len(failed) == 0,
+        "moved": moved,
+        "failed": failed,
+        "moved_count": len(moved),
+        "failed_count": len(failed),
+        "target_dir": target_dir_raw,
+    }
+
+
 @router.post("/api/v1/db/files/delete")
 async def batch_delete_db_files(payload: BatchDeleteRequest):
     """批量删除文件记录。

@@ -221,6 +221,18 @@ function showSoundContextMenu(event, sound) {
         showTranscodeModal(targets);
     }));
 
+    // 磁盘上真移动：听完待归类的音效，直接归到对应分类文件夹
+    menu.appendChild(makeMenuItem('移动到文件夹…', 'folder-input', () => {
+        const targets = (selectedSounds.size > 0 && selectedSounds.has(sound.id))
+            ? soundData.filter(item => selectedSounds.has(item.id))
+            : [sound];
+        if (typeof showMoveToFolderDialog === 'function') {
+            showMoveToFolderDialog(targets);
+        } else {
+            showNotification('移动功能没加载，请重启软件', 'error');
+        }
+    }));
+
     // 分隔线
     const sep = document.createElement('div');
     sep.className = 'my-1 border-t';

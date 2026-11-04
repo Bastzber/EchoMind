@@ -6,6 +6,9 @@
  */
 
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, protocol, shell, safeStorage, clipboard } = require('electron');
+// electron 的 net 和 node 的 net 重名，这里改名，别让下面那行把协议处理器搞坏
+const electronNet = require('electron').net;
+const { pathToFileURL } = require('url');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
@@ -31,7 +34,19 @@ const AUDIO_PROTOCOL = 'soundmind-audio';
 
 // 必须在 app.ready 之前调用
 protocol.registerSchemesAsPrivileged([
-  { scheme: AUDIO_PROTOCOL, privileges: { standard: true, secure: true, supportFetchAPI: true } }
+  {
+    scheme: AUDIO_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      // stream: true 必须开。
+      // 少了它，<audio> 走这个协议加载会直接判「不支持的源」(MEDIA_ERR_SRC_NOT_SUPPORTED, err=4)，
+      // 在 Electron 45 上更进一步：整个主进程 CHECK 挂掉，退出码 0x80000003，界面直接消失。
+      // 11-04 实测：迷你程序里加与不加这个开关，一个小 WAV 一个是 rs=4 正常播放、一个是 rs=0 err=4。
+      stream: true
+    }
+  }
 ]);
 
 let mainWindow;
@@ -305,9 +320,10 @@ function writeSecureSecrets(secrets) {
   secureSecretsCache = secrets;
 }
 
-function getSafeStorageStatus() {
-  // Electron 45 里 isEncryptionAvailable 标了 deprecated，推荐 isAsyncEncryptionAvailable；
-  // 但新版仍是同步调用更省事（异步版要改一串 async）。优先用新的，没有就退回旧的。
+let safeStorageStatusCache = null;
+
+function computeSafeStorageStatusSync() {
+  // 老版本 Electron 只有同步接口，保留这条兜底路径。
   let encryptionAvailable = false;
   try {
     if (typeof safeStorage.isEncryptionAvailable === 'function') {
@@ -329,6 +345,40 @@ function getSafeStorageStatus() {
   // secure credential store.
   const available = encryptionAvailable && backend !== 'basic_text';
   return { available, backend };
+}
+
+function getSafeStorageStatus() {
+  if (!safeStorageStatusCache) {
+    safeStorageStatusCache = computeSafeStorageStatusSync();
+  }
+  return safeStorageStatusCache;
+}
+
+// Electron 45 把 isEncryptionAvailable 标成 deprecated，每次调用都往 stderr 打警告；
+// 新接口是异步的 isAsyncEncryptionAvailable。整条调用链都改 async 动静太大，
+// 所以这里在 app ready 时用异步版探一次，结果缓存给同步调用点用。
+async function primeSafeStorageStatus() {
+  try {
+    if (typeof safeStorage.isAsyncEncryptionAvailable === 'function') {
+      const encryptionAvailable = await safeStorage.isAsyncEncryptionAvailable();
+      let backend = null;
+      if (encryptionAvailable && typeof safeStorage.getSelectedStorageBackend === 'function') {
+        try {
+          backend = safeStorage.getSelectedStorageBackend();
+        } catch (_error) {
+          backend = null;
+        }
+      }
+      safeStorageStatusCache = {
+        available: Boolean(encryptionAvailable) && backend !== 'basic_text',
+        backend
+      };
+      return safeStorageStatusCache;
+    }
+  } catch (error) {
+    console.warn('[Secrets] isAsyncEncryptionAvailable failed:', error?.message || error);
+  }
+  return getSafeStorageStatus();
 }
 
 function isSecureStorageAvailable() {
@@ -570,11 +620,23 @@ function registerAudioProtocol() {
       if (!filePath) {
         return new Response('not found', { status: 404 });
       }
+      // 用 net.fetch(file://) 而不是 readFile 再塞进 Response：
+      // 直接返回 Buffer 时响应是「不知道总长度」的流，音频元素算不出时长，
+      // 播放条上就会显示 Infinity:NaN:NaN，也没法拖动进度。
+      // net.fetch 会带 Content-Length 和支持 Range 的语义，时长和拖动都正常。
+      try {
+        return await electronNet.fetch(pathToFileURL(filePath).toString());
+      } catch (error) {
+        console.warn('[AudioProtocol] net.fetch failed, falling back to buffer:', error?.message || error);
+      }
       try {
         const data = await fs.promises.readFile(filePath);
         return new Response(data, {
           status: 200,
-          headers: { 'Content-Type': guessAudioContentType(filePath) },
+          headers: {
+            'Content-Type': guessAudioContentType(filePath),
+            'Content-Length': String(data.byteLength),
+          },
         });
       } catch (error) {
         console.error('[AudioProtocol] read failed:', error);
@@ -961,7 +1023,9 @@ async function startBackend() {
       return { success: false, error: '后端端口握手失败' };
     }
 
-    const health = await waitForBackendHealth(120000);
+    const health = await waitForBackendHealth(300000, (elapsed) => {
+      updateSplashStatus('正在启动后端服务...', `数据库加载中 ${elapsed}s`);
+    });
     if (health.success) {
       console.log('[Backend] ✓ Backend service started successfully');
     } else {
@@ -975,8 +1039,16 @@ async function startBackend() {
   }
 }
 
-async function waitForBackendHealth(timeoutMs = 120000) {
+// 健康探测同时也是「冷启动进度条」。
+// 2026-11-04 实测：库里有 195,174 行文件、6.2 GB 的 SQLite + 3.2 GB 向量库，
+// 全部读进内存要 2 分半，而这里的预算只有 120 秒 —— 结果后端一切正常，
+// 主进程却已经判了「启动超时」，界面死在启动窗上，提示「请重新安装」。
+// 现在：预算放到 5 分钟，同时在启动窗上滚已等秒数，超时文案也不再吓人。
+let backendVersionMismatch = null;
+async function waitForBackendHealth(timeoutMs = 300000, onProgress = null) {
   const startedAt = Date.now();
+  const appVersion = app.getVersion();
+  let lastNotifiedSecond = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     if (!backendProcess || backendProcess.exitCode !== null) {
@@ -996,12 +1068,21 @@ async function waitForBackendHealth(timeoutMs = 120000) {
             code: 'AUDIO_RUNTIME_UNAVAILABLE'
           };
         }
-        if (
-          payload?.status === 'healthy'
-          && payload?.audio_decoder_available === true
-          && payload?.version === app.getVersion()
-        ) {
-          return { success: true };
+        if (payload?.status === 'healthy' && payload?.audio_decoder_available === true) {
+          // 原来这里要求后端版本必须严格等于应用版本，否则一直轮询到超时。
+          // 后果是「后端 exe 没跟着重新打包」等于整台机器打不开（11-04 就撞上了：
+          // 应用升到 beta.20，后端 exe 还是 beta.19）。版本对不上只是打包没同步，
+          // 功能本身是好的，降级成告警，别再拿它当启动失败的理由。
+          const backendVersion = String(payload?.version || '');
+          if (backendVersion && backendVersion !== appVersion) {
+            // 只报一次：这个函数会被状态查询反复调用，每次都打会把日志刷满
+            if (!backendVersionMismatch) {
+              console.warn(`[Backend] ⚠ 后端版本 ${backendVersion} 与应用版本 ${appVersion} 不一致，继续启动`);
+              updateSplashStatus('服务已就绪', `后端 ${backendVersion} · 应用 ${appVersion}`);
+            }
+            backendVersionMismatch = { backend: backendVersion, app: appVersion };
+          }
+          return { success: true, versionMismatch: backendVersionMismatch };
         }
       }
     } catch (error) {
@@ -1009,10 +1090,20 @@ async function waitForBackendHealth(timeoutMs = 120000) {
       clearTimeout(requestTimer);
     }
 
+    // 每 5 秒往启动窗报一次已经等了多久，用户能看出程序在动，不是死了
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    if (typeof onProgress === 'function' && elapsed - lastNotifiedSecond >= 5) {
+      lastNotifiedSecond = elapsed;
+      try { onProgress(elapsed); } catch (_error) { /* 进度只是提示，别影响探测 */ }
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  return { success: false, error: '启动超时' };
+  return {
+    success: false,
+    error: `启动超时（已等 ${Math.round((Date.now() - startedAt) / 1000)} 秒）`
+  };
 }
 
 async function ensureBackendStarted() {
@@ -3047,6 +3138,7 @@ function closeSplashWindow() {
 app.whenReady().then(async () => {
   initializeMainLogging();
   registerAudioProtocol();
+  await primeSafeStorageStatus();
 
   // 创建启动窗口
   createSplashWindow();
@@ -3059,7 +3151,7 @@ app.whenReady().then(async () => {
     console.error('[App] Backend startup failed:', result.error);
     updateSplashStatus(
       '启动失败',
-      `${result.error || '未知错误'} · 请重新安装或查看应用日志`,
+      `${result.error || '未知错误'} · 点「打开日志」看后端输出，重开程序可再试`,
       true
     );
     return;

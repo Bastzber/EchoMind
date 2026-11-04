@@ -270,7 +270,10 @@ function showFolderContextMenu(event, folder, type, extra = {}) {
             { label: i18n.t('folder.rename'), icon: 'edit-3', action: () => showInputModal(i18n.t('folder.rename.title'), i18n.t('folder.rename.placeholder'), (name) => { if (name) renameUserFolder(folder.id, name); }, folder.name) },
             { label: i18n.t('delete'), icon: 'trash-2', action: () => { if (confirm(i18n.t('confirm.delete.folder', { name: folder.name }))) deleteUserFolder(folder.id); }, danger: true }
         );
-    } else if (type === 'imported') {
+    } else if (type === 'imported' || type === 'imported-child' || type === 'imported-root') {
+        // imported-child（子文件夹）以前没有分支，menuItems 是空数组，菜单弹出来看不见。
+        // 总文件夹走 imported，子文件夹走 imported-child，这里合并成同一套菜单。
+        // 删除操作仍然调 openFolderDeleteModal，它按 folder 自身信息判断删什么。
         // 导入文件夹菜单
         menuItems.push(
             { label: '批量重命名此文件夹…', icon: 'files', action: () => renameSoundsInFolder(folder.fullPath) },

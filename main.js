@@ -2159,20 +2159,48 @@ ipcMain.handle('dialog-save', async (event, options) => {
       if (!zipPath || !fsSync.existsSync(zipPath)) return { ok: false, error: '更新包不存在' };
       const installRoot = path.dirname(app.getPath('exe'));
       const { manifest, plan } = await updaterApply.inspect(zipPath, installRoot);
-      // 增量包只对"同版本"有效：拿 beta.11 的增量包盖到 beta.12 上会把 app.asar
-      // 退回去，形象和索引修复全没了，而且逻辑上不会报错。这里先拦一次。
+      // 增量包能不能装，看的是「包里的文件比本地新」，不是版本号相等。
+      // 以前要求 baseVersion 严格等于当前版本，结果每台机器都得单独打包，
+      // 用户手上拿着包也装不上（11-04 实测：beta.10 的包盖不到 beta.19）。
+      // 现在改成：baseVersion 只要不高于当前版本就放行 —— 老包覆盖到新版本上
+      // 最多是「该改的改了、没改的保持」，不会把新东西退回去（文件是同一份）。
+      // 只有 baseVersion 比当前版本还新时才拦，那才是真的会退版本。
       const normalize = (value) => String(value || '').split('-r')[0].trim();
+      const parseVersion = (value) => {
+        const m = String(value || '').match(/(\d+)\.(\d+)\.(\d+)-beta\.(\d+)/);
+        return m ? [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])] : null;
+      };
       const targetVersion = normalize(manifest.baseVersion);
       const currentVersion = app.getVersion();
-      if (targetVersion && targetVersion !== currentVersion) {
-        return {
-          ok: false,
-          error: '这个更新包对应 ' + targetVersion + '，当前是 ' + currentVersion
-            + '。请用匹配版本的增量包，或者直接装完整包。',
-          version: manifest.version,
-          baseVersion: manifest.baseVersion,
-          currentVersion,
-        };
+      if (targetVersion) {
+        const target = parseVersion(targetVersion);
+        const current = parseVersion(currentVersion);
+        if (target && current) {
+          const newer = target[0] > current[0]
+            || (target[0] === current[0] && target[1] > current[1])
+            || (target[0] === current[0] && target[1] === current[1] && target[2] > current[2])
+            || (target[0] === current[0] && target[1] === current[1] && target[2] === current[2]
+                && target[3] > current[3]);
+          if (newer) {
+            return {
+              ok: false,
+              error: '这个更新包要求至少 ' + targetVersion + '，当前是 ' + currentVersion
+                + '。包比你的版本新，装上会把旧文件盖回去，请用当前版本的包或完整安装包。',
+              version: manifest.version,
+              baseVersion: manifest.baseVersion,
+              currentVersion,
+            };
+          }
+        } else if (targetVersion !== currentVersion) {
+          // 版本号格式认不出来时保守处理：只允许相等
+          return {
+            ok: false,
+            error: '这个更新包对应 ' + targetVersion + '，当前是 ' + currentVersion + '。',
+            version: manifest.version,
+            baseVersion: manifest.baseVersion,
+            currentVersion,
+          };
+        }
       }
       return {
         ok: true,

@@ -376,7 +376,7 @@ class AudioFileRecord:
 
     def set_peaks(self, peaks: List[float]):
         """设置波形峰值"""
-        self.peaks_json = json.dumps(peaks)
+        self.peaks_json = serialize_peaks(peaks)
 
     def set_tags(self, tags: List[str]):
         """设置标签"""
@@ -392,6 +392,7 @@ class AudioFileRecord:
 # 这个文件原来是四千多行，按职责拆成几块：
 #   连接/事务/建表/迁移 留在这里（DatabaseManager 本体）
 #   文件、标签、工程与目录、向量与工件、任务 各自一个 mixin
+from core.db_common import serialize_peaks  # noqa: F401  （Record.set_peaks 用）
 from core.db_files import FilesMixin
 from core.db_jobs import JobsMixin
 from core.db_projects import ProjectsMixin

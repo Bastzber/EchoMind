@@ -74,6 +74,7 @@ from pydantic import BaseModel
 import uvicorn
 
 import config
+from core.db_common import serialize_peaks
 from core.errors import SoundBotAPIError
 from models import schemas
 from core.indexer import (
@@ -1279,7 +1280,7 @@ async def _import_selected_files_task_locked(
                 sample_rate=audio_file.sample_rate,
                 channels=audio_file.channels,
                 file_size=audio_file.size,
-                peaks_json=json.dumps(waveform.peaks) if waveform else None,
+                peaks_json=serialize_peaks(waveform.peaks) if waveform else None,
                 tags="[]",
                 source_fingerprint=source_fp.source_key,
                 waveform_fingerprint=waveform.fingerprint.key if waveform else None,
@@ -2118,7 +2119,7 @@ async def _scan_and_import_task_locked(
                     waveform = await _run_audio_work(
                         audio_service.waveform, audio_file.path
                     )
-                    peaks_json = json.dumps(waveform.peaks)
+                    peaks_json = serialize_peaks(waveform.peaks)
                     waveform_fingerprint = waveform.fingerprint.key
                     waveform_version = int(waveform.fingerprint.waveform_version)
                 else:

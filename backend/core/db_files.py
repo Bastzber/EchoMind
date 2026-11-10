@@ -9,6 +9,7 @@ from core.db_common import (  # noqa: F401
     _is_windows_style_path,
     _parse_tags,
     _stable_file_uuid,
+    serialize_peaks,
 )
 from core.db_common import logger_proxy as logger  # noqa: F401
 
@@ -505,7 +506,7 @@ class FilesMixin:
                 for value in peaks
             ):
                 raise ValueError("waveform peaks must be a non-empty finite [0,1] array")
-            peaks_json = json.dumps(peaks)
+            peaks_json = serialize_peaks(peaks)
             canonical_path = canonicalize_path(path)
             source_fingerprint = source_fingerprint or make_source_fingerprint(path)
             effective_project = project_id or 'default'

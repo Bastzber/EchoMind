@@ -80,6 +80,26 @@ def _parse_tags(raw) -> List[str]:
     return []
 
 
+# 波形峰值存 3 位小数就够：渲染端画的是像素柱，一个柱高 100 档都不到。
+# 直接 json.dumps(float32 序列) 会把 float32 展开成 17 位有效数字
+# （3.1982603104552254e-05），2000 个点一条 40 KB，6.5 万条 = 2.6 GB，
+# 占整个库的 79%（11-10 实测）。
+WAVEFORM_PEAK_DECIMALS = 3
+
+
+def serialize_peaks(peaks) -> Optional[str]:
+    """把波形峰值序列压成紧凑 JSON；None 原样返回。"""
+    if peaks is None:
+        return None
+    if isinstance(peaks, str):
+        return peaks
+    try:
+        values = [round(float(value), WAVEFORM_PEAK_DECIMALS) for value in peaks]
+    except (TypeError, ValueError):
+        return json.dumps(peaks)
+    return json.dumps(values, separators=(",", ":"))
+
+
 def is_safe_project_id(project_id: str) -> bool:
     """Return whether an identifier is safe to use as an application key/path part."""
     value = str(project_id or "").strip()
@@ -376,7 +396,7 @@ class AudioFileRecord:
 
     def set_peaks(self, peaks: List[float]):
         """设置波形峰值"""
-        self.peaks_json = json.dumps(peaks)
+        self.peaks_json = serialize_peaks(peaks)
 
     def set_tags(self, tags: List[str]):
         """设置标签"""

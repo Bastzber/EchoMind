@@ -13,6 +13,23 @@
 - 新增「长文本转语音」：粘贴整章文字后台生成，进度可查，可中途停止，输出文件夹和文件名自己选 / Long-form text to speech: paste a chapter, watch progress, stop midway, choose output folder and filename
 - **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 
+## [0.3.0-beta.21] - 2026-11-11 (Prerelease / 预发布)
+
+> 测试版 V21。这一版不添功能，专治「库太胖」和「索引太黏」。
+
+### Changed / 变更
+
+- 数据库瘦身：波形峰值原来按 float32 完整十进制存（单点 17 位有效数字、占整库 79%），改成 3 位小数 + 紧凑 JSON 后库从 3.32 GB 降到 1.05 GB，点数与渲染不变 / Waveform peaks are stored at 3 decimals with compact JSON: the database shrank from 3.32 GB to 1.05 GB with identical point counts and rendering
+- 索引遇到坏文件直接跳过：解码失败标记终态 decode_failed，自动对账不再反复重试，改之前 32 个解不开的文件每轮白等 632 秒 / Decode failures are now terminal: 32 unreadable files used to burn 632 s per reconcile round while healthy files take 0.26 s each
+- 索引改成停手后再跑：改标签、写描述、改名不再每次排一个约 14 秒的任务，停止操作 6 秒后合并成一个，有任务在跑会自动补一轮 / User edits are debounced: saving tags, descriptions and renames merges into one job 6 s after you stop editing instead of one ~14-second job per save
+- 自动续跑加退避：一轮里一条都没成功就等 20/40 秒再试，连续 3 轮无进展就停，不再每 3 秒自转 / Automatic reconcile backs off after a round with zero progress instead of re-scheduling every 3 seconds
+- 毒文件名单清理：清掉 20 条误封条目（那些文件其实有正常向量），名单从 84 条收敛到 30 条 / Pruned 20 false positives from the poison file list
+
+### Fixed / 修复
+
+- 程序图标恢复：Electron 升级时主程序是改名来的，带的是 Electron 默认原子图标，文件属性也写着 Electron / GitHub, Inc.，现改用 build/icon.ico 重新注入并补齐产品名与版权 / Restored the application icon and product metadata lost when the Electron shell was replaced by hand
+- 索引加阶段计时日志：日志里一行「[索引] 阶段耗时 …」就能看出每次索引的时间花在哪一段 / Added stage-level timing logs so a slow index run can be attributed without guessing
+
 ## [0.3.0-beta.20] - 2026-11-05
 
 > 测试版 V20。安全加固一轮（审计报告 14 条全部处理）+ Electron 从 28 升到 45，

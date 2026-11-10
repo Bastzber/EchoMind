@@ -13,7 +13,7 @@
 >
 > A local-first, AI-powered desktop sound-effect manager.
 
-The current source version is **v0.3.0-beta.20 (prerelease)**.
+The current source version is **v0.3.0-beta.21 (prerelease)**.
 
 Windows x64 test build · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.20) · [Release page](https://github.com/Bastzber/EchoMind/releases/tag/v0.3.0-beta.20)
 

@@ -68,6 +68,10 @@ def walk_files(root: Path) -> dict:
         for name in filenames:
             if Path(name).suffix.lower() in EXCLUDE_SUFFIXES:
                 continue
+            # 换图标/换后端时留下的 .bak 绝不能进包（11-11 实测：一份 238 MB 的
+            # EchoMind.exe.bak-before-icon 差点被当成"变化文件"塞进更新包）
+            if ".bak" in name.lower():
+                continue
             full = Path(dirpath) / name
             rel = full.relative_to(root).as_posix()
             # breeze 目录整块跳过（模型权重 3.5 GB，用户本地已有）

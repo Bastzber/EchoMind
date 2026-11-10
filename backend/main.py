@@ -1290,12 +1290,20 @@ async def _import_selected_files_task_locked(
                 db_manager.upsert_file, record, project_id
             )
             if waveform_error:
+                # 解码失败（waveform_decode_failed / 元数据读不出来）打终态码，
+                # 自动索引下一轮直接跳过，不再为一条坏文件反复等超时。
+                _wf_code = _artifact_failure_code(
+                    f"{waveform_error.code} {waveform_error.message}",
+                    waveform_error.code,
+                )
                 db_manager.set_artifact_state(
                     project_id, file_uuid, "waveform", "failed",
                     source_fingerprint=source_fp.source_key,
-                    error_code=waveform_error.code,
+                    error_code=_wf_code,
                     error_message=waveform_error.message,
                 )
+                if _wf_code == DECODE_FAILED_ERROR_CODE:
+                    _mark_poison(audio_file.path)
             if is_embedder_available() and not defer_vectors:
                 try:
                     indexer = _get_active_audio_indexer(project_id)
@@ -3724,13 +3732,21 @@ async def get_waveforms_batch(request: schemas.WaveformBatchRequest):
 
 # ==================== 索引状态 ====================
 
+# 自动续跑的连续失败计数：一轮里一条都没成功就不许立刻再排，否则
+# 一个永远失败的工件会让任务以每 3 秒一次的节奏无限自转（11-10 实测：
+# 一个文本集合打不开，5 条工件 20 秒内排了 18 个任务）。连续 3 轮没进展就停下，
+# 留给用户手动「修复索引」。
+_auto_chain_failures: Dict[str, int] = {}
+
+
 async def _run_automatic_reconcile(
     job_id: str,
     project_id: str,
     kinds: List[str],
 ) -> None:
+    stats: Optional[Dict[str, Any]] = None
     try:
-        await _repair_index_task(job_id, project_id, kinds, "reconcile")
+        stats = await _repair_index_task(job_id, project_id, kinds, "reconcile")
     finally:
         current = _automatic_index_tasks.get(project_id)
         if current and current.get("job_id") == job_id:
@@ -3738,8 +3754,37 @@ async def _run_automatic_reconcile(
         # 一次只认领 512 条，跑完如果还有积压就接着排下一批（链式），
         # 这样大批量导入照样能连续跑完，但单次中断的损失被限制在 512 条。
         if not _shutting_down and project_id not in _projects_deleting:
+            processed = int((stats or {}).get("processed") or 0)
+            failed = int((stats or {}).get("failures") or 0)
+            made_progress = bool(processed) and processed > failed
+            if made_progress:
+                _auto_chain_failures.pop(project_id, None)
+                delay = 0.0
+            else:
+                strikes = int(_auto_chain_failures.get(project_id, 0)) + 1
+                _auto_chain_failures[project_id] = strikes
+                if strikes >= 3:
+                    logger.warning(
+                        "[索引] 连续 %d 轮没有任何进展，停止自动续跑（本轮 %d 条失败）。"
+                        "剩下的用「修复索引」手动重试",
+                        strikes, failed,
+                    )
+                    return
+                delay = min(120.0, 20.0 * strikes)
+                logger.info(
+                    "[索引] 本轮 %d 条没有一条成功，%d 秒后再试（第 %d 次）",
+                    failed or processed, int(delay), strikes,
+                )
             try:
-                _schedule_project_reconcile(project_id, kinds, reason="chain")
+                if delay > 0:
+                    asyncio.get_running_loop().call_later(
+                        delay,
+                        lambda: _schedule_project_reconcile(
+                            project_id, tuple(kinds), reason="chain"
+                        ),
+                    )
+                else:
+                    _schedule_project_reconcile(project_id, kinds, reason="chain")
             except Exception as exc:
                 logger.debug("[Index] 链式续跑调度失败: %s", exc)
 
@@ -3772,10 +3817,13 @@ def _schedule_project_reconcile(
         project_id, valid_kinds, limit=512
     )
     if not work:
+        logger.debug("[索引] %s：没有待办工件，不建任务", reason)
         return None
     job_id = db_manager.create_job(
         project_id, f"index_auto_{reason}", len(work)
     )
+    if reason != "chain":
+        logger.info("[索引] 排队 %s：%d 条工件（%s）", reason, len(work), ",".join(valid_kinds))
     task = asyncio.create_task(
         _run_automatic_reconcile(job_id, project_id, valid_kinds),
         name=f"soundbot-index-{project_id}-{reason}",
@@ -3784,21 +3832,123 @@ def _schedule_project_reconcile(
     return job_id
 
 
-async def _deferred_reconcile(project_id: str, kinds: List[str], reason: str) -> None:
-    """响应已经发出之后再去创建对账任务。
+# 用户改动（标签 / 描述 / 改名）不再「一改一排任务」。
+# 排一次任务就要付一遍任务底座：11-10 实测单条任务 14 秒，其中模型只占 4 毫秒，
+# 剩下全是开集合、重建搜索快照、任务落库。用户在界面上连着改十条，后台就白跑十遍。
+# 现在改成「停手 N 秒后跑一次」：连续改动合并成一个任务，而且落在用户停手之后，
+# 不跟用户的操作抢。
+_USER_EDIT_QUIET_SECONDS = 6.0        # 停手多久才开始
+_USER_EDIT_MAX_DELAY_SECONDS = 45.0   # 一直不停手也不许无限推迟
+_user_edit_pending: Dict[str, Dict[str, Any]] = {}
 
-    直接在保存接口里调度会把 4.8 万行的扫描算在请求里，实测保存描述要等 17 秒
-    才拿到响应；丢进 BackgroundTasks 之后接口 <300ms 返回，索引照样在后台补。
 
-    再等一小会儿是有意的：连着改三条描述时，三次都会走到这里，但真正建出来的
-    只有一个对账任务（_schedule_project_reconcile 自带去重）。否则用户第二次保存
-    会正撞上一次还在跑的对账，又变成十几秒。
-    """
+def _fire_user_edit_index(project_id: str) -> None:
+    """防抖计时到点：把这一批改动合并成一个索引任务。"""
+    entry = _user_edit_pending.pop(project_id, None)
+    if not entry:
+        return
+    if _shutting_down or project_id in _projects_deleting:
+        return
+    kinds = list(entry.get("kinds") or [])
+    reasons = ",".join(entry.get("reasons") or []) or "user_edit"
+    waited = time.time() - float(entry.get("first_at") or time.time())
+    running = _automatic_index_tasks.get(project_id)
+    if running and not running["task"].done():
+        # 已经有任务在跑：它手里的取活清单是改之前取的，这批改动没进去。
+        # 不能就这么丢掉——等它跑完再补一轮（不排队，只挂一个重试）。
+        logger.debug(
+            "[索引] 已有任务在跑（job=%s），%d 类改动等它跑完再补",
+            running.get("job_id"), len(kinds),
+        )
+        _rearm_user_edit(project_id, kinds, entry.get("reasons") or [], entry.get("first_at"))
+        return
     try:
-        await asyncio.sleep(2.5)
-        _schedule_project_reconcile(project_id, kinds, reason=reason)
+        job_id = _schedule_project_reconcile(project_id, kinds, reason="user_edit")
     except Exception as exc:  # 后台失败不能影响用户已经保存的数据
-        logger.debug(f"调度索引对账失败({reason}): {exc}")
+        logger.warning("[索引] 用户改动的对账调度失败(%s): %s", reasons, exc)
+        return
+    if job_id:
+        logger.info(
+            "[索引] 用户停手 %.1fs，合并 %s（%d 类工件）后开始，job=%s",
+            waited, reasons, len(kinds), job_id,
+        )
+    else:
+        logger.debug("[索引] 用户停手 %.1fs 后没有待办工件（%s）", waited, reasons)
+
+
+def _rearm_user_edit(project_id: str, kinds: Sequence[str], reasons: Sequence[str], first_at: Any) -> None:
+    """把改动重新挂回待办，稍后再试（已有任务在跑时用）。"""
+    entry = _user_edit_pending.get(project_id)
+    if entry is None:
+        entry = {"kinds": [], "reasons": [], "handle": None, "first_at": first_at or time.time()}
+        _user_edit_pending[project_id] = entry
+    for kind in dict.fromkeys(kinds or ()):
+        if kind not in entry["kinds"]:
+            entry["kinds"].append(kind)
+    for reason in reasons or []:
+        if reason not in entry["reasons"]:
+            entry["reasons"].append(str(reason))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    handle = entry.get("handle")
+    if handle is not None:
+        try:
+            handle.cancel()
+        except Exception:
+            pass
+    entry["handle"] = loop.call_later(8.0, _fire_user_edit_index, project_id)
+
+
+def _defer_user_index(project_id: str, kinds: Sequence[str], reason: str = "user_edit") -> None:
+    """登记一次用户改动；静默一段时间后只建一个任务。
+
+    连续调用只会重置计时器，不会多排任务；最长推迟 _USER_EDIT_MAX_DELAY_SECONDS。
+    """
+    if _shutting_down or not project_id or project_id in _projects_deleting:
+        return
+    valid_kinds = [
+        kind for kind in dict.fromkeys(kinds or ())
+        if kind in {"waveform", "audio_vector", "text_vector"}
+    ]
+    if not valid_kinds:
+        return
+    entry = _user_edit_pending.get(project_id)
+    if entry is None:
+        entry = {"kinds": [], "reasons": [], "handle": None, "first_at": time.time()}
+        _user_edit_pending[project_id] = entry
+    for kind in valid_kinds:
+        if kind not in entry["kinds"]:
+            entry["kinds"].append(kind)
+    if reason and str(reason) not in entry["reasons"]:
+        entry["reasons"].append(str(reason))
+    handle = entry.get("handle")
+    if handle is not None:
+        try:
+            handle.cancel()
+        except Exception:
+            pass
+        entry["handle"] = None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None:
+        # 没有事件循环（脚本/测试里同步调用）：立刻走一遍，别把改动丢了
+        _fire_user_edit_index(project_id)
+        return
+    elapsed = time.time() - float(entry["first_at"] or time.time())
+    delay = max(0.5, min(_USER_EDIT_QUIET_SECONDS, _USER_EDIT_MAX_DELAY_SECONDS - elapsed))
+    entry["handle"] = loop.call_later(delay, _fire_user_edit_index, project_id)
+
+
+async def _deferred_reconcile(project_id: str, kinds: List[str], reason: str) -> None:
+    """兼容旧调用点：保存接口原来在这里 sleep 2.5 秒再排任务。
+
+    现在改走「用户停手后合并」的防抖调度（_defer_user_index），理由见上面的注释。
+    """
+    _defer_user_index(project_id, kinds, reason)
 
 
 def _schedule_model_ready_reconcile() -> None:
@@ -4043,6 +4193,50 @@ def _adopt_before_reconcile(db_manager, project_id: str, kinds) -> list:
     return results
 
 
+# 解码类失败是终态：文件本身坏或格式不支持，重试一万次还是坏。
+# 打上这个码之后 list_artifacts_for_work 直接跳过——以前不区分，
+# 32 条坏文件让每一轮自动对账都白等 632 秒（11-10 实测，20.4 秒/条全是超时罚站）。
+DECODE_FAILED_ERROR_CODE = "decode_failed"
+_DECODE_FAILURE_HINTS = (
+    "decode_error",
+    "decode_timeout",
+    "unsupported",
+    "unable to decode",
+    "unable to build waveform",
+    "unable to read audio metadata",
+    "audio_decode_failed",
+    "waveform_decode_failed",
+    "audio_probe_failed",
+    "cannot decode",
+    "invalid data",
+    "format not recognized",
+)
+
+
+def _artifact_failure_code(reason: str, fallback: str) -> str:
+    """worker 明确报了解码失败就给终态码；其它错误保留可重试的码。"""
+    text = str(reason or "").strip().lower()
+    if text and any(hint in text for hint in _DECODE_FAILURE_HINTS):
+        return DECODE_FAILED_ERROR_CODE
+    return fallback
+
+
+def _mark_poison(path: Any) -> None:
+    """把确认解不开的文件记进毒名单：即使被强制重建也一秒跳过，不再等超时。
+
+    只对 worker 明确回报解码失败的文件调用（两次才拉黑，见 embedder._note_bad_file），
+    不会因为父进程超时就误封正常文件。
+    """
+    if not path:
+        return
+    try:
+        from core.embedder import _note_bad_file
+
+        _note_bad_file(str(path))
+    except Exception as exc:  # 记账失败不影响索引
+        logger.debug("[索引] 记录毒文件失败: %s", exc)
+
+
 async def _repair_index_task(
     job_id: str,
     project_id: str,
@@ -4066,8 +4260,9 @@ async def _repair_index_task(
         import sys as _sys
 
         faulthandler.dump_traceback_later(120, repeat=True, file=_sys.stderr)
+        stats = None
         try:
-            await _repair_index_task_locked(job_id, project_id, kinds, mode)
+            stats = await _repair_index_task_locked(job_id, project_id, kinds, mode)
         finally:
             try:
                 faulthandler.cancel_dump_traceback_later()
@@ -4098,6 +4293,7 @@ async def _repair_index_task(
                         )
             except Exception as exc:
                 logger.debug("回滚 processing 失败: %s", exc)
+        return stats
 
 
 async def _repair_index_task_locked(
@@ -4116,7 +4312,19 @@ async def _repair_index_task_locked(
 
     db_manager = get_db_manager()
     service = get_audio_service()
+    # 阶段计时：改一次标签要等十几秒，日志里必须能看出时间花在哪一段，
+    # 不能靠猜（11-10 实测：模型只占 4 毫秒）。
+    _t_stage = time.perf_counter()
+    _t_marks: List[Tuple[str, float]] = []
+
+    def _mark(label: str) -> None:
+        nonlocal _t_stage
+        _now = time.perf_counter()
+        _t_marks.append((label, _now - _t_stage))
+        _t_stage = _now
+
     folder_context = _load_logical_folder_context(project_id)
+    _mark("folder_context")
     db_manager.update_job(job_id, state="running", stage="reconciling")
     try:
         _index_progress.update({"audio": 0, "text": 0, "target": 0, "active": False})
@@ -4126,6 +4334,7 @@ async def _repair_index_task_locked(
         # 只要三个字段，用轻量查询：get_files_by_project 会构造 6.5 万个
         # AudioFileRecord，实测 12.7 秒，是「索引一跑 /health 就卡十几秒」的元凶。
         identities = await asyncio.to_thread(db_manager.get_file_identities, project_id)
+        _mark("identities(%d)" % len(identities))
         expected = [
             {"file_id": uuid_value, "file_path": path_value, "source_fingerprint": fp}
             for uuid_value, path_value, fp in identities
@@ -4152,6 +4361,7 @@ async def _repair_index_task_locked(
                 )
             else:
                 vector_targets["text_vector"] = active_text
+        _mark("indexers")
 
         if mode != "rebuild":
             # 先把已经存在且指纹匹配的向量接管回 ready，避免把老数据当缺失重编码
@@ -4191,6 +4401,7 @@ async def _repair_index_task_locked(
                     + reconciliation.get("stale", [])
                 ):
                     db_manager.set_artifact_state(project_id, file_id, kind, "stale")
+        _mark("adopt+reconcile")
 
         direct_kinds = [kind for kind in kinds if kind not in shadow_kinds]
         # 单次任务最多处理这么多条；剩下的留给下一次调度。
@@ -4216,6 +4427,7 @@ async def _repair_index_task_locked(
                 limit=100000,
             ))
         _truncated = len(work) >= max(50, work_limit)
+        _mark("worklist(%d)" % len(work))
         db_manager.update_job(job_id, total=len(work), stage="processing")
         shadow_success: Dict[str, List[str]] = {
             kind: [] for kind in shadow_kinds
@@ -4356,10 +4568,18 @@ async def _repair_index_task_locked(
                         ),
                     }
                 else:
+                    # 解码失败打终态码，下一轮自动对账直接跳过这条，不再反复超时；
+                    # 源文件换了（指纹变了会清掉 error_code）才会重新试。
+                    _exc_code = str(getattr(exc, "code", "") or "")
+                    _code = _artifact_failure_code(
+                        (_exc_code + " " + str(exc)).strip(), f"{kind}_failed"
+                    )
                     db_manager.set_artifact_state(
                         project_id, file_uuid, kind, "failed",
-                        error_code=f"{kind}_failed", error_message=str(exc),
+                        error_code=_code, error_message=str(exc),
                     )
+                    if _code == DECODE_FAILED_ERROR_CODE:
+                        _mark_poison(artifact.get("path"))
             finally:
                 db_manager.update_job(job_id, processed=index + 1, stage=kind)
 
@@ -4506,17 +4726,21 @@ async def _repair_index_task_locked(
                                 )
                             )[:400]
                             logger.warning("[索引] 音频失败: %s", _detail)
+                            _fail_code = _artifact_failure_code(
+                                _why or _last_error, "audio_index_failed"
+                            )
+                            _is_decode_fail = _fail_code == DECODE_FAILED_ERROR_CODE
                             if _is_shadow3:
                                 shadow_outcomes["audio_vector"][_fid2] = {
                                     "state": "failed",
-                                    "error_code": "audio_index_failed",
+                                    "error_code": _fail_code,
                                     "error_message": _detail,
-                                    "permanent": False,
+                                    "permanent": _is_decode_fail,
                                 }
                             else:
                                 db_manager.set_artifact_state(
                                     project_id, _fid2, "audio_vector", "failed",
-                                    error_code="audio_index_failed",
+                                    error_code=_fail_code,
                                     error_message=_detail,
                                 )
                         marked_count += 1
@@ -4545,19 +4769,28 @@ async def _repair_index_task_locked(
                             )
                     else:
                         failures["audio_vector"] += 1
+                        try:
+                            from core.embedder import _MEL_FAIL_REASONS as _REASONS
+
+                            _why2 = str(_REASONS.get(str(path or "")) or "")
+                        except Exception:
+                            _why2 = ""
+                        _code2 = _artifact_failure_code(_why2, "audio_index_failed")
                         if is_shadow:
                             shadow_outcomes["audio_vector"][file_uuid] = {
                                 "state": "failed",
-                                "error_code": "audio_index_failed",
-                                "error_message": "批量编码未产出向量",
-                                "permanent": False,
+                                "error_code": _code2,
+                                "error_message": "批量编码未产出向量（%s）" % (_why2 or "unknown"),
+                                "permanent": _code2 == DECODE_FAILED_ERROR_CODE,
                             }
                         else:
                             db_manager.set_artifact_state(
                                 project_id, file_uuid, "audio_vector", "failed",
-                                error_code="audio_index_failed",
-                                error_message="批量编码未产出向量",
+                                error_code=_code2,
+                                error_message="批量编码未产出向量（%s）" % (_why2 or "unknown"),
                             )
+                            if _code2 == DECODE_FAILED_ERROR_CODE:
+                                _mark_poison(path)
 
         # 循环尾：批量落库攒下的 text_vector（CLAP 文本一次 GPU forward 一批）
         if text_batch_queue:
@@ -4636,6 +4869,8 @@ async def _repair_index_task_locked(
                                     error_code="text_index_failed",
                                     error_message="批量编码未产出向量",
                                 )
+
+        _mark("process")
 
         if shadow_kinds:
             eligible: Dict[str, Any] = {}
@@ -4716,9 +4951,18 @@ async def _repair_index_task_locked(
                     revision_increment=1,
                 )
 
+        _mark("manifest")
         reset_optimized_searcher(project_id)
         reset_ai_chat_service(project_id)
+        _mark("reset_services")
         total_failures = sum(failures.values())
+        _job_stats = {"processed": len(work), "failures": total_failures}
+        if _t_marks:
+            logger.info(
+                "[索引] 阶段耗时 %s ｜ 共 %.2fs",
+                " | ".join("%s %.2fs" % (label, seconds) for label, seconds in _t_marks),
+                sum(seconds for _label, seconds in _t_marks),
+            )
         # 容忍批量临时跳过（未扫描区域黑名单）+ 少量永久性坏文件：只要激活成功、
         # 向量主体可用，不因个别失败项将整个任务判为失败。
         # 阈值放宽到 40000：覆盖“先测试 2.1 万条、其余稍后补全”的场景。
@@ -4756,12 +5000,14 @@ async def _repair_index_task_locked(
                     )
             except Exception as exc:
                 logger.debug("排队续跑失败: %s", exc)
+        return _job_stats
     except Exception as exc:
         logger.exception(f"索引修复任务失败: {exc}")
         db_manager.update_job(
             job_id, state="failed", stage="failed",
             error_code="index_job_failed", error_message=str(exc),
         )
+        return {"processed": 0, "failures": 1, "error": str(exc)[:200]}
 
 
 # ==================== 文件列表 ====================

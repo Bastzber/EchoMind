@@ -45,6 +45,11 @@ async def _repair_index_task(*args: Any, **kwargs: Any):
     return _d.call("_repair_index_task", *args, **kwargs)
 
 
+def _defer_user_index(project_id, kinds, reason):
+    """用户改动后的索引：主模块按「停手 N 秒后合并」防抖调度。"""
+    return _d.call("_defer_user_index", project_id, kinds, reason)
+
+
 def _get_project_searcher(*args: Any, **kwargs: Any):
     return _d.call("_get_project_searcher", *args, **kwargs)
 
@@ -176,14 +181,8 @@ async def batch_generate_descriptions(
     job_id = None
     all_done = stats["remaining"] == 0 and stats.get("auto_count", 0) == 0
     if all_done:
-        job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-        background_tasks.add_task(
-            _repair_index_task,
-            job_id,
-            current_project_id,
-            ["text_vector"],
-            "reconcile",
-        )
+        # 交给停手后合并的防抖调度：不再每批都排一个 14 秒的任务底座。
+        _defer_user_index(current_project_id, ["text_vector"], "description_batch")
     return {
         "success": True,
         "processed": len(pending),
@@ -238,15 +237,8 @@ async def generate_one_description(
         raise HTTPException(status_code=500, detail="LLM 未返回有效描述")
 
     db_manager.update_ai_description(payload.path, description, current_project_id)
-    job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-    background_tasks.add_task(
-        _repair_index_task,
-        job_id,
-        current_project_id,
-        ["text_vector"],
-        "reconcile",
-    )
-    return {"success": True, "description": description, "job_id": job_id}
+    _defer_user_index(current_project_id, ["text_vector"], "description")
+    return {"success": True, "description": description, "job_id": None}
 
 
 @router.get("/api/v1/descriptions/export")
@@ -391,15 +383,8 @@ async def import_descriptions(
                     project_id, "text_vector", state="stale", revision_increment=1
                 )
                 reset_optimized_searcher(project_id)
-                job_id = db_manager.create_job(project_id, "text_metadata_refresh", applied)
-                background_tasks.add_task(
-                    _repair_index_task,
-                    job_id,
-                    project_id,
-                    ["text_vector"],
-                    "reconcile",
-                )
-                logger.info("描述包导入后已排队重建文本索引: job=%s", job_id)
+                _defer_user_index(project_id, ["text_vector"], "description_import")
+                logger.info("描述包导入后已登记文本索引（停手后合并执行）")
             except Exception as index_error:
                 logger.exception("描述包导入后重建文本索引失败: %s", index_error)
 

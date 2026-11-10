@@ -520,13 +520,21 @@ class VectorsMixin:
         # 需要重试时由「修复索引」显式传入 states=("failed",)。
         states: Iterable[str] = ("pending", "stale"),
         limit: int = 500,
+        # 解码失败是终态（error_code='decode_failed'）：文件本身坏了或格式不支持，
+        # 再排一百次也是白等超时。源文件换了会清掉 error_code，届时自然会重新排队。
+        skip_error_codes: Iterable[str] = ("decode_failed",),
     ) -> List[Dict[str, Any]]:
         selected_kinds = tuple(kind for kind in kinds if kind in ARTIFACT_KINDS)
         selected_states = tuple(state for state in states if state in ARTIFACT_STATES)
         if not selected_kinds or not selected_states:
             return []
+        selected_skip = tuple(str(code) for code in (skip_error_codes or ()) if code)
         placeholders_kinds = ",".join("?" for _ in selected_kinds)
         placeholders_states = ",".join("?" for _ in selected_states)
+        skip_clause = ""
+        if selected_skip:
+            placeholders_skip = ",".join("?" for _ in selected_skip)
+            skip_clause = f" AND COALESCE(a.error_code,'') NOT IN ({placeholders_skip})"
         query = f"""
             SELECT f.file_uuid, f.path, f.filename, f.duration, f.sample_rate,
                    f.channels, f.file_size, f.tags, f.source_fingerprint,
@@ -535,13 +543,16 @@ class VectorsMixin:
             FROM file_artifacts a
             JOIN files f ON f.project_id=a.project_id AND f.file_uuid=a.file_uuid
             WHERE a.project_id=? AND a.kind IN ({placeholders_kinds})
-              AND a.state IN ({placeholders_states})
+              AND a.state IN ({placeholders_states}){skip_clause}
             ORDER BY a.updated_at, f.id LIMIT ?
         """
         # Index reconciliation is a background job and must be able to cover a
         # complete large library.  The public list API remains capped at 500;
         # this internal guard only prevents an accidentally unbounded query.
-        params = [project_id, *selected_kinds, *selected_states, max(1, min(limit, 100000))]
+        params = [
+            project_id, *selected_kinds, *selected_states, *selected_skip,
+            max(1, min(limit, 100000)),
+        ]
         with self.get_cursor() as cursor:
             return [dict(row) for row in cursor.execute(query, params).fetchall()]
     def upsert_index_manifest(

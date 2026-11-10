@@ -105,6 +105,11 @@ async def _repair_index_task(*a, **k):
     return await _d.call("_repair_index_task", *a, **k)
 
 
+def _defer_user_index(project_id, kinds, reason):
+    """用户改动后的索引：主模块按「停手 N 秒后合并」防抖调度。"""
+    return _d.call("_defer_user_index", project_id, kinds, reason)
+
+
 def _run_hash_backfill(*a, **k):
     return _d.call("_run_hash_backfill", *a, **k)
 
@@ -458,14 +463,9 @@ async def update_file_tags(
             asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
-        job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-        background_tasks.add_task(
-            _repair_index_task,
-            job_id,
-            current_project_id,
-            ["text_vector"],
-            "reconcile",
-        )
+        # 不再一改就排一个任务（一次 14 秒的任务底座），交给「停手后合并」的防抖调度。
+        _defer_user_index(current_project_id, ["text_vector"], "tags")
+        job_id = None
     finally:
         if _acquired:
             try:
@@ -511,14 +511,8 @@ async def batch_set_tags(
             asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
-        job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-        background_tasks.add_task(
-            _repair_index_task,
-            job_id,
-            current_project_id,
-            ["text_vector"],
-            "reconcile",
-        )
+        _defer_user_index(current_project_id, ["text_vector"], "tags_batch")
+        job_id = None
     return {"success": True, "message": f"已更新 {applied} 个文件标签", "applied": applied, "job_id": job_id}
 
 
@@ -550,14 +544,7 @@ async def rename_tag(
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
         if changed > 0:
-            job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-            background_tasks.add_task(
-                _repair_index_task,
-                job_id,
-                current_project_id,
-                ["text_vector"],
-                "reconcile",
-            )
+            _defer_user_index(current_project_id, ["text_vector"], "tag_rename")
     return {"success": True, "message": f"已重命名标签，影响 {changed} 个文件", "changed": changed}
 
 
@@ -588,14 +575,7 @@ async def delete_tag(tag: str, background_tasks: BackgroundTasks):
         if changed > 0:
             for file_uuid in affected_uuids:
                 db_manager.sync_layers_from_files_tags(current_project_id, file_uuid=file_uuid)
-            job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-            background_tasks.add_task(
-                _repair_index_task,
-                job_id,
-                current_project_id,
-                ["text_vector"],
-                "reconcile",
-            )
+            _defer_user_index(current_project_id, ["text_vector"], "tag_delete")
     return {"success": True, "message": f"已删除标签，影响 {changed} 个文件", "changed": changed}
 
 
@@ -618,14 +598,8 @@ async def rename_db_file(
             asyncio.create_task(_clear_searcher_cache(current_project_id))
         except Exception as exc:
             logger.debug(f"清理搜索缓存失败: {exc}")
-        job_id = db_manager.create_job(current_project_id, "text_metadata_refresh", 1)
-        background_tasks.add_task(
-            _repair_index_task,
-            job_id,
-            current_project_id,
-            ["text_vector"],
-            "reconcile",
-        )
+        _defer_user_index(current_project_id, ["text_vector"], "rename")
+        job_id = None
     return {"success": True, "message": "文件已重命名", "job_id": job_id}
 
 

@@ -58,6 +58,10 @@ def _get_project_index_lock(*a, **k):
     return _d.call("_get_project_index_lock", *a, **k)
 
 
+
+
+def _soft_index_lock(*a, **k):
+    return _d.call("_soft_index_lock", *a, **k)
 def _projects_deleting():
     """正在删除的工程集合（主模块持有，这里取引用）。"""
     return _d.attr("_projects_deleting")
@@ -631,7 +635,7 @@ async def create_user_folder(project_id: str, request: CreateFolderRequest):
     创建用户自定义文件夹
     """
     try:
-        async with _get_project_index_lock(project_id):
+        async with _soft_index_lock(project_id):
             db_manager = get_db_manager()
             if project_id in _projects_deleting():
                 raise HTTPException(status_code=409, detail="工程正在删除")
@@ -675,7 +679,7 @@ async def update_user_folder(
     更新用户自定义文件夹
     """
     try:
-        async with _get_project_index_lock(project_id):
+        async with _soft_index_lock(project_id):
             db_manager = get_db_manager()
             if project_id in _projects_deleting():
                 raise HTTPException(status_code=409, detail="工程正在删除")
@@ -753,7 +757,7 @@ async def delete_user_folder(
     删除后，该文件夹下的导入文件夹将变为未分类状态
     """
     try:
-        async with _get_project_index_lock(project_id):
+        async with _soft_index_lock(project_id):
             db_manager = get_db_manager()
             if project_id in _projects_deleting():
                 raise HTTPException(status_code=409, detail="工程正在删除")
@@ -823,7 +827,7 @@ async def update_folder_mapping(
     - **user_folder_id**: 用户文件夹ID，为空表示取消关联（变为未分类）
     """
     try:
-        async with _get_project_index_lock(project_id):
+        async with _soft_index_lock(project_id):
             db_manager = get_db_manager()
             if project_id in _projects_deleting():
                 raise HTTPException(status_code=409, detail="工程正在删除")

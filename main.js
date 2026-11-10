@@ -2100,11 +2100,22 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+let nativeOpenDialogStartedAt = 0;
+const NATIVE_DIALOG_STALE_MS = 30000;
+
 async function showOwnedOpenDialog(event, options = {}) {
+  // 防重入的锁加了超时：对话框如果因为异常没返回，锁会永久卡住，
+  // 之后所有「选文件夹」都被静默拒绝（11-05 实测：点按钮没任何反应）。
+  // 超过 30 秒视为上一次已经死了，允许重新打开。
   if (nativeOpenDialogActive) {
-    const error = new Error('已有文件选择窗口正在打开');
-    error.code = 'DIALOG_BUSY';
-    throw error;
+    const stuckMs = Date.now() - nativeOpenDialogStartedAt;
+    if (stuckMs < NATIVE_DIALOG_STALE_MS) {
+      const error = new Error('已有文件选择窗口正在打开');
+      error.code = 'DIALOG_BUSY';
+      throw error;
+    }
+    console.warn('[Dialog] 上一次文件选择卡了 ' + Math.round(stuckMs / 1000) + ' 秒，强制重置');
+    nativeOpenDialogActive = false;
   }
 
   const owner = BrowserWindow.fromWebContents(event.sender) || mainWindow;
@@ -2115,13 +2126,22 @@ async function showOwnedOpenDialog(event, options = {}) {
   }
 
   nativeOpenDialogActive = true;
+  nativeOpenDialogStartedAt = Date.now();
   try {
     if (owner.isMinimized()) owner.restore();
     if (!owner.isVisible()) owner.show();
     owner.focus();
-    return await dialog.showOpenDialog(owner, options);
+    // Electron 45 下 dialog 偶尔会卡在 owner 未就绪的状态，加个兜底：
+    // 先试带 owner 的调用，抛错再退回不带 owner 的。
+    try {
+      return await dialog.showOpenDialog(owner, options);
+    } catch (firstError) {
+      console.warn('[Dialog] 带窗口调用失败，退回无窗口模式:', firstError && firstError.message);
+      return await dialog.showOpenDialog(options);
+    }
   } finally {
     nativeOpenDialogActive = false;
+    nativeOpenDialogStartedAt = 0;
     if (!owner.isDestroyed()) owner.focus();
   }
 }

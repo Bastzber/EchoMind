@@ -83,6 +83,12 @@ def _get_project_index_lock(*a, **k):
     return _d.call("_get_project_index_lock", *a, **k)
 
 
+def _soft_index_lock(*a, **k):
+    """尽力拿工程索引锁，拿不到也放行。用户改标签/改名这类操作走它，
+    不用排在索引任务后面干等（11-10：索引一跑，存标签就卡在「保存中」）。"""
+    return _d.call("_soft_index_lock", *a, **k)
+
+
 def _get_project_searcher(*a, **k):
     return _d.call("_get_project_searcher", *a, **k)
 
@@ -391,7 +397,19 @@ async def update_file_tags(
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-    async with _get_project_index_lock(current_project_id):
+    # 标签保存只改一行，不必排在索引任务后面等整轮跑完。
+    # 以前这里直接 async with 工程索引锁，索引一开跑（几十秒到几分钟），
+    # 存个标签要等到索引让出锁，界面一直转「保存中」（11-10 实测）。
+    # 改成「最多等 600ms，拿不到就靠 SQLite 自己的写事务保证一致性」。
+    # WAL 模式下并发写是安全的，标签和索引改的也不是同一批列。
+    _lock = _get_project_index_lock(current_project_id)
+    _acquired = False
+    try:
+        await asyncio.wait_for(_lock.acquire(), timeout=0.6)
+        _acquired = True
+    except (asyncio.TimeoutError, TimeoutError):
+        logger.debug("[标签] 索引锁被占用，直接写入（不等索引）")
+    try:
         success = db_manager.update_tags(file_path, tags, current_project_id)
 
         if not success:
@@ -448,6 +466,12 @@ async def update_file_tags(
             ["text_vector"],
             "reconcile",
         )
+    finally:
+        if _acquired:
+            try:
+                _lock.release()
+            except RuntimeError:
+                pass
     return {
         "success": True,
         "message": "标签已更新",
@@ -478,7 +502,7 @@ async def batch_set_tags(
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
     tags = [str(t).strip() for t in payload.tags if str(t).strip()]
-    async with _get_project_index_lock(current_project_id):
+    async with _soft_index_lock(current_project_id):
         applied = 0
         for path in payload.paths:
             if db_manager.update_tags(path, tags, current_project_id):
@@ -508,7 +532,7 @@ async def rename_tag(
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-    async with _get_project_index_lock(current_project_id):
+    async with _soft_index_lock(current_project_id):
         affected_uuids = []
         try:
             with db_manager.get_cursor() as cursor:
@@ -544,7 +568,7 @@ async def delete_tag(tag: str, background_tasks: BackgroundTasks):
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-    async with _get_project_index_lock(current_project_id):
+    async with _soft_index_lock(current_project_id):
         affected_uuids = []
         try:
             with db_manager.get_cursor() as cursor:
@@ -586,7 +610,7 @@ async def rename_db_file(
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-    async with _get_project_index_lock(current_project_id):
+    async with _soft_index_lock(current_project_id):
         success = db_manager.rename_file(path, payload.new_name, current_project_id)
         if not success:
             raise HTTPException(status_code=404, detail="文件不存在")
@@ -626,7 +650,7 @@ async def reanalyze_db_file(
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-    async with _get_project_index_lock(current_project_id):
+    async with _soft_index_lock(current_project_id):
         record = db_manager.get_file(path, current_project_id)
         if not record:
             raise HTTPException(status_code=404, detail="文件不存在")
@@ -1450,7 +1474,7 @@ async def delete_db_file(path: str):
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     if current_project_id in _projects_deleting():
         raise SoundBotAPIError("project_deleting", "工程正在删除", status_code=409)
-    async with _get_project_index_lock(current_project_id):
+    async with _soft_index_lock(current_project_id):
         record = db_manager.get_file(file_path, current_project_id)
         if not record:
             raise HTTPException(status_code=404, detail="文件不存在")

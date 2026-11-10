@@ -40,6 +40,21 @@ class JobsMixin:
             ).fetchone()[0]
         return {"total": int(total), "done": int(done)}
     def create_job(self, project_id: str, kind: str, total: int = 0) -> str:
+        # 去重：同工程同类型已有排队/running 的任务就直接复用它的 id。
+        # 以前每改一次标签就 create_job 一次，改 23 次排 23 个全量修复任务，
+        # 界面右上角一直显示「处理中 23」，任务互相抢锁（11-10 实测）。
+        try:
+            with self.get_cursor() as cursor:
+                row = cursor.execute(
+                    "SELECT id FROM jobs WHERE project_id=? AND kind=? "
+                    "AND state IN ('pending','running') "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (str(project_id), str(kind)),
+                ).fetchone()
+            if row:
+                return str(row[0])
+        except Exception:
+            pass
         job_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
         with self.get_cursor() as cursor:

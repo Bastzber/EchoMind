@@ -372,7 +372,8 @@ function normalizeTags(raw) {
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) return parsed.filter((t) => typeof t === 'string' && t.trim());
         } catch (_) {
-            return raw.split(',').map((t) => t.trim()).filter(Boolean);
+            // 和别处保持一致：中文逗号、顿号、分号都当分隔符，用户不用管输入法
+    return raw.split(/[,，、;；]/).map((t) => t.trim()).filter(Boolean);
         }
     }
     return [];

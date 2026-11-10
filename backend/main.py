@@ -144,6 +144,44 @@ def _get_project_index_lock(project_id: str) -> asyncio.Lock:
     return _project_index_locks.setdefault(str(project_id), asyncio.Lock())
 
 
+class _SoftIndexLock:
+    # 尽力拿工程索引锁，拿不到也放行。
+    #
+    # 背景：索引任务（导入 / 重扫 / 修复）会整段持有工程锁，几十秒到几分钟。
+    # 用户的改标签、改名、改描述、收藏这些操作只动一两行数据，
+    # 排在索引后面等会让界面一直转「保存中」（11-10 实测）。
+    #
+    # 这里给一个短等待窗口：拿得到就照常互斥，拿不到就直接干。
+    # SQLite 跑在 WAL 模式，写操作本身有事务保证；而且这些操作改的是
+    # files / tags 两张表，索引任务改的是 file_artifacts，不是同一批行。
+
+    def __init__(self, project_id: str, timeout: float = 0.6):
+        self._lock = _get_project_index_lock(project_id)
+        self._timeout = timeout
+        self._acquired = False
+
+    async def __aenter__(self):
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=self._timeout)
+            self._acquired = True
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.debug('[IndexLock] busy, proceed without waiting')
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self._acquired:
+            try:
+                self._lock.release()
+            except RuntimeError:
+                pass
+        return False
+
+
+def _soft_index_lock(project_id: str, timeout: float = 0.6) -> _SoftIndexLock:
+    # 给 routers 用的工厂：它们通过 _d.call 拿到本函数的返回值。
+    return _SoftIndexLock(project_id, timeout)
+
+
 async def _prepare_import_candidate(
     file_path: str,
     project_id: str,

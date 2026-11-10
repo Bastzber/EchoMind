@@ -644,18 +644,25 @@ class FilesMixin:
         try:
             canonical_path = canonicalize_path(path)
             now = datetime.now().isoformat()
+            # 磁盘上的文件已经被调用方改名了，库里不能只改 filename：
+            # path / canonical_path 也得跟着走，否则下一次按路径查（保存标签、描述、
+            # 再次重命名）就会「文件不存在」（11-10 实测：改完名标签存不进去）。
+            parent = os.path.dirname(path)
+            sep = os.sep
+            new_path = parent + sep + str(new_name)
+            new_canonical = canonicalize_path(new_path)
             with self.get_cursor() as cursor:
                 if project_id:
                     cursor.execute(
-                        "UPDATE files SET filename = ?, updated_at = ?"
+                        "UPDATE files SET filename = ?, path = ?, canonical_path = ?, updated_at = ?"
                         " WHERE canonical_path = ? AND project_id = ?",
-                        (new_name, now, canonical_path, project_id),
+                        (new_name, new_path, new_canonical, now, canonical_path, project_id),
                     )
                 else:
                     cursor.execute(
-                        "UPDATE files SET filename = ?, updated_at = ?"
+                        "UPDATE files SET filename = ?, path = ?, canonical_path = ?, updated_at = ?"
                         " WHERE canonical_path = ?",
-                        (new_name, now, canonical_path),
+                        (new_name, new_path, new_canonical, now, canonical_path),
                     )
                 changed = cursor.rowcount > 0
                 if changed:

@@ -50,7 +50,7 @@ function showVoiceCloneModal(options = {}) {
         "                        </div>",
         "                        <div id=\"voiceRefTextBox\" class=\"flex items-center gap-2 mb-2\">",
         "                            <span class=\"text-[11px] opacity-50\">样音文稿</span>",
-        "                            <input id=\"voiceRefTextInput\" class=\"flex-1 px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"这段样音里说的原话（本地克隆必需）\">",
+        "                            <textarea id=\"voiceRefTextInput\" rows=\"2\" class=\"flex-1 px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary);resize:vertical\" placeholder=\"这段样音里说的原话（本地克隆必需，要完整）\"></textarea>",
         "                        </div>",
         "                        <div class=\"flex items-center gap-2\">",
         "                            <button id=\"voicePickFileBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">选择音频文件…</button>",

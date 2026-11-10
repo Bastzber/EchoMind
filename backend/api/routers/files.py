@@ -138,9 +138,16 @@ async def batch_rename(
 
         try:
             with db_manager.get_cursor() as cursor:
+                # canonical_path 必须跟着 path 一起改：它是所有「按路径查」的索引键
+                # （保存标签、改描述、再次重命名都靠它）。只改 path 会让这条记录
+                # 变成「界面显示新名、按路径查不到」，表现就是报「文件不存在」
+                # —— 11-10 实测，批量重命名之后保存标签必现。
+                from core.database import canonicalize_path as _canon_path
+
                 cursor.execute(
-                    "UPDATE files SET path=?, filename=? WHERE project_id=? AND file_uuid=?",
-                    (new_path, new_name, project_id, file_uuid),
+                    "UPDATE files SET path=?, canonical_path=?, filename=? "
+                    "WHERE project_id=? AND file_uuid=?",
+                    (new_path, _canon_path(new_path), new_name, project_id, file_uuid),
                 )
                 cursor.connection.commit()
             db_manager.update_fts_row(file_uuid, project_id)

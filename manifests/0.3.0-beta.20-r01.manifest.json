@@ -1,0 +1,164 @@
+{
+ "version": "0.3.0-beta.20-r01",
+ "baseVersion": "0.3.0-beta.19",
+ "createdAt": "2026-11-04T18:59:42",
+ "files": [
+  {
+   "path": "chrome_100_percent.pak",
+   "sha256": "576ee32df5f75b87961d553b3211002810a9f77fdf7d34d3c20d390366e317f5",
+   "size": 568439
+  },
+  {
+   "path": "chrome_200_percent.pak",
+   "sha256": "b193854268392f42623adde73efd8bc328ed8b159820946b5395a6223e51ae1f",
+   "size": 927778
+  },
+  {
+   "path": "d3dcompiler_47.dll",
+   "sha256": "f5c95e919b4ffa1ac71049cd45b9f986d2965e6888395ca2806337985334fa56",
+   "size": 4753864
+  },
+  {
+   "path": "dxcompiler.dll",
+   "sha256": "7bd7b8f6ff64c2e73f0d74cc7e9f8555b116da0fc9a3477b8da9050507ee9c69",
+   "size": 25779200
+  },
+  {
+   "path": "EchoMind.exe",
+   "sha256": "f59256ea0a26a2ea6f5ab266e34ba8a58c89045c5a4e285b3a9ff26e2896e50d",
+   "size": 249469440
+  },
+  {
+   "path": "electron_wer.dll",
+   "sha256": "fc5724e9b05b7f461cbb6452a959445b15a80c753b0bee4fd7e740f820a141d6",
+   "size": 425472
+  },
+  {
+   "path": "ffmpeg.dll",
+   "sha256": "a80c03e0a51e6a95be6566a097f8caea612fe44e29adb1f87acca5a01f5372d9",
+   "size": 3097600
+  },
+  {
+   "path": "icudtl.dat",
+   "sha256": "e1ed8f674bb8449731b79cae956042da59f9ecbd37c8d3f86586a22b4836e5b2",
+   "size": 10824576
+  },
+  {
+   "path": "LICENSE",
+   "sha256": "5154e165bd6c2cc0cfbcd8916498c7abab0497923bafcd5cb07673fe8480087d",
+   "size": 1096
+  },
+  {
+   "path": "LICENSES.chromium.html",
+   "sha256": "7dac8267ac6da8d959cfe88f5f055b18a397f10230380b5329125e167bf5639b",
+   "size": 5705935
+  },
+  {
+   "path": "resources.pak",
+   "sha256": "a2ef507b628b73a006818e156aede9731ff3a24dd68a5bad4ff1b33920f3615f",
+   "size": 13371578
+  },
+  {
+   "path": "snapshot_blob.bin",
+   "sha256": "51f6e68b31653674f71425b0fd6d6cf0828a1276a45581af72d7de55fd0b9a7d",
+   "size": 374096
+  },
+  {
+   "path": "v8_context_snapshot.bin",
+   "sha256": "a04086f425ac7940659e1c82919efd1ac6ccf09ec9717a343845674fa4114995",
+   "size": 753112
+  },
+  {
+   "path": "version",
+   "sha256": "e972b36fcd4bd5c1ad6f6caff51c60aa6f07cae9d81a63ae789fa911d03bfc38",
+   "size": 6
+  },
+  {
+   "path": "vk_swiftshader.dll",
+   "sha256": "70a1ad56fee641a1318d4b9fef9182ebd19d974acd43e3bf26fa3d519804e5ce",
+   "size": 5456384
+  },
+  {
+   "path": "vulkan-1.dll",
+   "sha256": "515bdf40497cab418f8e5d324636d4a3eb0487d8967e5b8d998e326c9e6b452e",
+   "size": 957440
+  },
+  {
+   "path": "premiere-panel/index.html",
+   "sha256": "2893803b24530acc545663fad5aeb370eeeea85ea2ad9c6d5c6cd423e8f3dff2",
+   "size": 1457
+  },
+  {
+   "path": "premiere-panel/install.ps1",
+   "sha256": "a28b785052d793085710827943f5a548a5f306ad3999f1dde5a83d436cc88056",
+   "size": 1226
+  },
+  {
+   "path": "premiere-panel/panel.css",
+   "sha256": "3e1fd26fd26fb5c35412a3d9ec8dc4dee0d9213691b40d8ab15ced2862fa757b",
+   "size": 3388
+  },
+  {
+   "path": "premiere-panel/panel.js",
+   "sha256": "4299f4bf8750cf6b5af674854e68568307079c3fb8767a51d6f1a66853784c0d",
+   "size": 16967
+  },
+  {
+   "path": "premiere-panel/README.md",
+   "sha256": "6de8c39973a3659209c6f45cf14b4ff2c12660da2c85d25e97ce6d6114cc83b9",
+   "size": 2387
+  },
+  {
+   "path": "premiere-panel/安装到PR.bat",
+   "sha256": "05644de8f9d849834160c3170bb4701b99c737a98f091e13fd287d95313fe536",
+   "size": 157
+  },
+  {
+   "path": "premiere-panel/CSXS/manifest.xml",
+   "sha256": "c69572351a913491f4f8fd3d7b31b2175542bf1031718ae04ee6e7653e320d76",
+   "size": 1719
+  },
+  {
+   "path": "premiere-panel/jsx/host.jsx",
+   "sha256": "2724cf6bd190a7a5492dde634fdda8150da2a0ae2ba4f383831fe43f6bbcdb7a",
+   "size": 803
+  },
+  {
+   "path": "resources/app.asar",
+   "sha256": "a1cfc9c6777f9545c98d21fead71c42c938fc9c3e9a93d8b259e3fb3da80024e",
+   "size": 12283138
+  },
+  {
+   "path": "resources/backend/soundbot-backend/soundbot-backend.exe",
+   "sha256": "6652a3f3050d0d77b999d17d2692f5c2d3d4f03bc64147c3d01ae68795ace29a",
+   "size": 62188831
+  },
+  {
+   "path": "resources/backend/soundbot-backend/_internal/base_library.zip",
+   "sha256": "961fd2439cfdcece133145927764d10390e470ed08867f08b3460f029d0e9f95",
+   "size": 1403000
+  },
+  {
+   "path": "resources/backend/soundbot-backend/_internal/_cffi_backend.cp313-win_amd64.pyd",
+   "sha256": "d5b09da2e726b4e90cf0edad5d2a0ec52f369dfd060e14d3807a32b2205031fa",
+   "size": 180224
+  },
+  {
+   "path": "resources/backend/soundbot-backend/_internal/_miniaudio.pyd",
+   "sha256": "3e9f14ec375e08e6779365d39936609a0675dd0c9afaaaad41eb3a392184512a",
+   "size": 601088
+  }
+ ],
+ "remove": [
+  "libEGL.dll",
+  "libGLESv2.dll",
+  "安装指南-V12.txt",
+  "安装指南.txt",
+  "安装说明.md",
+  "更新统计.md",
+  "更新说明-V12.txt",
+  "更新说明.txt"
+ ],
+ "totalBytes": 399150401,
+ "signature": "SYF7JMXT8g5EYMrZlSSjxJFEjsb3Izv3zeOXgBf+MI4O2T1uMlNQCVQR+mn8As/i0ooO3oD/zlu0X4IIxyH4CA=="
+}

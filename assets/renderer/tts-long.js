@@ -68,8 +68,9 @@ async function renderLongTtsPanel(container, options = {}) {
             <div class="rounded-lg p-3" style="border:1px solid var(--border-color)">
                 <div class="text-xs font-medium mb-2">③ 保存位置</div>
                 <div class="flex items-center gap-2">
-                    <input id="longTtsDir" class="flex-1 px-2 py-1 rounded text-xs font-mono" readonly
-                        style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-secondary);">
+                    <input id="longTtsDir" class="flex-1 px-2 py-1 rounded text-xs font-mono"
+                        placeholder="可以直接粘贴文件夹路径，或者点右边选"
+                        style="background: var(--bg-tertiary); border:1px solid var(--border-color); color: var(--text-primary);">
                     <button id="longTtsPickDir" class="px-2.5 py-1 rounded text-xs border whitespace-nowrap"
                         style="border-color: var(--border-color);">选文件夹…</button>
                 </div>

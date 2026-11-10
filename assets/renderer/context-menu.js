@@ -687,8 +687,23 @@ function renameSoundFile(sound) {
             if (r && r.success) {
                 sound.name = newName;
                 sound.filePath = newPath;
-                renderSoundList();
-                renderCategoryTree();
+                // 列表的数据源是分页加载的 soundData，sound 有时不是里面同一个引用，
+                // 只改 sound 再重绘会看不到变化。按 id 把 soundData 里那条也覆盖掉。
+                try {
+                    if (Array.isArray(soundData)) {
+                        const hit = soundData.find((item) => item && item.id === sound.id);
+                        if (hit && hit !== sound) {
+                            hit.name = newName;
+                            hit.filePath = newPath;
+                        }
+                    }
+                } catch (_e) { /* 忽略 */ }
+                if (typeof syncSoundToList === 'function') {
+                    syncSoundToList(sound, { name: newName, filePath: newPath });
+                } else {
+                    renderSoundList();
+                    renderCategoryTree();
+                }
                 showNotification('文件已重命名', 'success');
             } else {
                 showNotification((r && r.error) || '重命名失败', 'error');

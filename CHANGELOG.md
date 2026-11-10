@@ -13,6 +13,43 @@
 - 新增「长文本转语音」：粘贴整章文字后台生成，进度可查，可中途停止，输出文件夹和文件名自己选 / Long-form text to speech: paste a chapter, watch progress, stop midway, choose output folder and filename
 - **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 
+## [0.3.0-beta.20] - 2026-11-05
+
+> 测试版 V20。安全加固一轮（审计报告 14 条全部处理）+ Electron 从 28 升到 45，
+> 顺带把长音频的语速和停顿做了后处理。/ Beta 20 is a security pass plus an Electron jump
+> from 28 to 45, with long-form TTS pacing fixed after generation.
+
+### Security / 安全
+
+- 后端加一次性令牌：所有 /api/v1/* 都要 X-EchoMind-Token，外部页面拿不到数据 / One-shot API token on every /api/v1/* endpoint
+- 更新包加 Ed25519 签名：公钥硬编码在应用里，被改过的包装不进去 / Update packages are now Ed25519-signed and verified before apply
+- 音效生成的 API Key 并入 DPAPI 通道，不再明文落盘 / Audio-generation API key moved into the same DPAPI store as the LLM keys
+- IPC 四个文件入口加素材库边界：写文件、重命名、送回收站只认库内路径 / Four IPC file entry points now enforce library-root boundaries
+- 后端五个写接口补路径边界（复制、合并重复、删损坏文件、导出特效、解码诊断） / Five backend write endpoints gained library-root path guards
+- 主窗口补导航与新窗口拦截，CSP 去掉 script-src 的 unsafe-inline 并补齐 object-src/base-uri/frame-src / Main window navigation guards; CSP tightened
+- escapeHtml 补转义单双引号，并从 ai-chat.js 前移到 utils.js / escapeHtml now escapes quotes and moved to utils.js
+
+### Added / 新增
+
+- 长音频后处理：压掉过长停顿再整体提速，音高不变 / Long-form TTS post-processing compresses long pauses and speeds playback up without changing pitch
+- 音色库试听加了「暂停试听」按钮，关闭面板一定停声 / Voice preview gained a pause button; closing the panel always stops playback
+- 检查更新显示构建号（构建 r33），能确认本地装的到底是哪一版 / Update check now shows the build stamp
+
+### Changed / 变更
+
+- Electron 28.3.3 升到 45.2.2；音频协议从 registerFileProtocol 迁到 protocol.handle / Electron upgraded from 28.3.3 to 45.2.2; audio protocol migrated to protocol.handle
+- 音效库的样音文稿输入框改多行，长句子能看全 / Reference transcript input is now multi-line
+- 保存位置允许直接粘贴路径，选文件夹失灵时还有退路 / Output folder can be typed directly
+- 窗口尺寸写盘加 400ms 防抖，拖动时不再每次都落盘 / Window bounds writes debounced to 400 ms
+- 复制文件优先走 Electron 原生剪贴板，不再每次起 powershell / File copy uses the native clipboard first
+- 57 个前端脚本改成 defer 加载，首屏不再被串行解析堵住 / 57 renderer scripts now load with defer
+
+### Performance / 性能
+
+- app.asar 30.7 MB 缩到 11.7 MB（去掉重复的描述包） / app.asar shrunk from 30.7 MB to 11.7 MB
+- locales 只保留中英文，36 MB 降到 2 MB / locales trimmed to Chinese and English
+- 增量包删除清单加白名单，不再误删用户的描述包/标签包/知识包和 Breeze / Update remove-list whitelist stops deleting user packs and Breeze
+
 ## [0.3.0-beta.19] - 2026-11-04
 
 > 测试版 V14。可用性清账：导入 6.5 万条压到 1 分钟内、保存标签 10 秒 → 0.5 秒、 / 

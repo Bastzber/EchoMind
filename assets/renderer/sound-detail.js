@@ -85,6 +85,23 @@ async function withButtonFeedback(button, busyText, successText, task) {
     }
 }
 
+// 保存成功后，把列表里那条数据同步成最新值再重绘。
+// 之前只改内存对象 + renderSoundList()，但列表的数据源是分页加载的 soundData，
+// sound 偶尔不是里面同一个引用（重新分页/筛选后换过对象），于是界面看着没更新。
+// 这里直接按 id 覆盖 soundData 里对应的那条，再重绘，不管引用关系都能对上。
+function syncSoundToList(sound, patch) {
+    if (!sound || !sound.id) return;
+    Object.assign(sound, patch || {});
+    try {
+        if (Array.isArray(soundData)) {
+            const hit = soundData.find((item) => item && item.id === sound.id);
+            if (hit && hit !== sound) Object.assign(hit, patch || {});
+        }
+    } catch (_e) { /* soundData 不可用时忽略 */ }
+    if (typeof renderSoundList === 'function') renderSoundList();
+    if (typeof renderCategoryTree === 'function') renderCategoryTree();
+}
+
 async function saveSoundDescription(sound, value) {
     const text = String(value || '').trim().slice(0, 500);
     await rendererApi.post(
@@ -250,9 +267,11 @@ function renderSoundDetail(sound) {
         renderChips();          // 先把界面改了，别等接口
         try {
             await setSoundTags(sound, nextTags, { silent: true });
+            syncSoundToList(sound, { tags: nextTags });
         } catch (error) {
             sound.tags = previous;
             renderChips();
+            syncSoundToList(sound, { tags: previous });
             throw error;
         }
     }));
@@ -338,9 +357,10 @@ function renderSoundDetail(sound) {
         try {
             await saveSoundDescription(sound, text);
             if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改描述');
+            syncSoundToList(sound, { aiDescription: text });
         } catch (error) {
             sound.aiDescription = previous;
-            renderSoundList();
+            syncSoundToList(sound, { aiDescription: previous });
             throw error;
         }
     }));

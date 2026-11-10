@@ -28,6 +28,15 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 24000
+# 后处理提速倍数：1.0 表示只压静音不提速。
+# Breeze 默认语速 2.5 字/秒，1.2 倍后到 3.0 左右，接近自然朗读又不过分赶。
+# 实测（232 字那段）：
+#   原始 Breeze 输出          104 秒   2.23 字/秒
+#   压静音 + 1.2 倍           81.6 秒  2.84 字/秒   最长停顿 0.78 -> 0.22 秒
+#   压静音 + 1.3 倍           75.3 秒  3.08 字/秒
+#   压静音 + 1.45 倍          67.5 秒  3.44 字/秒（再高开始有金属音）
+# 取 1.3：听感自然，停顿也压到位了。要更快用 ECHOMIND_TTS_TEMPO 覆盖。
+TEMPO = float(os.environ.get('ECHOMIND_TTS_TEMPO', '1.3'))
 
 # job_id -> 进度字典。只放内存：长文本生成是交互操作，重启丢了就重来。
 _JOBS: Dict[str, Dict[str, Any]] = {}
@@ -169,10 +178,31 @@ def _worker(
         _event(job_id, status='cancelled', seconds_generated=round(seconds, 1),
                progress=round(min(99.0, seconds / max(1.0, len(text) / 5.3) * 100), 1))
         return
+    # 后处理：压缩过长静音 + 整体提速。Breeze 默认语速约 2.5 字/秒，
+    # 而且停顿偏长，听感一顿一顿的。这里压完静音再按 TEMPO 提速，
+    # 音高不变（atempo 是时域处理）。失败就保持原文件，不影响生成结果。
+    post = {}
+    try:
+        from core.tts_postprocess import tighten
+
+        post = tighten(str(target), tempo=TEMPO)
+        if post.get('ok') and post.get('duration_final'):
+            seconds = float(post['duration_final'])
+            total_bytes = target.stat().st_size
+            logger.info(
+                '[TTS-Long] 后处理 %s: %.1f -> %.1f 秒 (静音省 %.1f, 提速 %.2fx)',
+                job_id, post.get('duration_before', seconds), seconds,
+                post.get('saved_by_pause', 0), post.get('tempo', 1.0),
+            )
+    except Exception as exc:
+        logger.warning('[TTS-Long] 后处理跳过 %s: %s', job_id, exc)
+        post = {'ok': False, 'reason': str(exc)[:120]}
+
     _event(
         job_id, status='done', progress=100.0,
         seconds_generated=round(seconds, 1), bytes=total_bytes,
         path=str(target), elapsed=round(time.time() - started, 1),
+        postprocess=post,
     )
     logger.info('[TTS-Long] 完成 %s -> %s (%.1f 秒音频)', job_id, target, seconds)
 

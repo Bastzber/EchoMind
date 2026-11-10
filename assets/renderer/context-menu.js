@@ -624,6 +624,14 @@ async function setSoundTags(sound, tags, options = {}) {
     try {
         await window.electronAPI.backendAPI.updateFileTags(sound.filePath, tags);
         sound.tags = tags;
+        // 列表的数据源是分页加载的 soundData，sound 有时不是里面同一个引用，
+        // 只改 sound 再重绘会看不到变化。按 id 把 soundData 里那条也覆盖掉。
+        try {
+            if (Array.isArray(soundData)) {
+                const hit = soundData.find((item) => item && item.id === sound.id);
+                if (hit && hit !== sound) hit.tags = [...tags];
+            }
+        } catch (_e) { /* 忽略 */ }
         renderSoundList();
         renderCategoryTree();
         if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');

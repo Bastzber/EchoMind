@@ -125,6 +125,10 @@ def main() -> int:
         "--no-version-info", action="store_true",
         help="只换图标，不改文件属性里的产品名/公司名",
     )
+    parser.add_argument(
+        "--flush-cache", action="store_true",
+        help="深刷图标缓存（会关掉再重开资源管理器，窗口会闪一下）",
+    )
     args = parser.parse_args()
 
     exe = Path(args.exe)
@@ -208,8 +212,49 @@ def main() -> int:
         print("[失败] 落盘后复核不一致")
         return 6
     print("[成功] 图标已换成 build/icon.ico 里的全部尺寸")
-    print("       桌面快捷方式如果还显示旧图标：任务栏/资源管理器里右键刷新，或重新固定一次")
+
+    # 换完文件 ≠ 资源管理器立刻显示：Windows 按路径缓存图标（IconCache.db +
+    # iconcache_*.db），不清缓存的话 exe 换了看着还是老图标（11-11 实测踩过一次）。
+    flush_icon_cache(deep=args.flush_cache)
     return 0
+
+
+def flush_icon_cache(deep: bool = False) -> None:
+    """刷新 Windows 图标缓存。
+
+    浅刷（默认）：ie4uinit -show，够多数情况。
+    深刷（--flush-cache）：关掉 explorer → 删缓存库 → 重开 explorer。
+    删缓存必须 explorer 没在跑，否则文件被锁着删不掉。
+    """
+    try:
+        if deep:
+            subprocess.run(["taskkill", "/f", "/im", "explorer.exe"],
+                           capture_output=True, timeout=20)
+            time.sleep(2)
+    except Exception as exc:
+        print("  [提示] 关 explorer 失败：", exc)
+    if deep:
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        targets = [Path(local) / "IconCache.db"]
+        cache_dir = Path(local) / "Microsoft" / "Windows" / "Explorer"
+        for pattern in ("iconcache_*.db", "thumbcache_*.db"):
+            targets.extend(cache_dir.glob(pattern))
+        removed = 0
+        for path in targets:
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+        print(f"  图标缓存: 删掉 {removed} 个（explorer 已关）")
+        subprocess.run(["cmd", "/c", "start", "", "explorer.exe"], capture_output=True, timeout=20)
+        time.sleep(3)
+    try:
+        subprocess.run(["ie4uinit.exe", "-show"], capture_output=True, timeout=20)
+        subprocess.run(["ie4uinit.exe", "-ClearIconCache"], capture_output=True, timeout=20)
+    except Exception:
+        pass
+    print("  图标缓存已刷新；资源管理器里如果还显示旧的，按 F5 刷一下")
 
 
 if __name__ == "__main__":

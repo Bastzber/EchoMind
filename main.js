@@ -16,6 +16,7 @@ const audioCapabilityManifest = require('./config/audio_capabilities.json');
 const supportedAudioExtensions = new Set(Object.keys(audioCapabilityManifest.formats || {}));
 const supportedAudioFilterExtensions = [...supportedAudioExtensions].map((value) => value.slice(1));
 
+const globalSearch = require('./lib/global-search');
 // 单实例锁：重复双击快捷方式时聚焦已有窗口，避免出现多个实例、
 // 每个实例又各自拉起一个后端去写同一个数据库。
 if (!app.requestSingleInstanceLock()) {
@@ -2149,6 +2150,31 @@ async function showOwnedOpenDialog(event, options = {}) {
 // ==================== IPC 处理 ====================
 
 function setupIpcHandlers() {
+  // ---- 全局搜索 ----
+  ipcMain.handle('global-search:get-state', () => globalSearch.getState());
+  ipcMain.handle('global-search:set-accelerator', (event, accelerator) =>
+    globalSearch.applyAccelerator(accelerator));
+  ipcMain.handle('global-search:reset-accelerator', () => globalSearch.resetAccelerator());
+  ipcMain.handle('global-search:show', () => { globalSearch.showSearchWindow(); return true; });
+  ipcMain.handle('global-search:hide', () => { globalSearch.hideSearchWindow(); return true; });
+
+  // 小窗里 Ctrl+Enter：把音效交给主窗口选中并显示
+  ipcMain.handle('global-search:open-in-main', (event, payload) => {
+    const filePath = String(payload?.filePath || '');
+    const fileId = String(payload?.fileId || '');
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    globalSearch.withBlurSuppressed(() => {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send('global-search:select-file', { filePath, fileId });
+    });
+    return { ok: true };
+  });
+
+  ipcMain.on('global-search:popup-ready', () => {
+    // 小窗加载完成 —— 目前只用于确认通道通了，热键已经注册过了
+  });
+
   // 独立浮动面板窗口（可拖到任意屏幕）
   ipcMain.handle('float-panel-open', (event, payload) => {
     const { id, title, rect } = payload || {};
@@ -3320,6 +3346,16 @@ app.whenReady().then(async () => {
   
   // 后端启动成功后再创建主窗口
   createWindow();
+
+  // 全局搜索热键：在别的软件里也能呼出
+  try {
+    const shortcutState = globalSearch.init(mainWindow);
+    if (!shortcutState.ok) {
+      console.warn('[GlobalSearch] 热键未注册:', shortcutState.message);
+    }
+  } catch (error) {
+    console.warn('[GlobalSearch] 初始化失败:', error.message);
+  }
   
   // 等待主窗口准备好后关闭启动窗口
   mainWindow.once('ready-to-show', () => {
@@ -3349,6 +3385,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  try { globalSearch.dispose(); } catch (_e) { /* 退出时忽略 */ }
   // 退出时一定带走后端，否则下次启动会再起一个，多个后端抢同一个数据库
   if (backendProcess && backendProcess.exitCode === null) {
     try { backendProcess.kill(); } catch (error) { console.warn('[Backend] kill on quit failed:', error.message); }

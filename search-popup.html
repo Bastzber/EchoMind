@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<!-- connect-src 必须放开回环地址，否则 fetch 后端会被 CSP 当成越权拦掉，
+     表现就是界面上「搜索失败: Failed to fetch」。令牌由主进程的
+     session.webRequest 统一注入，页面自己不需要也不该拿到它。 -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:8000 http://localhost:8000;" />
+<title>回声 · 全局搜索</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html {
+    height: 100%;
+    /* 窗口本体是 opaque 的，页面背景必须铺满，
+       否则无边框窗口会露出一块透明区，看着像没画完 */
+    background-color: #0b0b0c;
+  }
+  body {
+    height: 100%;
+    margin: 0;
+    background-color: #0b0b0c;
+    color: #e8e8ea;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #2a2a2e;
+    /* 圆角留给窗口自己去裁（transparent 模式下需要，opaque 模式用直角更稳） */
+    -webkit-app-region: no-drag;
+  }
+
+  #bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid #1d1d20;
+    -webkit-app-region: drag;
+  }
+  #bar .icon {
+    width: 18px; height: 18px; flex: 0 0 18px;
+    color: #6b6b73;
+  }
+  #query {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #f2f2f4;
+    font-size: 19px;
+    line-height: 1.3;
+    -webkit-app-region: no-drag;
+  }
+  #query::placeholder { color: #55555c; }
+  #hint {
+    font-size: 11px;
+    color: #4a4a52;
+    white-space: nowrap;
+    -webkit-app-region: no-drag;
+  }
+
+  #list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 8px 8px;
+  }
+  #list::-webkit-scrollbar { width: 8px; }
+  #list::-webkit-scrollbar-thumb { background: #2c2c31; border-radius: 4px; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .row.active { background: #1e1e22; }
+  .row .name {
+    flex: 1;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #e8e8ea;
+  }
+  .row .meta {
+    font-size: 11px;
+    color: #6b6b73;
+    white-space: nowrap;
+  }
+  .row .tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #242429;
+    color: #8a8a93;
+    white-space: nowrap;
+  }
+
+  #empty {
+    padding: 40px 20px;
+    text-align: center;
+    font-size: 13px;
+    color: #4a4a52;
+  }
+  .hidden { display: none !important; }
+
+  #bottombar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 16px;
+    border-top: 1px solid #1d1d20;
+    font-size: 11px;
+    color: #4a4a52;
+  }
+  kbd {
+    font-family: inherit;
+    padding: 1px 5px;
+    border: 1px solid #2c2c31;
+    border-radius: 3px;
+    background: #16161a;
+    color: #8a8a93;
+  }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"></circle>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+    <input id="query" type="text" placeholder="搜音效…" autocomplete="off"
+           spellcheck="false" autofocus />
+    <span id="hint"></span>
+  </div>
+
+  <div id="list"></div>
+  <div id="empty">输入关键词开始搜索</div>
+
+  <div id="bottombar">
+    <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+    <span><kbd>Enter</kbd> 播放</span>
+    <span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 在回声里打开</span>
+    <span><kbd>Esc</kbd> 关闭</span>
+  </div>
+
+  <script src="assets/renderer/search-popup.js"></script>
+</body>
+</html>

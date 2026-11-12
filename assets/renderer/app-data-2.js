@@ -617,6 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 sfxConfigTabBtn: 'sfxConfigContent',
                 descTabBtn: 'descConfigContent',
                 windowTabBtn: 'windowConfigContent',
+                shortcutTabBtn: 'shortcutConfigContent',
                 updateTabBtn: 'updateConfigContent'
             };
             Object.entries(map).forEach(([id, contentId]) => {

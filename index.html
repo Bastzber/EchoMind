@@ -1043,6 +1043,7 @@
     <script defer src="./assets/renderer/utils.js"></script>
     <script defer src="./assets/renderer/ai-chat.js"></script>
     <script defer src="./assets/renderer/settings-modal.js"></script>
+    <script defer src="./assets/renderer/global-shortcut-settings.js"></script>
     <script defer src="./assets/renderer/ambient.js"></script>
     <script defer src="./assets/renderer/folder-menu.js"></script>
     <script defer src="./assets/renderer/tag-sidebar.js"></script>
@@ -1248,6 +1249,9 @@
                 </button>
                 <button id="windowTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);">
                     窗口与托盘
+                </button>
+                <button id="shortcutTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent -mb-px" style="border-color: var(--border-color); color: var(--text-secondary);">
+                    快捷键
                 </button>
                 <button id="updateTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);">
                     关于与更新
@@ -1968,6 +1972,45 @@
                         <div id="windowPrefsStatus" class="text-xs opacity-60 mt-3"></div>
                     </div>
                 </div>
+                <div id="shortcutConfigContent" class="settings-tab-content hidden">
+                    <div class="mb-6">
+                        <h4 class="text-sm font-medium mb-1">全局搜索快捷键</h4>
+                        <p class="text-xs opacity-60 mb-4" style="color: var(--text-secondary);">
+                            在任意软件里按下这组键（不用先切到回声），就能呼出搜索框，输入即搜，回车播放。
+                        </p>
+
+                        <div class="flex items-center gap-3 mb-3">
+                            <div id="globalShortcutDisplay"
+                                 class="flex-1 px-3 py-2 rounded-lg border text-sm font-mono"
+                                 style="border-color: var(--border-color); background: var(--bg-tertiary); color: var(--text-primary);">
+                                Ctrl+Shift+Space
+                            </div>
+                            <button id="globalShortcutRecord"
+                                    class="px-4 py-2 rounded-lg text-sm border hover:bg-white/5"
+                                    style="border-color: var(--border-color);">
+                                录制
+                            </button>
+                        </div>
+
+                        <div id="globalShortcutHint" class="text-xs mb-4" style="color: var(--text-secondary); opacity: 0.6;">
+                            点「录制」然后按下你想要的组合键。建议至少带一个修饰键（Ctrl / Alt / Shift）。
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <button id="globalShortcutReset"
+                                    class="px-3 py-1.5 rounded-lg text-xs border hover:bg-white/5"
+                                    style="border-color: var(--border-color);">
+                                恢复默认
+                            </button>
+                            <button id="globalShortcutTest"
+                                    class="px-3 py-1.5 rounded-lg text-xs border hover:bg-white/5"
+                                    style="border-color: var(--border-color);">
+                                试一下
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="updateConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
                         <h4 class="text-sm font-medium mb-1">关于与更新</h4>

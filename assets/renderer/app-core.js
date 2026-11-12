@@ -1039,3 +1039,36 @@ let recipeAudioOwner = null;
 
 
 // ==================== CATEGORY TREE ====================
+
+// ---- 全局搜索小窗交回来的选中请求 ----
+// 在小窗里按 Ctrl+Enter（或 Ctrl 点结果），主进程把路径发过来，
+// 这里在主列表里找到那条并选中 + 滚动到可见。
+try {
+    window.electronAPI?.globalSearch?.onSelectFile?.((payload) => {
+        const targetPath = String(payload?.filePath || '');
+        const targetId = String(payload?.fileId || '');
+        if (!targetPath && !targetId) return;
+        const list = Array.isArray(soundData) ? soundData : [];
+        const hit = list.find((item) =>
+            (targetId && String(item.id) === targetId) ||
+            (targetPath && String(item.filePath || '').toLowerCase() === targetPath.toLowerCase())
+        );
+        if (!hit) {
+            // 不在当前页：提示一下，别静默失败
+            if (typeof showNotification === 'function') {
+                showNotification('这条音效不在当前列表页，换个分类或清空筛选再试', 'info');
+            }
+            return;
+        }
+        if (typeof selectSound === 'function') selectSound(hit);
+        // 滚动到那条：列表行的 data-id 就是音效 id
+        try {
+            const row = document.querySelector(`[data-id="${hit.id}"]`);
+            if (row && typeof row.scrollIntoView === 'function') {
+                row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+        } catch (_e) { /* 滚不动就算了 */ }
+    });
+} catch (error) {
+    console.warn('[GlobalSearch] 注册选中回调失败:', error);
+}

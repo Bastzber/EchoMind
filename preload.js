@@ -338,6 +338,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Keep the renderer surface deliberately small; unsupported and unused IPC
   // contracts were removed in v0.2.0.
+  // 全局搜索：系统级热键 + 独立小窗
+  globalSearch: {
+    getState: () => ipcRenderer.invoke('global-search:get-state'),
+    setAccelerator: (accelerator) =>
+      ipcRenderer.invoke('global-search:set-accelerator', accelerator),
+    resetAccelerator: () => ipcRenderer.invoke('global-search:reset-accelerator'),
+    show: () => ipcRenderer.invoke('global-search:show'),
+    hide: () => ipcRenderer.invoke('global-search:hide'),
+    // 小窗里按 Ctrl+Enter：把这条音效交给主窗口选中
+    openInMainWindow: (payload) =>
+      ipcRenderer.invoke('global-search:open-in-main', payload),
+    ready: () => ipcRenderer.send('global-search:popup-ready'),
+    onOpened: (callback) => {
+      const listener = () => { try { callback(); } catch (_e) { /* 忽略 */ } };
+      ipcRenderer.on('global-search:opened', listener);
+      return () => ipcRenderer.removeListener('global-search:opened', listener);
+    },
+    // 主窗口用：小窗里 Ctrl+Enter 请求选中某条音效
+    onSelectFile: (callback) => {
+      const listener = (_event, payload) => {
+        try { callback(payload || {}); } catch (_e) { /* 忽略 */ }
+      };
+      ipcRenderer.on('global-search:select-file', listener);
+      return () => ipcRenderer.removeListener('global-search:select-file', listener);
+    }
+  },
+
 });
 
 // Main uses this one-way handshake as a packaged-runtime assertion that the

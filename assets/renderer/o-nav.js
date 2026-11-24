@@ -19,14 +19,7 @@
                 { label: '最近使用', icon: 'history', badge: 'recentCount', action: 'recent' },
             ],
         },
-        {
-            title: '生产',
-            items: [
-                { label: '创造音效', icon: 'sparkles', action: 'btn:#sfxMenuBtn' },
-                { label: '声音克隆', icon: 'mic', action: 'btn:#voiceCloneBtn' },
-                { label: '拟音工坊', icon: 'audio-lines', action: 'btn:#recipeMenuBtn' },
-            ],
-        },
+
         {
             title: '整理',
             items: [
@@ -34,14 +27,7 @@
                 { label: '损坏文件', icon: 'alert-triangle', badge: 'brokenCount', action: 'btn:#brokenFilesBtn', danger: true },
             ],
         },
-        {
-            title: '维护',
-            items: [
-                { label: '修复索引', icon: 'refresh-cw', action: 'tool:修复索引' },
-                { label: '转码', icon: 'repeat', action: 'tool:转码' },
-                { label: '清理临时文件', icon: 'trash-2', action: 'tool:清理临时文件' },
-            ],
-        },
+
     ];
 
     function findTool(label) {
@@ -146,6 +132,14 @@
                 });
                 nav.appendChild(row);
             });
+        });
+
+        // 旧左栏残留的「待处理」小标题清掉（那批入口已经并进「整理」组）
+        Array.from(aside.children).forEach((child) => {
+            if (child === nav) return;
+            if (child.tagName === 'DIV' && !child.id && (child.textContent || '').trim() === '待处理') {
+                child.remove();
+            }
         });
 
         aside.insertBefore(nav, aside.firstElementChild);

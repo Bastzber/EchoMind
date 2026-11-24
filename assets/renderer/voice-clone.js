@@ -107,8 +107,8 @@ function showVoiceCloneModal(options = {}) {
         "        <button class=\"vc-chip\" data-engine=\"volc\">云端</button>",
         "      </div>",
         "      <div id=\"voiceProfileList\" class=\"vc-lib-list\"></div>",
-        "      <button id=\"voiceCloneNewBtn\" class=\"vc-btn vc-btn--block\" style=\"margin-top:8px\">+ 克隆新音色</button>",
         "      <div id=\"voiceLibCurrent\" class=\"vc-current\">当前没选音色</div>",
+        "      <button id=\"voiceCloneNewBtn\" class=\"vc-btn vc-btn--block\" style=\"margin-top:2px\">+ 克隆新音色</button>",
         "    </aside>",
         "    <section class=\"vc-work\">",
         "      <div class=\"vc-card vc-card--tight\">",
@@ -116,7 +116,6 @@ function showVoiceCloneModal(options = {}) {
         "          <span class=\"vc-title\">样音</span>",
         "          <span id=\"voiceSampleInfo\" class=\"vc-sample\">还没选样音</span>",
         "          <button id=\"voicePickFileBtn\" class=\"vc-btn vc-btn--ghost\" style=\"padding:6px 10px;font-size:11px\">换一个…</button>",
-        "          <button id=\"voiceUseCurrentBtn\" class=\"vc-btn vc-btn--ghost\" style=\"padding:6px 10px;font-size:11px\">用列表里选中的</button>",
         "        </div>",
         "      </div>",
         "      <div class=\"vc-card vc-card--tight\">",
@@ -250,11 +249,6 @@ function showVoiceCloneModal(options = {}) {
         }
     });
 
-    overlay.querySelector('#voiceUseCurrentBtn').addEventListener('click', () => {
-        if (!currentSound?.filePath) { showNotification('先在列表里选一个音效', 'info'); return; }
-        const duration = Number(currentSound.duration) > 1000 ? Number(currentSound.duration) / 1000 : Number(currentSound.duration) || 0;
-        useSample(currentSound.filePath, duration);
-    });
 
     // 音色库行的试听状态：记「谁在响」，主试听按钮和每行按钮共用同一个播放器
     let previewing = { id: '', kind: '' };   // kind: 'output' | 'sample'

@@ -127,7 +127,7 @@ function showVoiceCloneModal(options = {}) {
         "        </div>",
         "        <div id=\"voiceRefTextBox\" class=\"vc-row\" style=\"margin-top:8px\">",
         "          <span class=\"vc-label\" style=\"width:56px\">样音文稿</span>",
-        "          <textarea id=\"voiceRefTextInput\" rows=\"2\" class=\"vc-input\" style=\"flex:1;min-width:0;resize:vertical\" placeholder=\"这段样音里说的原话（Breeze 克隆必需，要完整）\"></textarea>",
+        "          <textarea id=\"voiceRefTextInput\" rows=\"2\" class=\"vc-input\" style=\"flex:1;min-width:0;resize:vertical\" placeholder=\"这段样音里说的原话（Breeze / OmniVoice 克隆必需，要完整）\"></textarea>",
         "        </div>",
         "        <div id=\"voiceCloneStatus\" class=\"vc-status\" style=\"margin-top:6px\"></div>",
         "      </div>",
@@ -256,11 +256,20 @@ function showVoiceCloneModal(options = {}) {
         useSample(currentSound.filePath, duration);
     });
 
-    // 音色库：搜索 + 按引擎筛选 + 每行「引擎 / 缺文稿 / 使用 / 删除」
+    // 音色库行的试听状态：记「谁在响」，主试听按钮和每行按钮共用同一个播放器
+    let previewing = { id: '', kind: '' };   // kind: 'output' | 'sample'
+    const isPreviewing = (kind, id) => Boolean(audioPlayer)
+        && previewing.kind === kind
+        && String(previewing.id) === String(id || '')
+        && !audioPlayer.paused
+        && !audioPlayer.ended;
+
+    // 音色库：搜索 + 按引擎筛选 + 每行「引擎 / 试听 / 使用 / 删除」
     const providerLabel = (profile) => {
         const provider = String(profile.provider || '');
         if (provider === 'breeze') return '本地 · Breeze';
         if (provider === 'voicestudio') return '本地 · VoiceStudio';
+        if (provider === 'omnivoice') return '本地 · OmniVoice';
         return '云端 · 豆包';
     };
     const renderProfiles = () => {
@@ -298,7 +307,8 @@ function showVoiceCloneModal(options = {}) {
 
         visible.forEach((profile) => {
             const providerName = String(profile.provider || '');
-            const needsRefText = providerName === 'breeze' && !String(profile.ref_text || '').trim();
+            const needsRefText = (providerName === 'breeze' || providerName === 'omnivoice')
+                && !String(profile.ref_text || '').trim();
             const isActive = String(profile.id) === String(voiceState.profileId);
 
             const row = document.createElement('div');
@@ -330,12 +340,14 @@ function showVoiceCloneModal(options = {}) {
                 return button;
             };
 
-            row.appendChild(dot);
-            row.appendChild(info);
+            // 缺文稿不再单独占一个按钮（一行放 4 个按钮会把名字挤没）：
+            // 黄点本身就是入口，点一下补原话，补完黄点消失
             if (needsRefText) {
-                row.appendChild(mkBtn('补文稿', 'vc-btn vc-btn--ghost', async (event) => {
+                dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#f59e0b;flex:0 0 auto;cursor:pointer';
+                dot.title = '缺样音文稿：点一下补上这句原话';
+                dot.addEventListener('click', async (event) => {
                     event.stopPropagation();
-                    const text = window.prompt('这段样音里说的原话是什么？（Breeze 靠它复刻音色）', '');
+                    const text = window.prompt('这段样音里说的原话是什么？（Breeze / OmniVoice 靠它复用音色）', '');
                     if (!text || !text.trim()) return;
                     try {
                         await rendererApi.patch('/api/v1/voice/profiles/' + encodeURIComponent(profile.id), {
@@ -347,8 +359,35 @@ function showVoiceCloneModal(options = {}) {
                     } catch (error) {
                         showNotification('补文稿失败: ' + (error?.message || error), 'error');
                     }
-                }));
+                });
             }
+            row.appendChild(dot);
+            row.appendChild(info);
+            row.appendChild(mkBtn(isPreviewing('sample', profile.id) ? '暂停' : '试听', 'vc-btn vc-btn--ghost', async (event) => {
+                event.stopPropagation();
+                const samplePath = String(profile.sample || '');
+                if (!samplePath) {
+                    showNotification('这条音色没有样音文件，试听不了', 'info');
+                    return;
+                }
+                try {
+                    ensurePlayer();
+                    if (isPreviewing('sample', profile.id)) {
+                        audioPlayer.pause();
+                    } else {
+                        audioPlayer.pause();
+                        audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(samplePath);
+                        audioPlayer.dataset.output = '';
+                        audioPlayer.load();
+                        previewing = { id: String(profile.id), kind: 'sample' };
+                        await audioPlayer.play();
+                    }
+                } catch (error) {
+                    showNotification('试听失败: ' + (error?.message || error), 'error');
+                }
+                renderProfiles();
+                syncPlayButton();
+            }));
             row.appendChild(mkBtn(isActive ? '使用中' : '使用', 'vc-btn vc-btn--ghost', () => {
                 voiceState.speakerId = profile.speaker_id || '';
                 voiceState.profileId = profile.id || '';
@@ -539,16 +578,23 @@ function showVoiceCloneModal(options = {}) {
     const ensurePlayer = () => {
         if (!audioPlayer) initAudioPlayer();
         if (audioPlayer && !playerHooked) {
-            audioPlayer.addEventListener('play', () => syncPlayButton());
-            audioPlayer.addEventListener('pause', () => syncPlayButton());
-            audioPlayer.addEventListener('ended', () => { isPlaying = false; syncPlayButton(); });
+            const refresh = () => {
+                syncPlayButton();
+                try {
+                    renderProfiles();     // 每行的「试听/暂停」也要跟着换
+                } catch (_) { }
+            };
+            audioPlayer.addEventListener('play', refresh);
+            audioPlayer.addEventListener('pause', refresh);
+            audioPlayer.addEventListener('ended', () => { isPlaying = false; refresh(); });
             playerHooked = true;
         }
         return audioPlayer;
     };
     const syncPlayButton = () => {
         if (!playBtn) return;
-        const playing = Boolean(audioPlayer) && !audioPlayer.paused && !audioPlayer.ended;
+        // 主按钮只管「生成结果」这一路；正在试听某条音色的样音时它保持「试听」
+        const playing = isPreviewing('output', voiceState.lastOutput);
         playBtn.textContent = playing ? '暂停' : '试听';
         playBtn.title = playing ? '点一下暂停' : '点一下试听';
     };
@@ -568,6 +614,7 @@ function showVoiceCloneModal(options = {}) {
                 syncPlayButton();
                 return;
             }
+            previewing = { id: String(voiceState.lastOutput || ''), kind: 'output' };
             await audioPlayer.play();
             isPlaying = true;
             syncPlayButton();

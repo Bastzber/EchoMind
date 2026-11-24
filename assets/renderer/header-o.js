@@ -1,57 +1,57 @@
-/* header-o.js —— 顶栏统一成一套克制的样式
+/* header-o.js —— 顶栏排法（按老板给的图）
  *
- * 之前的毛病：每个入口自带一套渐变 + 彩色描边（紫、青、粉、蓝），六个挤在一起像玩具。
- * 现在：全部退成中性按钮（透明底、无描边、hover 才出背景），只有「创造音效」保留主色，
- * 而且不用渐变、不加发光阴影。图标统一跟着文字色走。
+ * 三个要点：
+ * 1. 六个入口都有边框（1px，用 --border-color），不是透明按钮
+ * 2. 从左边开始往右排：导航紧跟「回声」logo，右边的东西用 margin-left:auto 顶到最右
+ * 3. 不给「创造音效」单独上色：它和其余五个一模一样
  */
 (function headerO() {
     'use strict';
 
-    const BASE_CLASS = 'menu-btn h-9 px-3 rounded-lg text-[13px] font-medium flex items-center gap-2 '
-        + 'transition-colors hover:bg-black/5 dark:hover:bg-white/5';
+    const BASE_CLASS = 'menu-btn h-9 px-3 rounded-lg text-[13px] font-medium flex items-center gap-2 transition-colors';
     const ENTRIES = ['fileMenuBtn', 'importBtn', 'descPackMenuBtn', 'sfxMenuBtn', 'recipeMenuBtn', 'voiceCloneBtn'];
 
-    function paintIcon(btn, color) {
+    function paintIcon(btn) {
         btn.querySelectorAll('svg').forEach((svg) => {
-            svg.querySelectorAll('stop').forEach((stop) => stop.setAttribute('stop-color', color));
+            svg.querySelectorAll('stop').forEach((stop) => stop.setAttribute('stop-color', 'currentColor'));
             svg.querySelectorAll('path, circle, line, rect, polyline').forEach((node) => {
-                node.setAttribute('stroke', color);
+                node.setAttribute('stroke', 'currentColor');
                 node.setAttribute('fill', 'none');
             });
         });
-        btn.querySelectorAll('i[data-lucide]').forEach((icon) => {
-            icon.style.color = color;
-        });
+        btn.querySelectorAll('i[data-lucide]').forEach((icon) => { icon.style.color = 'currentColor'; });
     }
 
-    function apply() {
-        let painted = false;
+    function styleButtons() {
         ENTRIES.forEach((id) => {
             const btn = document.getElementById(id);
             if (!btn) return;
-            const isPrimary = id === 'sfxMenuBtn';
             btn.className = BASE_CLASS;
-            btn.style.cssText = isPrimary
-                ? 'background:#3b82f6;border:1px solid #3b82f6;color:#fff;'
-                : 'background:transparent;border:1px solid transparent;color:var(--text-primary);';
-            // hover 时给中性按钮补一点底色（主按钮自带蓝色，不需要）
-            if (!isPrimary) {
-                btn.style.setProperty('--o-hover', '1');
-            }
-            paintIcon(btn, isPrimary ? '#ffffff' : 'currentColor');
-            painted = true;
+            btn.style.cssText = 'background:var(--bg-tertiary);border:1px solid var(--border-color);'
+                + 'color:var(--text-primary);box-shadow:none;backdrop-filter:none;';
+            paintIcon(btn);
         });
-        if (painted) {
-            document.querySelectorAll('#headerExtraTags, .badge').forEach(() => {});
+    }
+
+    function alignLeft() {
+        const nav = document.querySelector('#fileMenuBtn')?.closest('nav');
+        if (!nav) return;
+        const header = nav.parentElement;
+        if (header) {
+            header.style.justifyContent = 'flex-start';
+            header.style.gap = '10px';
         }
+        nav.style.justifyContent = 'flex-start';
+        nav.style.marginRight = 'auto';   // 后面的索引状态 / 设置被顶到最右
     }
 
     function boot() {
-        apply();
-        const nav = document.querySelector('#sfxMenuBtn')?.closest('nav');
+        styleButtons();
+        alignLeft();
+        const nav = document.querySelector('#fileMenuBtn')?.closest('nav');
         if (nav && !nav.dataset.oObserved) {
             nav.dataset.oObserved = '1';
-            new MutationObserver(() => apply()).observe(nav, { childList: true, subtree: true });
+            new MutationObserver(() => styleButtons()).observe(nav, { childList: true, subtree: true });
         }
     }
 

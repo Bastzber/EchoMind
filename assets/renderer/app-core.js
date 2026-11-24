@@ -186,31 +186,41 @@
         const box = container();
         if (!box) return;
         box.innerHTML = '';
-        // O 排法：这一排按用途分三段（日常 / 修数据 / AI），段之间插一个小标题
+        // O 排法：按用途分三行（日常 / 修数据 / AI），每行左边是行标签、右边是按钮
         const GROUPS = {
             dup: '日常', tags: '日常', rename: '日常', fx: '日常', voiceLib: '日常',
             transcode: '修数据', review: '修数据', repair: '修数据', repairIndex: '修数据',
             cleanTemp: '修数据', rebuild: '修数据',
+            reindex_audio: '修数据', reindex_text: '修数据',
             devocal: 'AI', split: 'AI', txv: 'AI', txvFix: 'AI'
         };
-        let lastGroup = '';
+        const ORDER = ['日常', '修数据', 'AI', '其他'];
+        const buckets = new Map();
         current.forEach((id) => {
             const meta = REGISTRY.find((item) => item.id === id);
             if (!meta) return;
             const group = GROUPS[id] || '其他';
-            if (group !== lastGroup) {
-                const label = document.createElement('span');
-                label.className = 'qa-group';
-                label.textContent = group;
-                box.appendChild(label);
-                lastGroup = group;
-            }
-            const btn = document.createElement('button');
-            btn.className = 'quick-btn';
-            btn.setAttribute('data-help', meta.help);
-            btn.innerHTML = '<i data-lucide="' + meta.icon + '" class="w-3.5 h-3.5"></i>' + meta.label;
-            btn.addEventListener('click', () => { try { meta.run(); } catch (error) { showNotification('执行失败: ' + (error?.message || error), 'error'); } });
-            box.appendChild(btn);
+            if (!buckets.has(group)) buckets.set(group, []);
+            buckets.get(group).push(meta);
+        });
+        ORDER.forEach((group) => {
+            const items = buckets.get(group);
+            if (!items || !items.length) return;
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 flex-wrap';
+            const label = document.createElement('span');
+            label.className = 'qa-row-label';
+            label.textContent = group;
+            row.appendChild(label);
+            items.forEach((meta) => {
+                const btn = document.createElement('button');
+                btn.className = 'quick-btn';
+                btn.setAttribute('data-help', meta.help);
+                btn.innerHTML = '<i data-lucide="' + meta.icon + '" class="w-3.5 h-3.5"></i>' + meta.label;
+                btn.addEventListener('click', () => { try { meta.run(); } catch (error) { showNotification('执行失败: ' + (error?.message || error), 'error'); } });
+                row.appendChild(btn);
+            });
+            box.appendChild(row);
         });
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
     };

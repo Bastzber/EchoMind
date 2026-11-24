@@ -135,9 +135,10 @@ function showVoiceCloneModal(options = {}) {
         "      <div class=\"vc-card vc-card--tight\">",
         "        <div class=\"vc-row\">",
         "          <span class=\"vc-label\" style=\"width:56px\">合成引擎</span>",
-        "          <select id=\"voiceEngineSelect\" class=\"vc-input\" style=\"width:230px;flex:0 0 auto\">",
+        "          <select id=\"voiceEngineSelect\" class=\"vc-input\" style=\"width:260px;flex:0 0 auto\">",
+        "            <option value=\"omnivoice\">本地 OmniVoice（内置，无需装 VoiceStudio）</option>",
         "            <option value=\"breeze\">本地 Breeze TTS 2（离线）</option>",
-        "            <option value=\"voicestudio\">本地 VoiceStudio（OmniVoice）</option>",
+        "            <option value=\"voicestudio\">VoiceStudio 应用（需先打开它）</option>",
         "            <option value=\"volc\">豆包云端（需 API Key）</option>",
         "          </select>",
         "          <span class=\"vc-label\">输出</span>",
@@ -149,6 +150,10 @@ function showVoiceCloneModal(options = {}) {
         "          </select>",
         "        </div>",
         "        <div class=\"vc-note\" style=\"margin-top:6px\">选哪个引擎就用哪个模型念；这条音色当初是用哪个引擎克隆的，不影响</div>",
+        "        <div id=\"voiceOmniRow\" class=\"vc-row\" style=\"display:none;margin-top:8px\">",
+        "          <span id=\"voiceOmniStatus\" class=\"vc-status\" style=\"flex:1\">内置模型还没下载（约 3.1 GB）</span>",
+        "          <button id=\"voiceOmniDownloadBtn\" class=\"vc-btn vc-btn--block\" style=\"width:auto;padding:6px 12px;font-size:11px\">下载模型</button>",
+        "        </div>",
         "      </div>",
         "      <div class=\"vc-card\">",
         "        <textarea id=\"voiceTextInput\" rows=\"5\" class=\"vc-input\" style=\"min-height:120px\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
@@ -614,12 +619,77 @@ function showVoiceCloneModal(options = {}) {
 
     const engineSelect = overlay.querySelector('#voiceEngineSelect');
     const refBox = overlay.querySelector('#voiceRefTextBox');
+    const omniRow = overlay.querySelector('#voiceOmniRow');
+    const omniStatus = overlay.querySelector('#voiceOmniStatus');
+    const omniDownloadBtn = overlay.querySelector('#voiceOmniDownloadBtn');
+    let omniWeightsReady = false;
+    let omniPollTimer = null;
+
+    const renderOmniRow = () => {
+        if (!omniRow) return;
+        const isOmni = (engineSelect?.value || '') === 'omnivoice';
+        omniRow.style.display = isOmni ? '' : 'none';
+        if (!isOmni || !omniStatus) return;
+        omniStatus.textContent = omniWeightsReady
+            ? '内置模型已就绪（这台机器离线也能用）'
+            : '内置模型还没下载（约 3.1 GB，下一次就够，之后离线可用）';
+        if (omniDownloadBtn) {
+            omniDownloadBtn.style.display = omniWeightsReady ? 'none' : '';
+            omniDownloadBtn.disabled = Boolean(omniPollTimer);
+            omniDownloadBtn.textContent = omniPollTimer ? '下载中…' : '下载模型';
+        }
+    };
+
+    const refreshOmniStatus = async () => {
+        try {
+            const state = await rendererApi.get('/api/v1/voice/omnivoice/status', { timeoutMs: 15000 });
+            omniWeightsReady = Boolean(state?.present);
+        } catch (error) {
+            omniWeightsReady = false;
+        }
+        renderOmniRow();
+        return omniWeightsReady;
+    };
+
+    const startOmniDownload = async () => {
+        if (omniPollTimer || omniWeightsReady) return;
+        try {
+            await rendererApi.post('/api/v1/voice/omnivoice/download', {}, { timeoutMs: 30000 });
+        } catch (error) {
+            showNotification('下载启动失败: ' + (error?.message || error), 'error');
+            return;
+        }
+        if (omniStatus) omniStatus.textContent = '正在下载模型（约 3.1 GB）…可以先去干别的，下载完这里会变';
+        if (omniDownloadBtn) { omniDownloadBtn.disabled = true; omniDownloadBtn.textContent = '下载中…'; }
+        let ticks = 0;
+        omniPollTimer = setInterval(async () => {
+            ticks += 1;
+            const ready = await refreshOmniStatus();
+            if (ready) {
+                clearInterval(omniPollTimer);
+                omniPollTimer = null;
+                renderOmniRow();
+                showNotification('OmniVoice 模型就绪，可以直接生成了', 'success');
+            } else if (ticks > 480) {  // 20 分钟还没好就停，别无限轮询
+                clearInterval(omniPollTimer);
+                omniPollTimer = null;
+                renderOmniRow();
+            }
+        }, 2500);
+    };
+
     const syncEngine = () => {
-        const engine = engineSelect?.value || 'breeze';
-        // 只有 Breeze 强制要文稿；VoiceStudio 自己会转写，豆包按 speaker 走
-        if (refBox) refBox.style.display = engine === 'breeze' ? '' : 'none';
+        const engine = engineSelect?.value || 'omnivoice';
+        // Breeze 和内置 OmniVoice 都靠「样音 + 文稿」零样本复刻；
+        // VoiceStudio 会自己转写，豆包按 speaker 走
+        if (refBox) refBox.style.display = (engine === 'breeze' || engine === 'omnivoice') ? '' : 'none';
+        renderOmniRow();
+        if (engine === 'omnivoice') refreshOmniStatus();
     };
     engineSelect?.addEventListener('change', syncEngine);
+    omniDownloadBtn?.addEventListener('click', startOmniDownload);
+    // 默认就用内置引擎（不需要装 VoiceStudio）
+    if (engineSelect) engineSelect.value = 'omnivoice';
     syncEngine();
 
     overlay.querySelector('#voiceLibOpenBtn')?.addEventListener('click', () => {

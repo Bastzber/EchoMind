@@ -55,6 +55,15 @@ if not ucs_workbook.is_file():
     raise FileNotFoundError(f'Required UCS keyword workbook is missing: {ucs_workbook}')
 datas.append((str(ucs_workbook), '.'))
 
+# ==================== 内置 OmniVoice（vendored 源码） ====================
+# vendor/omnivoice 是 AGPL-3.0-only 的模型代码，运行时才 import，
+# PyInstaller 静态分析看不到，必须当数据文件整体带上；worker 里会用
+# sys._MEIPASS/vendor 加进 sys.path。
+_vendor_omnivoice = backend_dir / 'vendor' / 'omnivoice'
+if _vendor_omnivoice.is_dir():
+    datas.append((str(_vendor_omnivoice), 'vendor/omnivoice'))
+    print(f'[vendor] omnivoice -> vendor/omnivoice')
+
 # ==================== 自动收集第三方包 ====================
 binaries = []
 hiddenimports = []
@@ -68,6 +77,9 @@ _collect_all_packages = [
     'jieba',                 # 中文分词词典
     'tokenizers',            # Rust 原生扩展
     'safetensors',           # Rust 原生扩展
+    'torchaudio',            # 内置 OmniVoice 引擎（vendor/omnivoice 在运行时才 import）
+    'soundfile',             # 同上：libsndfile 运行库
+    'accelerate',            # OmniVoice from_pretrained 的 device_map
 ]
 
 # 只需要收集子模块的包（纯 Python，PyInstaller 自动分析可能遗漏动态导入）
@@ -82,6 +94,8 @@ _collect_submodules_packages = [
     'httpcore',
     'anyio',
     'huggingface_hub',
+    'pydub',                 # vendor/omnivoice/utils/audio.py
+    'psutil',                # vendor/omnivoice 的内存探测
 ]
 
 for pkg in _collect_all_packages:
@@ -102,6 +116,22 @@ try:
     datas += collect_data_files('chromadb', includes=['migrations/**/*.sql'])
 except Exception as e:
     raise RuntimeError(f'Unable to collect Chroma migration SQL: {e}')
+
+# transformers 用 distribution 元数据检查 accelerate 版本（不是 import），
+# 缺 dist-info 就算代码打进去了也会抛 PackageNotFoundError。
+# copy_metadata 在这套环境里没落地，所以直接按 site-packages 里的目录搬。
+try:
+    import importlib.metadata as _importlib_metadata
+
+    _accel_dist = _importlib_metadata.distribution('accelerate')
+    _accel_dir = Path(str(_accel_dist._path))
+    if _accel_dir.is_dir():
+        datas.append((str(_accel_dir), _accel_dir.name))
+        print(f'[metadata] accelerate -> {_accel_dir.name}')
+    else:
+        print('Warning: accelerate dist-info 目录不存在')
+except Exception as _e:
+    print(f'Warning: accelerate dist-info 收集失败: {_e}')
 
 # Preserve PyAV distribution metadata and its bundled license notices.
 try:
@@ -136,6 +166,9 @@ for pkg in _collect_submodules_packages:
 
 # ==================== 本地模块隐藏导入 ====================
 hiddenimports += [
+    # Python 3.13 没有 audioop 了，pydub 靠 audioop-lts 提供
+    'audioop',
+    'audioop_lts',
     # 入口和配置
     'main',
     'config',

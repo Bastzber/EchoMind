@@ -401,10 +401,19 @@ def clone_voice(
     if not source.is_file():
         return {"ok": False, "error": "样音文件不存在"}
 
-    if (provider or "").strip().lower() in (VS_PROVIDER, "omnivoice", "vs"):
+    engine_key = (provider or "").strip().lower()
+    if engine_key in (VS_PROVIDER, "vs"):
         return clone_voice_voicestudio(name, source, duration, ref_text)
 
-    if (provider or "").lower() == "breeze":
+    if engine_key in ("omnivoice", "builtin", "native"):
+        # 内置 OmniVoice 是零样本：档案里只要样音 + 文稿，不需要任何外部服务
+        text = (ref_text or "").strip()
+        if not text:
+            return {"ok": False, "error": "内置 OmniVoice 需要填写这段样音的文字稿（它靠它复用音色）"}
+        entry = add_profile(name, "", str(source), duration, provider="omnivoice", ref_text=text)
+        return {"ok": True, "speaker_id": "", "profile": entry, "engine": "omnivoice"}
+
+    if engine_key == "breeze":
         text = (ref_text or "").strip()
         if not text:
             return {"ok": False, "error": "本地 Breeze 需要填写这段样音的文字稿"}

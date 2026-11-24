@@ -2919,7 +2919,7 @@ async def voice_profiles():
     from core import tts as _tts
     from core.voice_clone import engine_name, load_profiles, voicestudio_available
 
-    engines = {"breeze": False, "voicestudio": False}
+    engines = {"breeze": False, "voicestudio": False, "omnivoice": False}
     try:
         engines["breeze"] = bool(_tts.breeze_available())
     except Exception:
@@ -2928,7 +2928,47 @@ async def voice_profiles():
         engines["voicestudio"] = bool(await asyncio.to_thread(voicestudio_available))
     except Exception:
         pass
+    try:
+        from core import omnivoice_local
+
+        engines["omnivoice"] = bool(omnivoice_local.available())
+    except Exception:
+        pass
     return {"success": True, "engine": engine_name(), "engines": engines, "profiles": load_profiles()}
+
+
+@app.get("/api/v1/voice/omnivoice/status")
+async def voice_omnivoice_status():
+    """内置 OmniVoice 引擎：权重在不在、worker 能不能起。"""
+    from core import omnivoice_local
+
+    state = await asyncio.to_thread(omnivoice_local.weights_state)
+    return {"success": True, **state}
+
+
+@app.post("/api/v1/voice/omnivoice/download")
+async def voice_omnivoice_download(background_tasks: BackgroundTasks):
+    """下载内置 OmniVoice 权重（约 3.1 GB）。返回 job_id，前端轮询状态。"""
+    from core import omnivoice_local
+
+    if omnivoice_local.available():
+        return {"success": True, "already": True, "path": omnivoice_local.find_local_weights()}
+
+    job_id = db_manager.create_job("default", "omnivoice_download", 1)
+
+    async def _run() -> None:
+        try:
+            result = await asyncio.to_thread(omnivoice_local.download_weights)
+            if result.get("ok"):
+                db_manager.update_job(job_id, state="completed", processed=1, stage="done")
+            else:
+                db_manager.update_job(job_id, state="failed", stage="failed",
+                                      error=str(result.get("error") or "下载失败")[:300])
+        except Exception as exc:  # noqa: BLE001
+            db_manager.update_job(job_id, state="failed", stage="failed", error=str(exc)[:300])
+
+    background_tasks.add_task(_run)
+    return {"success": True, "job_id": job_id, "size_gb": 3.1}
 
 
 @app.post("/api/v1/voice/clone")
@@ -2972,7 +3012,7 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
     if not engine and profile:
         engine = str(profile.get("provider") or "").strip().lower()
 
-    if engine in ("voicestudio", "omnivoice", "vs"):
+    if engine in ("voicestudio", "vs"):
         from core.voice_clone import ensure_voicestudio_profile, vs_speak_to_cache
 
         if not profile:
@@ -2992,6 +3032,46 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
         if not result.get("ok"):
             raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)
         return {"success": True, "path": result.get("path"), "provider": "voicestudio"}
+
+    if engine in ("omnivoice", "builtin", "native"):
+        # 内置 OmniVoice：不依赖 VoiceStudio，自己加载模型、自己在子进程里跑
+        import hashlib as _hashlib
+        import time as _time
+
+        from core import omnivoice_local
+        from core import tts as _tts
+
+        if not omnivoice_local.available():
+            raise SoundBotAPIError(
+                "omnivoice_weights_missing",
+                "内置 OmniVoice 模型还没下载（约 3.1 GB）。点「下载模型」下一次，之后离线也能用。",
+                status_code=400,
+            )
+        sample = str((profile or {}).get("sample") or "")
+        ref_text = str((profile or {}).get("ref_text") or "").strip()
+        use_ref = sample if (sample and os.path.isfile(sample)) else ""
+        if use_ref and not ref_text:
+            # 零样本克隆必须成对给样音和原话，缺了就退回默认声音（跟 Breeze 一个坑）
+            raise SoundBotAPIError(
+                "voice_ref_text_missing",
+                "这条音色缺「样音文稿」，OmniVoice 会念成默认声音。点音色列表里的「补文稿」补上这句原话。",
+                status_code=400,
+            )
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: omnivoice_local.synth(payload.text, ref_audio=use_ref, ref_text=ref_text),
+        )
+        if not result.get("ok"):
+            raise SoundBotAPIError(
+                "voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400
+            )
+        sample_rate = int(result.get("sample_rate") or 24000)
+        wav = _tts._pcm_to_wav(result.get("pcm") or b"", channels=1, sample_rate=sample_rate)
+        digest = _hashlib.sha1((payload.text + str(_time.time())).encode("utf-8")).hexdigest()[:16]
+        target = _tts.cache_dir() / ("omni-%s.wav" % digest)
+        target.write_bytes(wav)
+        return {"success": True, "path": str(target), "provider": "omnivoice"}
 
     if engine == "breeze":
         from core import tts as _tts
@@ -5962,6 +6042,12 @@ if __name__ == "__main__":
     if "--mel-worker" in sys.argv:
         from core.melworker import _main as _run_mel_worker
         _run_mel_worker()
+        raise SystemExit(0)
+
+    # OmniVoice 内置引擎的推理子进程（同 melworker 套路，隔离 CUDA 崩溃）
+    if "--omnivoice-worker" in sys.argv:
+        from core.omnivoice_worker import _main as _run_omni_worker
+        _run_omni_worker()
         raise SystemExit(0)
 
     # 自动寻找可用端口（避免端口冲突）

@@ -23,3 +23,29 @@ wheel's exact build configuration and comply with its applicable license.
 
 This notice is informational and does not replace the license texts shipped
 with PyAV or FFmpeg.
+
+
+OmniVoice model code (bundled at backend/vendor/omnivoice)
+----------------------------------------------------------
+Project: https://github.com/k2-fsa/OmniVoice (model: k2-fsa/OmniVoice on HuggingFace)
+License: AGPL-3.0-only
+
+This component is the built-in OmniVoice text-to-speech engine. It runs in a
+separate worker process, is loaded only when the user selects the built-in
+OmniVoice engine, and its complete corresponding source is the vendored tree at
+backend/vendor/omnivoice in this repository. Redistributors that ship this
+component must provide that source and the AGPL-3.0 text, and must satisfy
+AGPL-3.0 section 13 for users interacting with it over a network.
+
+
+OmniVoice model weights (downloaded on demand, not bundled)
+-----------------------------------------------------------
+The checkpoint is downloaded to the user's data directory on first use of the
+built-in engine; it is not part of this bundle.
+
+  - Language-model weights: k2-fsa/OmniVoice on HuggingFace
+  - Audio tokenizer: Boson Higgs Audio 2 Community License Agreement
+    (see audio_tokenizer/LICENSE inside the downloaded checkpoint)
+
+The Higgs Audio 2 community license is not an open-source license; review it
+before redistributing the weights or shipping a product that depends on them.

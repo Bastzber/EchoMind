@@ -966,18 +966,8 @@
     <footer id="playerFooter" class="h-16 border-t flex items-center justify-between px-4 shrink-0 transition-colors duration-300"
             style="border-color: var(--border-color); background-color: var(--bg-secondary);">
         
-        <!-- Playback Controls（最左边挂 L/R 电平表，见 assets/renderer/level-meter.js） -->
+        <!-- Playback Controls -->
         <div class="flex items-center gap-2">
-            <div id="levelMeter" class="flex items-end gap-[3px] shrink-0" title="实时电平 L/R（-24 ~ 0 dB）"
-                 style="height:30px">
-                <div class="lm-ch"><i id="levelL"></i><b id="peakL"></b></div>
-                <div class="lm-ch"><i id="levelR"></i><b id="peakR"></b></div>
-                <div style="display:flex;flex-direction:column;justify-content:space-between;height:30px;
-                            font-size:7px;line-height:1;color:var(--text-secondary);opacity:.75">
-                    <span>0</span><span>-6</span><span>-24</span>
-                </div>
-            </div>
-            <div style="width:1px;height:22px;background:var(--border-color);margin:0 4px 0 0"></div>
             <button id="prevBtn" class="w-9 h-9 rounded-lg flex items-center justify-center transition-colors hover:bg-black/5 dark:hover:bg-white/5 opacity-50 hover:opacity-100">
                 <i data-lucide="skip-back" class="w-5 h-5"></i>
             </button>
@@ -1060,18 +1050,6 @@
     <script defer src="./assets/renderer/sound-detail.js"></script>
     <script defer src="./assets/renderer/input-dialog.js"></script>
     <script defer src="./assets/renderer/history.js"></script>
-    <style>
-        /* 播放条电平表：两根竖条 + 峰值保持线，颜色从绿到红 */
-        #levelMeter .lm-ch{position:relative;width:7px;height:30px;border-radius:2px;overflow:hidden;
-            background:#141414;border:1px solid var(--border-color);
-            background-image:repeating-linear-gradient(to top,#1b1b1b 0 2px,#0f0f0f 2px 4px)}
-        #levelMeter .lm-ch i{position:absolute;left:0;right:0;bottom:0;height:0;
-            background:linear-gradient(to top,#4ade80 0%,#4ade80 55%,#facc15 78%,#ef4444 100%);
-            transition:height .06s linear}
-        #levelMeter .lm-ch b{position:absolute;left:0;right:0;height:2px;background:#fff;opacity:0;
-            transition:bottom .18s ease-out,opacity .3s}
-    </style>
-    <script defer src="./assets/renderer/level-meter.js"></script>
     <script defer src="./assets/renderer/voice-clone.js"></script>
 <script defer src="./assets/renderer/move-to-folder.js"></script>
     <script defer src="./assets/renderer/playback-speed.js"></script>

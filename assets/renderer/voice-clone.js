@@ -109,7 +109,6 @@ function showVoiceCloneModal(options = {}) {
         "      <div id=\"voiceProfileList\" class=\"vc-lib-list\"></div>",
         "      <button id=\"voiceCloneNewBtn\" class=\"vc-btn vc-btn--block\" style=\"margin-top:8px\">+ 克隆新音色</button>",
         "      <div id=\"voiceLibCurrent\" class=\"vc-current\">当前没选音色</div>",
-        "      <button id=\"voiceLibOpenBtn\" class=\"vc-link\" style=\"margin-top:6px\">管理音色库</button>",
         "    </aside>",
         "    <section class=\"vc-work\">",
         "      <div class=\"vc-card vc-card--tight\">",
@@ -726,11 +725,6 @@ function showVoiceCloneModal(options = {}) {
     if (engineSelect) engineSelect.value = 'omnivoice';
     syncEngine();
 
-    overlay.querySelector('#voiceLibOpenBtn')?.addEventListener('click', () => {
-        // 不关掉克隆面板：音色库叠在它上面（z-index 更高），
-        // 关掉音色库就自然回到克隆界面，录入的内容也还在。
-        showVoiceLibraryModal({ fromVoiceClone: true });
-    });
 
     overlay.addEventListener('voice-profiles-changed', () => {
         loadVoiceProfiles().then(renderProfiles);

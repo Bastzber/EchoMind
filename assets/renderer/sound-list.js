@@ -248,13 +248,7 @@ function renderSoundList(filter = '', sounds = soundData) {
                         </div>
                     ` : ''}
                 </div>
-                ${(Array.isArray(sound.tags) && sound.tags.length) ? `
-                    <div class="flex flex-wrap items-center gap-1 mt-0.5" title="${escapeHtml(sound.tags.join('、'))}">
-                        ${sound.tags.map(tag => `
-                            <span class="px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap" style="background: var(--bg-tertiary); color: var(--text-secondary);">${escapeHtml(tag)}</span>
-                        `).join('')}
-                    </div>
-                ` : ''}
+
             </div>
             <div class="w-24 text-right text-sm opacity-70 font-mono">${formatTime(sound.duration)}</div>
             <div class="w-16 flex items-center justify-center gap-1">
@@ -269,6 +263,39 @@ function renderSoundList(filter = '', sounds = soundData) {
             </div>
         `;
         
+        // O 排法：标签单独成列（原来挤在文件名下面，扫视时看不见）
+        (function insertTagCell() {
+            const tagCell = document.createElement('div');
+            tagCell.className = 'w-56 shrink-0 px-2 min-w-0 overflow-hidden';
+            const tags = Array.isArray(sound.tags) ? sound.tags : [];
+            tagCell.title = tags.join('、');
+            if (tags.length) {
+                const wrap = document.createElement('div');
+                wrap.className = 'flex flex-wrap items-center gap-1 max-h-8 overflow-hidden';
+                tags.slice(0, 4).forEach((tag) => {
+                    const pill = document.createElement('span');
+                    pill.className = 'px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap';
+                    pill.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary)';
+                    pill.textContent = tag;
+                    wrap.appendChild(pill);
+                });
+                if (tags.length > 4) {
+                    const more = document.createElement('span');
+                    more.className = 'text-[10px] opacity-50';
+                    more.textContent = '+' + (tags.length - 4);
+                    wrap.appendChild(more);
+                }
+                tagCell.appendChild(wrap);
+            } else {
+                const none = document.createElement('span');
+                none.className = 'text-[11px] opacity-35';
+                none.textContent = '未打标签';
+                tagCell.appendChild(none);
+            }
+            const durationCell = row.querySelector('.w-24');
+            if (durationCell) row.insertBefore(tagCell, durationCell);
+            else row.appendChild(tagCell);
+        })();
         const favBtn = row.querySelector('.favorite-btn');
         if (favBtn) {
             favBtn.addEventListener('click', async (e) => {

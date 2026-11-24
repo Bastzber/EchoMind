@@ -338,7 +338,7 @@
 
         /* O 排法：列表行更紧凑（原来 py-3 + 双行，一屏只能看 9 条） */
         #soundList .sound-row{padding-top:6px !important;padding-bottom:6px !important}
-        #soundList .sound-row .text-xs.opacity-50{display:none}
+        
         /* 左栏折叠小三角 */
         .layout-o-caret{transition:transform .15s ease}
 
@@ -401,6 +401,10 @@
         /* 导航不自己滚动，整列一起滚（避免出现两个滚动条） */
         #leftAside{overflow-y:auto}
         #oNav{max-height:none;overflow:visible}
+
+        /* 一句话描述要显示（之前为了紧凑藏掉了，老板要求显示回来）——单行省略，不撑高行 */
+        #soundList .sound-row .text-xs.opacity-50{display:block !important;max-width:100%;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35;margin-top:2px}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

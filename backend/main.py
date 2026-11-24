@@ -5366,6 +5366,48 @@ async def _repair_index_task_locked(
 # 系统标签的 JSON 展开要 2 秒，同一标签反复点没必要重扫。
 _TAG_QUERY_CACHE: Dict[Any, Any] = {}
 
+@app.get("/api/v1/files/by-ids")
+async def get_files_by_ids(
+    ids: str = Query(..., description="逗号分隔的 file_uuid，最多 200 个"),
+    project_id: Optional[str] = None,
+):
+    """按 id 批量取文件元数据（最近使用 / 历史记录要按顺序回填列表）。"""
+    wanted = [x.strip() for x in str(ids or "").split(",") if x.strip()][:200]
+    if not wanted:
+        return {"project_id": project_id or "default", "files": []}
+    effective_project = project_id or getattr(config, "CURRENT_PROJECT_ID", "default")
+    db_manager = get_db_manager()
+    if not is_safe_project_id(effective_project) or not db_manager.get_project(effective_project):
+        raise SoundBotAPIError("project_not_found", "工程不存在", status_code=404)
+    placeholders = ",".join("?" for _ in wanted)
+    with db_manager.get_cursor() as cursor:
+        rows = cursor.execute(
+            f"""
+            SELECT file_uuid, path, filename, duration, file_size, sample_rate, channels, tags, ai_description
+            FROM files
+            WHERE project_id=? AND file_uuid IN ({placeholders})
+            """,
+            (effective_project, *wanted),
+        ).fetchall()
+    by_id = {
+        r[0]: {
+            "id": r[0],
+            "path": r[1],
+            "filename": r[2],
+            "duration": r[3],
+            "size": r[4],
+            "sample_rate": r[5],
+            "channels": r[6],
+            "tags": r[7],
+            "ai_description": r[8],
+        }
+        for r in rows
+    }
+    # 按传入顺序返回，前端不用再排
+    files = [by_id[i] for i in wanted if i in by_id]
+    return {"project_id": effective_project, "total": len(files), "files": files}
+
+
 @app.get("/api/v1/files")
 async def get_indexed_files(
     project_id: Optional[str] = None,

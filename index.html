@@ -405,6 +405,9 @@
         /* 一句话描述要显示（之前为了紧凑藏掉了，老板要求显示回来）——单行省略，不撑高行 */
         #soundList .sound-row .text-xs.opacity-50{display:block !important;max-width:100%;
             overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35;margin-top:2px}
+
+        /* 左栏历史区只留「历史播放记录」；使用记录已经由「最近使用」进主列表 */
+        #historyPanels .history-block[data-kind="play"]{display:none !important}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

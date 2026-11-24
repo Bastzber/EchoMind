@@ -127,14 +127,34 @@ function renderHistoryPanels() {
             const prefix = entry.label ? entry.label + ' · ' : '';
             row.textContent = prefix + entry.name + '　' + formatHistoryTime(entry.at);
             row.title = entry.path;
-            row.addEventListener('click', () => {
-                const target = soundData.find(item => item.filePath === entry.path);
-                if (target) {
-                    if (kind === 'play' && typeof selectAndPlaySound === 'function') selectAndPlaySound(target);
-                    else if (typeof selectSound === 'function') selectSound(target);
-                } else {
-                    showNotification('这个音效已不在当前列表（可能换过文件夹）', 'info');
+            row.addEventListener('click', async () => {
+                // 先按路径在当前列表里找；找不到就按 fileId 去后端补一条，
+                // 还找不到就拿历史里记的名字/路径临时造一条 —— 以前这里直接放弃，
+                // 导致「换过文件夹/没在当前页」的历史条目全都点不动。
+                let target = soundData.find(item => item.filePath === entry.path || item.path === entry.path);
+                if (!target && entry.fileId && typeof rendererApi !== 'undefined') {
+                    try {
+                        const data = await rendererApi.get('/api/v1/files/by-ids?ids=' + encodeURIComponent(entry.fileId));
+                        const row0 = (data && data.files && data.files[0]) || null;
+                        if (row0) {
+                            target = (typeof mapDbFileToSound === 'function')
+                                ? mapDbFileToSound(row0)
+                                : { id: row0.id, name: row0.filename, filePath: row0.path, path: row0.path, duration: row0.duration };
+                        }
+                    } catch (_) { /* 后端没有这条就往下走 */ }
                 }
+                if (!target) {
+                    target = {
+                        id: entry.fileId || entry.path,
+                        name: entry.name,
+                        filePath: entry.path,
+                        path: entry.path,
+                        duration: 0,
+                        tags: [],
+                    };
+                }
+                if (kind === 'play' && typeof selectAndPlaySound === 'function') selectAndPlaySound(target);
+                else if (typeof selectSound === 'function') selectSound(target);
             });
             row.addEventListener('contextmenu', (event) => {
                 event.preventDefault();

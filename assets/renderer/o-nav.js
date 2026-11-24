@@ -79,6 +79,40 @@
         });
     }
 
+    // 「最近使用」：把主列表换成使用历史里的那些音效（按时间倒序）
+    async function showRecentUsed() {
+        // 主列表显示「历史播放记录」；左侧抽屉里显示的是「历史使用记录」
+        const list = (typeof readHistory === 'function') ? readHistory('play') : [];
+        if (!list.length) {
+            showNotification('还没有播放记录：播放过的音效会出现在这里', 'info');
+            return;
+        }
+        const ids = list.map((item) => item.fileId).filter(Boolean).slice(0, 100);
+        let sounds = [];
+        if (ids.length && typeof rendererApi !== 'undefined') {
+            try {
+                const data = await rendererApi.get('/api/v1/files/by-ids?ids=' + encodeURIComponent(ids.join(',')));
+                const mapper = (typeof mapDbFileToSound === 'function') ? mapDbFileToSound : null;
+                const rows = (data && data.files) || [];
+                sounds = mapper ? rows.map(mapper) : rows;
+            } catch (error) {
+                console.warn('[o-nav] 读取最近使用失败', error && error.message);
+            }
+        }
+        if (!sounds.length) {
+            showNotification('这些播放记录对应的文件已不在库里', 'warning');
+            return;
+        }
+        if (typeof renderSoundList === 'function') {
+            if (typeof currentProject !== 'undefined' && currentProject) { /* 保持工程不变 */ }
+            renderSoundList('', sounds);
+            const header = document.querySelector('#soundList')?.previousElementSibling;
+            showNotification('最近播放 ' + sounds.length + ' 条', 'info');
+        } else if (typeof showAllSounds === 'function') {
+            showAllSounds();
+        }
+    }
+
     function activate(item) {
         const action = item.action || '';
         if (action.startsWith('btn:')) {
@@ -117,10 +151,8 @@
             return;
         }
         if (action === 'recent') {
-            showDrawer('history');
-            const history = document.getElementById('historyPanels');
-            const toggle = history ? history.querySelector('.history-toggle') : null;
-            if (toggle) toggle.click();
+            showRecentUsed();
+            return;
         }
         if (action === 'tagpanel') { showDrawer('tag'); return; }
     }

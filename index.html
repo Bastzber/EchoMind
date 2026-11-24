@@ -351,6 +351,18 @@
         /* === 自绘标题栏（隐藏系统 caption 后）：顶栏可拖、右上角给系统按钮留位 === */
         header.h-14{-webkit-app-region:drag;padding-right:148px}
         header.h-14 button,header.h-14 nav,header.h-14 a,header.h-14 input,header.h-14 select,header.h-14 .help-dot{-webkit-app-region:no-drag}
+
+        /* === 无边框透明窗口：整页四角倒角（Win10 没有系统圆角） === */
+        html{background:transparent !important}
+        body{background:var(--bg-primary) !important;border-radius:14px;overflow:hidden;
+            box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+        body.o-maximized{border-radius:0;box-shadow:none}
+        /* 自绘窗口三键 */
+        #oWinBtns{display:flex;align-items:center;gap:2px;margin-left:6px;-webkit-app-region:no-drag}
+        #oWinBtns button{width:34px;height:28px;border:0;background:transparent;color:var(--text-secondary);
+            border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
+        #oWinBtns button:hover{background:rgba(255,255,255,.08);color:var(--text-primary)}
+        #oWinBtns button.o-close:hover{background:#e81123;color:#fff}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

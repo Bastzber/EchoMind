@@ -1951,14 +1951,13 @@ function createWindow() {
       webSecurity: true,
       allowRunningInsecureContent: false
     },
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#0a0a0a',
-      symbolColor: '#d4d4d4',
-      height: 40
-    },
+    // Win10 没有 DWM 圆角，只能无边框 + 透明窗口，由页面自己画圆角
+    frame: false,
+    transparent: true,
+    roundedCorners: true,
+    hasShadow: true,
     show: false,
-    backgroundColor: '#0a0a0a'
+    backgroundColor: '#00000000'
   });
 
   // A preload failure removes every desktop API from the renderer while the

@@ -45,9 +45,46 @@
         nav.style.marginRight = 'auto';   // 后面的索引状态 / 设置被顶到最右
     }
 
+    // 无边框窗口：顶栏右侧自己画 最小化 / 最大化 / 关闭
+    function mountWindowButtons() {
+        if (document.getElementById('oWinBtns')) return;
+        const header = document.querySelector('header.h-14');
+        if (!header) return;
+        header.style.paddingRight = '10px';
+        const box = document.createElement('div');
+        box.id = 'oWinBtns';
+        const mk = (label, title, cls, onClick) => {
+            const b = document.createElement('button');
+            b.innerHTML = label;
+            b.title = title;
+            if (cls) b.className = cls;
+            b.addEventListener('click', onClick);
+            return b;
+        };
+        const api = window.electronAPI && window.electronAPI.windowControl;
+        box.appendChild(mk('&#8211;', '最小化', '', () => api && api.minimize()));
+        box.appendChild(mk('&#9744;', '最大化 / 还原', '', async () => {
+            if (!api) return;
+            const maxed = await api.isMaximized().catch(() => false);
+            if (maxed) api.maximize(); else api.maximize();   // 主进程里是 toggle
+        }));
+        box.appendChild(mk('&#10005;', '关闭', 'o-close', () => api && api.close()));
+        header.appendChild(box);
+
+        // 最大化时去掉圆角，免得四角露出底色
+        const syncMax = async () => {
+            if (!api) return;
+            const maxed = await api.isMaximized().catch(() => false);
+            document.body.classList.toggle('o-maximized', Boolean(maxed));
+        };
+        syncMax();
+        window.addEventListener('resize', syncMax);
+    }
+
     function boot() {
         styleButtons();
         alignLeft();
+        mountWindowButtons();
         const nav = document.querySelector('#fileMenuBtn')?.closest('nav');
         if (nav && !nav.dataset.oObserved) {
             nav.dataset.oObserved = '1';

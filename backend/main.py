@@ -2912,10 +2912,20 @@ class VoiceSpeakRequest(BaseModel):
 
 @app.get("/api/v1/voice/profiles")
 async def voice_profiles():
-    """已克隆的音色列表。"""
-    from core.voice_clone import load_profiles, engine_name
+    """已克隆的音色列表 + 各本地引擎在不在。"""
+    from core import tts as _tts
+    from core.voice_clone import engine_name, load_profiles, voicestudio_available
 
-    return {"success": True, "engine": engine_name(), "profiles": load_profiles()}
+    engines = {"breeze": False, "voicestudio": False}
+    try:
+        engines["breeze"] = bool(_tts.breeze_available())
+    except Exception:
+        pass
+    try:
+        engines["voicestudio"] = bool(await asyncio.to_thread(voicestudio_available))
+    except Exception:
+        pass
+    return {"success": True, "engine": engine_name(), "engines": engines, "profiles": load_profiles()}
 
 
 @app.post("/api/v1/voice/clone")
@@ -2952,6 +2962,20 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
         profile = next((item for item in load_profiles() if str(item.get("id")) == payload.profile_id), None)
     elif payload.speaker_id:
         profile = next((item for item in load_profiles() if str(item.get("speaker_id")) == payload.speaker_id), None)
+
+    if profile and (profile.get("provider") or "") == "voicestudio":
+        # VoiceStudio 那边已经存了音色档案，这里只按档案 id 让它合成
+        from core.voice_clone import vs_speak_to_cache
+
+        voice_ref = str(profile.get("speaker_id") or profile.get("name") or "default")
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: vs_speak_to_cache(payload.text, voice_ref),
+        )
+        if not result.get("ok"):
+            raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)
+        return {"success": True, "path": result.get("path"), "provider": "voicestudio"}
 
     if profile and (profile.get("provider") or "volc") == "breeze":
         sample = str(profile.get("sample") or "")
@@ -3000,6 +3024,176 @@ async def voice_delete_profile(profile_id: str):
     if not delete_profile(profile_id):
         raise HTTPException(status_code=404, detail="音色不存在")
     return {"success": True}
+
+
+class VoiceExportRequest(BaseModel):
+    source: str
+    destination: str
+    overwrite: bool = True
+
+
+class VoiceSaveToLibraryRequest(BaseModel):
+    source: str
+    folder: str = "克隆语音"
+    project_id: str = "default"
+
+
+def _app_generated_roots() -> List[str]:
+    from core.path_guard import app_generated_roots
+
+    return app_generated_roots()
+
+
+def _voice_source_path(source: str) -> Path:
+    """克隆/合成的结果可以来自 tts_cache，也可以来自库内已有文件。"""
+    from core.path_guard import PathOutsideLibrary, resolve_generated_source
+
+    db_manager = get_db_manager()
+    project_id = str(getattr(config, "CURRENT_PROJECT_ID", "default") or "default")
+    try:
+        roots = db_manager.list_library_roots(project_id)
+    except Exception:
+        roots = []
+    try:
+        return resolve_generated_source(source, roots, field="source")
+    except PathOutsideLibrary as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+def _unique_target(folder: Path, stem: str, suffix: str = ".wav") -> Path:
+    """同名就加 _1 _2，绝不静默覆盖用户已有的文件。"""
+    candidate = folder / (stem + suffix)
+    index = 1
+    while candidate.exists():
+        candidate = folder / ("%s_%d%s" % (stem, index, suffix))
+        index += 1
+    return candidate
+
+
+@app.post("/api/v1/voice/export")
+async def voice_export_endpoint(payload: VoiceExportRequest):
+    """导出克隆/合成的语音到用户选定的任意目录。
+
+    这是「另存为」，不走素材库边界校验：位置来自系统保存对话框，用户选哪里就写哪里。
+    只挡空路径、相对路径、指向目录、以及没带 overwrite 的覆盖。
+    """
+    import shutil as _shutil
+
+    src = _voice_source_path(payload.source)
+    if not src.is_file():
+        raise HTTPException(status_code=404, detail="源文件不存在")
+
+    raw_dest = str(payload.destination or "").strip()
+    if not raw_dest:
+        raise HTTPException(status_code=422, detail="destination 不能为空")
+    if not os.path.isabs(raw_dest):
+        raise HTTPException(status_code=422, detail="destination 必须是绝对路径：%s" % raw_dest)
+    dest = Path(os.path.abspath(raw_dest))
+    if dest.is_dir():
+        raise HTTPException(status_code=400, detail="目标是一个文件夹：%s" % dest)
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="目标文件夹建不出来：%s" % exc)
+    if dest.exists() and not payload.overwrite:
+        raise HTTPException(status_code=409, detail="目标文件已存在")
+
+    try:
+        if os.path.normcase(str(dest)) != os.path.normcase(str(src.resolve())):
+            temp = Path(str(dest) + ".part")
+            try:
+                _shutil.copy2(str(src), temp)
+                os.replace(temp, dest)
+            finally:
+                if temp.exists():
+                    try:
+                        temp.unlink()
+                    except Exception:
+                        pass
+    except Exception as exc:
+        raise SoundBotAPIError("export_failed", f"导出失败：{exc}", status_code=500)
+    logger.info("[克隆] 导出 %s -> %s", src, dest)
+    return {"success": True, "path": str(dest), "size": dest.stat().st_size}
+
+
+@app.post("/api/v1/voice/save-to-library")
+async def voice_save_to_library_endpoint(
+    payload: VoiceSaveToLibraryRequest,
+    background_tasks: BackgroundTasks,
+):
+    """把缓存里的 WAV 复制进素材库并入库。
+
+    以前这一步是拿 tts_cache 的路径直接过库范围校验，必然被拒（11-24 报错原文
+    「source 不在素材库范围内」）。正确做法是先复制进库，再走正常入库流程。
+    """
+    import shutil as _shutil
+
+    from core.audio_service import get_audio_service
+
+    src = _voice_source_path(payload.source)
+    if not src.is_file():
+        raise HTTPException(status_code=404, detail="源文件不存在")
+
+    project_id = str(payload.project_id or getattr(config, "CURRENT_PROJECT_ID", "default") or "default")
+    db_manager = get_db_manager()
+    try:
+        roots = [str(item) for item in db_manager.list_library_roots(project_id) if str(item).strip()]
+    except Exception:
+        roots = []
+    if not roots:
+        raise SoundBotAPIError(
+            "library_root_unknown",
+            "还没添加过素材库文件夹，先在「文件夹」面板里加一个再保存",
+            status_code=400,
+        )
+    library_root = Path(roots[0])
+    folder_name = str(payload.folder or "克隆语音").strip().replace("/", "_").replace("\\", "_")[:40] or "克隆语音"
+    target_dir = library_root / folder_name
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise SoundBotAPIError("library_write_failed", f"素材库目录写不进去：{exc}", status_code=500)
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target = _unique_target(target_dir, "克隆_%s" % stamp, src.suffix or ".wav")
+    try:
+        temp = Path(str(target) + ".part")
+        try:
+            _shutil.copy2(str(src), temp)
+            os.replace(temp, target)
+        finally:
+            if temp.exists():
+                try:
+                    temp.unlink()
+                except Exception:
+                    pass
+    except Exception as exc:
+        raise SoundBotAPIError("library_write_failed", f"复制进素材库失败：{exc}", status_code=500)
+
+    audio_service = get_audio_service()
+    if not audio_service.is_supported(target):
+        raise SoundBotAPIError("unsupported_audio_format", "这个音频格式不支持入库", status_code=415)
+
+    job_id = db_manager.create_job(project_id, "file_import", 1)
+    client_id = "default"
+    try:
+        get_ws_manager().register_task(job_id, client_id)
+    except Exception:
+        pass
+    background_tasks.add_task(
+        _import_selected_files_task,
+        job_id,
+        [str(target)],
+        project_id,
+        client_id,
+    )
+    logger.info("[克隆] 已复制进素材库 %s，入库任务 %s", target, job_id)
+    return {
+        "success": True,
+        "path": str(target),
+        "job_id": job_id,
+        "library_root": str(library_root),
+    }
 
 # ==================== 效果器（混响） ====================
 

@@ -138,6 +138,140 @@ def engine_name() -> str:
     return "volc"
 
 
+# ==================== VoiceStudio（OmniVoice）引擎 ====================
+# VoiceStudio 是独立进程：Electron 外壳 + FastAPI 后端，默认监听 127.0.0.1:3900。
+# 它的接口正好是 OpenAI 兼容那一套：
+#   克隆   POST /profiles        （multipart：name / ref_audio / ref_text）
+#   合成   POST /v1/audio/speech （JSON：model / input / voice / response_format）
+# 所以 EchoMind 这边只要多做两件事：把样音推过去建档案，以后按档案 id 合成。
+VS_DEFAULT_URL = "http://127.0.0.1:3900"
+VS_PROVIDER = "voicestudio"
+
+# 本机直连必须绕开系统代理：这台机器上系统代理指向 127.0.0.1:7890，
+# 代理没开的时候 urllib 会直接连不上（11-24 实测：VoiceStudio 明明活着，
+# /voice/profiles 却报 voicestudio=False）。云端接口照旧走系统代理。
+_VS_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def voicestudio_url() -> str:
+    configured = (os.environ.get("ECHOMIND_VOICESTUDIO_URL") or "").strip().rstrip("/")
+    return configured or VS_DEFAULT_URL
+
+
+def voicestudio_available(timeout: float = 3.0) -> bool:
+    """VoiceStudio 后端在不在。只看 /v1/models，不加载任何模型。"""
+    try:
+        request = urllib.request.Request(voicestudio_url() + "/v1/models", headers={"Accept": "application/json"})
+        with _VS_OPENER.open(request, timeout=timeout) as response:
+            return int(getattr(response, "status", 200)) == 200
+    except Exception:
+        return False
+
+
+def _vs_post_multipart(path: str, fields: Dict[str, str], files: Dict[str, Path], timeout: float = 300.0) -> Dict[str, object]:
+    boundary = "----echomind" + uuid.uuid4().hex
+    body = bytearray()
+    for key, value in fields.items():
+        body += ("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" % (boundary, key, value)).encode("utf-8")
+    for key, file_path in files.items():
+        body += ("--%s\r\nContent-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n"
+                 "Content-Type: application/octet-stream\r\n\r\n" % (boundary, key, Path(file_path).name)).encode("utf-8")
+        body += Path(file_path).read_bytes()
+        body += b"\r\n"
+    body += ("--%s--\r\n" % boundary).encode("utf-8")
+    request = urllib.request.Request(
+        voicestudio_url() + path,
+        data=bytes(body),
+        method="POST",
+        headers={"Content-Type": "multipart/form-data; boundary=" + boundary},
+    )
+    with _VS_OPENER.open(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8", "ignore") or "{}")
+
+
+def clone_voice_voicestudio(name: str, sample: Path, duration: float, ref_text: str) -> Dict[str, object]:
+    """把样音推给 VoiceStudio 建音色档案，本地存一份指向它的记录。"""
+    if not voicestudio_available():
+        return {
+            "ok": False,
+            "error": "没连上 VoiceStudio（%s）。先把 VoiceStudio 打开，再回来克隆。" % voicestudio_url(),
+        }
+    fields = {"name": (name or "EchoMind").strip()[:60], "kind": "clone"}
+    if (ref_text or "").strip():
+        fields["ref_text"] = ref_text.strip()[:500]
+    try:
+        payload = _vs_post_multipart("/profiles", fields, {"ref_audio": sample})
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", "ignore")[:200]
+        except Exception:
+            pass
+        return {"ok": False, "error": "VoiceStudio 建档案失败（%s）：%s" % (exc.code, detail or exc.reason)}
+    except Exception as exc:
+        return {"ok": False, "error": "连 VoiceStudio 出错：%s" % str(exc)[:180]}
+
+    profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else payload
+    vs_id = str((profile or {}).get("id") or "").strip()
+    if not vs_id:
+        return {"ok": False, "error": "VoiceStudio 没有返回档案 id：" + str(payload)[:180]}
+    entry = add_profile(
+        (profile or {}).get("name") or name,
+        vs_id,
+        str(sample),
+        duration,
+        provider=VS_PROVIDER,
+        ref_text=ref_text or "",
+    )
+    return {"ok": True, "speaker_id": vs_id, "profile": entry, "engine": VS_PROVIDER}
+
+
+def vs_speak_to_cache(text: str, voice: str, speed: float = 1.0, model: str = "omnivoice") -> Dict[str, object]:
+    """用 VoiceStudio 的档案合成一段语音，落到 EchoMind 的 tts_cache。"""
+    if not (text or "").strip():
+        return {"ok": False, "error": "文本不能为空"}
+    if not voicestudio_available():
+        return {
+            "ok": False,
+            "error": "没连上 VoiceStudio（%s）。先把 VoiceStudio 打开。" % voicestudio_url(),
+        }
+    payload = {
+        "model": model,
+        "input": text[:4000],
+        "voice": str(voice or "default"),
+        "response_format": "wav",
+    }
+    try:
+        payload["speed"] = max(0.5, min(2.0, float(speed or 1.0)))
+    except Exception:
+        pass
+    try:
+        request = urllib.request.Request(
+            voicestudio_url() + "/v1/audio/speech",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with _VS_OPENER.open(request, timeout=600) as response:
+            raw = response.read()
+        if raw[:4] != b"RIFF":
+            return {"ok": False, "error": "VoiceStudio 返回的不是 WAV：" + raw[:120].decode("utf-8", "ignore")}
+        from core import tts as _tts
+
+        target = _tts.cache_dir() / ("vs-%s.wav" % uuid.uuid4().hex[:12])
+        target.write_bytes(raw)
+        return {"ok": True, "path": str(target), "engine": VS_PROVIDER}
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", "ignore")[:200]
+        except Exception:
+            pass
+        return {"ok": False, "error": "VoiceStudio 合成失败（%s）：%s" % (exc.code, detail or exc.reason)}
+    except Exception as exc:
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:180])}
+
+
 def clone_voice(
     audio_path: str,
     name: str,
@@ -149,6 +283,9 @@ def clone_voice(
     source = Path(audio_path)
     if not source.is_file():
         return {"ok": False, "error": "样音文件不存在"}
+
+    if (provider or "").strip().lower() in (VS_PROVIDER, "omnivoice", "vs"):
+        return clone_voice_voicestudio(name, source, duration, ref_text)
 
     if (provider or "").lower() == "breeze":
         text = (ref_text or "").strip()

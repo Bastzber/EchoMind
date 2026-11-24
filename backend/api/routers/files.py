@@ -229,31 +229,59 @@ def _library_roots_for_guard() -> list:
 
 @router.post("/api/v1/files/copy")
 async def files_copy_endpoint(payload: FileCopyRequest):
-    """把生成的语音等文件另存到用户指定位置。"""
-    import shutil
+    """把文件另存到用户选定的位置（导出 / 另存为）。
 
-    # source 与 destination 都来自请求体，谁都能构造。
-    # 不设边界的话，同机任意进程或经 CORS 进来的页面都能借这里写任意目录。
-    from core.path_guard import PathOutsideLibrary, resolve_in_library
+    边界规则（11-24 改）：
+      source     可以是素材库里的文件，也可以是本程序自己生成的缓存（tts_cache /
+                 generated / temp）。以前只认库内，克隆结果在 tts_cache 里就直接被拒。
+      destination 不再要求落在素材库内 —— 「另存为」本来就是让用户存到任意目录，
+                 位置来自系统保存对话框。这里只挡空路径、相对路径、指向目录、
+                 以及没带 overwrite 的覆盖。
+    接口要带 X-EchoMind-Token 才能调（见 require_api_token），所以本机别的进程和
+    网页进不来。
+    """
+    import shutil as _shutil
+
+    from core.path_guard import PathOutsideLibrary, resolve_generated_source
 
     roots = _library_roots_for_guard()
     try:
-        src = resolve_in_library(payload.source, roots, field="source")
-        dest = resolve_in_library(payload.destination, roots, field="destination")
+        src = resolve_generated_source(payload.source, roots, field="source")
     except PathOutsideLibrary as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+
+    raw_dest = str(payload.destination or "").strip()
+    if not raw_dest:
+        raise HTTPException(status_code=422, detail="destination 不能为空")
+    if not os.path.isabs(raw_dest):
+        raise HTTPException(status_code=422, detail="destination 必须是绝对路径：%s" % raw_dest)
+    dest = os.path.abspath(raw_dest)
+    if os.path.isdir(dest):
+        raise HTTPException(status_code=400, detail="目标是一个文件夹：%s" % dest)
     if not src.is_file():
         raise HTTPException(status_code=404, detail="源文件不存在")
-    if not dest.parent.is_dir():
-        raise HTTPException(status_code=400, detail="目标文件夹不存在")
-    if dest.exists() and not payload.overwrite:
+    try:
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="目标文件夹建不出来：%s" % exc)
+    if os.path.exists(dest) and not payload.overwrite:
         raise HTTPException(status_code=409, detail="目标文件已存在")
     try:
-        if dest.resolve() != src.resolve():
-            shutil.copy2(str(src), str(dest))
+        if os.path.normcase(os.path.abspath(dest)) != os.path.normcase(str(src.resolve())):
+            # 先写 .part 再原子改名：中途失败不会留下半截文件冒充成品
+            temp = dest + ".part"
+            try:
+                _shutil.copy2(str(src), temp)
+                os.replace(temp, dest)
+            finally:
+                if os.path.exists(temp):
+                    try:
+                        os.remove(temp)
+                    except Exception:
+                        pass
     except Exception as exc:
         raise SoundBotAPIError("copy_failed", f"保存失败：{exc}", status_code=500)
-    return {"success": True, "path": str(dest), "size": dest.stat().st_size}
+    return {"success": True, "path": dest, "size": os.path.getsize(dest)}
 
 
 @router.post("/api/v1/files/{file_uuid}/description")

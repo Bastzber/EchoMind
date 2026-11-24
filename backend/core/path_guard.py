@@ -53,3 +53,37 @@ def resolve_in_library(target: str, roots: Iterable[str], *, field: str = "path"
     if not is_inside(target, roots_list):
         raise PathOutsideLibrary("%s 不在素材库范围内：%s" % (field, target))
     return Path(target)
+
+
+def app_generated_roots() -> List[str]:
+    """本程序自己写出来的目录：语音缓存、生成结果、临时导出。
+
+    这些不是素材库，但它们是本程序产出的文件 —— 拿它们当「另存为」的 source
+    不该被素材库边界拦住（11-24 反馈：克隆结果在 tts_cache 里，保存直接报
+    「source 不在素材库范围内」，用户只能自己去缓存目录手工拷）。
+    """
+    try:
+        import config
+
+        base = Path(config.get_user_data_dir())
+    except Exception:
+        base = Path(os.environ.get("APPDATA", ".")) / "EchoMind"
+    return [str(base / name) for name in ("tts_cache", "generated", "temp")]
+
+
+def resolve_generated_source(target: str, library_roots: Iterable[str], *, field: str = "source") -> Path:
+    """source 可以是素材库里的文件，也可以是本程序生成的缓存文件。
+
+    仍然拒绝空路径和不存在的绝对路径；不限制用户往哪儿导出（那是用户自己
+    在系统对话框里选的位置）。
+    """
+    raw = str(target or "").strip()
+    if not raw:
+        raise PathOutsideLibrary("%s 不能为空" % field)
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        raise PathOutsideLibrary("%s 必须是绝对路径：%s" % (field, raw))
+    allowed = [str(r) for r in library_roots if str(r).strip()] + app_generated_roots()
+    if not is_inside(raw, allowed):
+        raise PathOutsideLibrary("%s 不是本程序生成的文件，也不在素材库内：%s" % (field, raw))
+    return candidate

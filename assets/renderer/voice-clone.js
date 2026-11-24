@@ -44,7 +44,8 @@ function showVoiceCloneModal(options = {}) {
         "                        <div class=\"flex items-center gap-2 mb-2\">",
         "                            <span class=\"text-[11px] opacity-50\">合成引擎</span>",
         "                            <select id=\"voiceEngineSelect\" class=\"px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\">",
-        "                                <option value=\"breeze\">本地 Breeze TTS 2（离线，推荐）</option>",
+        "                                <option value=\"breeze\">本地 Breeze TTS 2（离线）</option>",
+        "                                <option value=\"voicestudio\">本地 VoiceStudio（OmniVoice）</option>",
         "                                <option value=\"volc\">豆包云端（需 API Key）</option>",
         "                            </select>",
         "                        </div>",
@@ -87,7 +88,8 @@ function showVoiceCloneModal(options = {}) {
         "                        <textarea id=\"voiceTextInput\" rows=\"3\" class=\"w-full px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
         "                        <div class=\"flex items-center gap-2 mt-2\">",
         "                            <button id=\"voicePlayBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>试听</button>",
-        "                            <button id=\"voiceSaveBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>保存为 WAV…</button>",
+        "                            <button id=\"voiceSaveBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>导出音频…</button>",
+        "                            <button id=\"voiceToLibBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>保存到音效库</button>",
         "                            <button id=\"voiceSpeakBtn\" class=\"px-3 py-1.5 rounded text-xs font-medium\" style=\"background:#3b82f6;color:#fff\">生成语音</button>",
         "                            <span id=\"voiceSpeakStatus\" class=\"text-[11px] opacity-55\"></span>",
         "                        </div>",
@@ -213,8 +215,11 @@ function showVoiceCloneModal(options = {}) {
             const refText = overlay.querySelector('#voiceRefTextInput')?.value.trim() || '';
             if (engine === 'breeze' && !refText) {
                 statusEl.textContent = '';
-                showNotification('本地克隆需要填写样音里说的原话', 'info');
+                showNotification('本地 Breeze 克隆需要填写样音里说的原话', 'info');
                 return;
+            }
+            if (engine === 'voicestudio') {
+                statusEl.textContent = '推给 VoiceStudio 建档案…（它要开着）';
             }
             const result = await rendererApi.post('/api/v1/voice/clone', {
                 path: voiceState.samplePath,
@@ -226,7 +231,10 @@ function showVoiceCloneModal(options = {}) {
             voiceState.speakerId = result?.speaker_id || '';
             voiceState.profileId = result?.profile?.id || '';
             voiceState.provider = result?.profile?.provider || 'volc';
-            statusEl.textContent = '已登记：' + (result?.profile?.name || '') + (voiceState.provider === 'breeze' ? '（本地可用）' : '（云端）');
+            const providerLabel = voiceState.provider === 'breeze'
+                ? '（本地 Breeze）'
+                : (voiceState.provider === 'voicestudio' ? '（本地 VoiceStudio）' : '（云端）');
+            statusEl.textContent = '已登记：' + (result?.profile?.name || '') + providerLabel;
             await loadVoiceProfiles();
             renderProfiles();
         } catch (error) {
@@ -254,9 +262,11 @@ function showVoiceCloneModal(options = {}) {
             speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();
             const playBtnEl = overlay.querySelector('#voicePlayBtn');
             const saveBtnEl = overlay.querySelector('#voiceSaveBtn');
+            const toLibBtnEl = overlay.querySelector('#voiceToLibBtn');
             if (voiceState.lastOutput) {
                 if (playBtnEl) playBtnEl.disabled = false;
                 if (saveBtnEl) saveBtnEl.disabled = false;
+                if (toLibBtnEl) toLibBtnEl.disabled = false;
                 if (!audioPlayer) initAudioPlayer();
                 audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
                 audioPlayer.load();
@@ -282,33 +292,86 @@ function showVoiceCloneModal(options = {}) {
         }
     });
 
+    // 导出目录记住上次选的，下次直接落在那里（11-24 反馈：每次都要重新点进去）
+    const EXPORT_DIR_KEY = 'echomind.voice.exportDir';
+    const lastExportDir = () => {
+        try { return localStorage.getItem(EXPORT_DIR_KEY) || ''; } catch (_) { return ''; }
+    };
+    const rememberExportDir = (filePath) => {
+        try {
+            const idx = String(filePath || '').lastIndexOf('\\');
+            if (idx > 2) localStorage.setItem(EXPORT_DIR_KEY, filePath.slice(0, idx));
+        } catch (_) { }
+    };
+    const stampName = () => {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        return '克隆_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+    };
+    const revealFile = (filePath) => {
+        try { window.electronAPI?.fileImport?.revealInExplorer?.(filePath); } catch (_) { }
+    };
+
+    // 导出音频…：存到用户自己选的任意目录（后端不做素材库范围校验）
     overlay.querySelector('#voiceSaveBtn').addEventListener('click', async () => {
         if (!voiceState.lastOutput) return;
+        const baseName = (nameInput.value.trim() || stampName()) + '_' + stampName().slice(3);
+        const dir = lastExportDir();
         try {
             const picked = await window.electronAPI?.dialogs?.showSaveDialog?.({
-                title: '保存语音',
-                defaultPath: (nameInput.value.trim() || '语音') + '.wav',
-                filters: [{ name: 'WAV', extensions: ['wav'] }],
+                title: '导出音频',
+                defaultPath: (dir ? dir + '\\' : '') + baseName.replace(/[\\/:*?"<>|]/g, '_') + '.wav',
+                filters: [{ name: 'WAV 音频', extensions: ['wav'] }],
             });
             const target = picked?.filePath || '';
-            if (!target) return;
-            const res = await rendererApi.post('/api/v1/files/copy', {
+            if (!target) return;   // 用户取消：不写文件、不报错
+            speakStatus.textContent = '导出中…';
+            const res = await rendererApi.post('/api/v1/voice/export', {
                 source: voiceState.lastOutput,
                 destination: target,
                 overwrite: true,
-            }, { timeoutMs: 60000 });
-            speakStatus.textContent = '已保存：' + String(res?.path || target).split(/[\\/]/).pop();
-            showNotification('已保存到 ' + (res?.path || target), 'success');
+            }, { timeoutMs: 120000 });
+            const saved = res?.path || target;
+            rememberExportDir(saved);
+            speakStatus.textContent = '已导出：' + String(saved).split(/[\\/]/).pop();
+            speakStatus.title = saved;
+            showNotification('已导出到 ' + saved, 'success');
+            revealFile(saved);
         } catch (error) {
-            showNotification('保存失败: ' + (error?.message || error), 'error');
+            speakStatus.textContent = '';
+            showNotification('导出失败: ' + (error?.message || error), 'error');
+        }
+    });
+
+    // 保存到音效库：先把缓存文件复制进库，再走正常入库（不再拿 tts_cache 路径硬过校验）
+    overlay.querySelector('#voiceToLibBtn').addEventListener('click', async () => {
+        if (!voiceState.lastOutput) return;
+        const btn = overlay.querySelector('#voiceToLibBtn');
+        try {
+            if (btn) btn.disabled = true;
+            speakStatus.textContent = '保存到音效库…';
+            const res = await rendererApi.post('/api/v1/voice/save-to-library', {
+                source: voiceState.lastOutput,
+                folder: '克隆语音',
+            }, { timeoutMs: 120000 });
+            const saved = res?.path || '';
+            speakStatus.textContent = '已入库：' + String(saved).split(/[\\/]/).pop();
+            speakStatus.title = saved;
+            showNotification('已保存到音效库 ' + saved, 'success');
+        } catch (error) {
+            speakStatus.textContent = '';
+            showNotification('保存到音效库失败: ' + (error?.message || error), 'error');
+        } finally {
+            if (btn) btn.disabled = false;
         }
     });
 
     const engineSelect = overlay.querySelector('#voiceEngineSelect');
     const refBox = overlay.querySelector('#voiceRefTextBox');
     const syncEngine = () => {
-        const local = (engineSelect?.value || 'breeze') === 'breeze';
-        if (refBox) refBox.style.display = local ? '' : 'none';
+        const engine = engineSelect?.value || 'breeze';
+        // 只有 Breeze 强制要文稿；VoiceStudio 自己会转写，豆包按 speaker 走
+        if (refBox) refBox.style.display = engine === 'breeze' ? '' : 'none';
     };
     engineSelect?.addEventListener('change', syncEngine);
     syncEngine();

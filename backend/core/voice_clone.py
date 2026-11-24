@@ -153,19 +153,91 @@ VS_PROVIDER = "voicestudio"
 _VS_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+def _voicestudio_config_path() -> Path:
+    base = Path(os.environ.get("APPDATA", "")) / "EchoMind"
+    return base / "voicestudio.json"
+
+
 def voicestudio_url() -> str:
+    """VoiceStudio 后端地址：环境变量 > 配置文件 > 默认 3900。
+
+    它会变：重装/换机器后端口不一定是 3900（11-24 实测重装后只剩 6761/6762）。
+    配置写在用户目录下的 EchoMind/voicestudio.json：{"url": "http://127.0.0.1:3900"}。
+    """
     configured = (os.environ.get("ECHOMIND_VOICESTUDIO_URL") or "").strip().rstrip("/")
-    return configured or VS_DEFAULT_URL
+    if configured:
+        return configured
+    try:
+        path = _voicestudio_config_path()
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            url = str(data.get("url") or "").strip().rstrip("/")
+            if url:
+                return url
+    except Exception:
+        pass
+    return VS_DEFAULT_URL
+
+
+VOICESTUDIO_CANDIDATE_PORTS = (3900, 3901, 6761, 6762)
+
+
+def voicestudio_discover(timeout: float = 0.8) -> str:
+    """在常见端口里探一遍，找到能回 /v1/models 的那个并记进配置。"""
+    import socket
+
+    seen = {voicestudio_url()}
+    candidates = [voicestudio_url()]
+    for port in VOICESTUDIO_CANDIDATE_PORTS:
+        url = "http://127.0.0.1:%d" % int(port)
+        if url not in candidates:
+            candidates.append(url)
+    for url in candidates:
+        host_port = url.split("//", 1)[-1]
+        host, _, port_text = host_port.partition(":")
+        port = int(port_text or 80)
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.settimeout(timeout)
+        try:
+            if probe.connect_ex((host or "127.0.0.1", port)) != 0:
+                continue
+        finally:
+            probe.close()
+        try:
+            request = urllib.request.Request(url + "/v1/models", headers={"Accept": "application/json"})
+            with _VS_OPENER.open(request, timeout=timeout + 1.0) as response:
+                if int(getattr(response, "status", 200)) == 200:
+                    if url not in seen:
+                        try:
+                            path = _voicestudio_config_path()
+                            path.parent.mkdir(parents=True, exist_ok=True)
+                            path.write_text(json.dumps({"url": url}, ensure_ascii=False, indent=1), encoding="utf-8")
+                        except Exception:
+                            pass
+                    return url
+        except Exception:
+            continue
+    return ""
 
 
 def voicestudio_available(timeout: float = 3.0) -> bool:
-    """VoiceStudio 后端在不在。只看 /v1/models，不加载任何模型。"""
-    try:
-        request = urllib.request.Request(voicestudio_url() + "/v1/models", headers={"Accept": "application/json"})
-        with _VS_OPENER.open(request, timeout=timeout) as response:
-            return int(getattr(response, "status", 200)) == 200
-    except Exception:
-        return False
+    """VoiceStudio 后端在不在。只看 /v1/models，不加载任何模型。
+
+    配置的地址不通时会顺手扫一遍常见端口（重装后端口会变），
+    扫到了就写进配置文件，下次直接用。
+    """
+    def probe(url: str) -> bool:
+        try:
+            request = urllib.request.Request(url + "/v1/models", headers={"Accept": "application/json"})
+            with _VS_OPENER.open(request, timeout=timeout) as response:
+                return int(getattr(response, "status", 200)) == 200
+        except Exception:
+            return False
+
+    if probe(voicestudio_url()):
+        return True
+    discovered = voicestudio_discover()
+    return bool(discovered) and probe(discovered)
 
 
 def _vs_post_multipart(path: str, fields: Dict[str, str], files: Dict[str, Path], timeout: float = 300.0) -> Dict[str, object]:

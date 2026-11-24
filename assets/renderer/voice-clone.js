@@ -86,6 +86,12 @@ function showVoiceCloneModal(options = {}) {
         "                            </select>",
         "                        </div>",
         "                        <textarea id=\"voiceTextInput\" rows=\"3\" class=\"w-full px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
+        "                        <div id=\"voiceSpeakProgressWrap\" class=\"mt-2\" style=\"display:none\">",
+        "                            <div style=\"height:6px;border-radius:999px;background:var(--bg-tertiary);overflow:hidden;border:1px solid var(--border-color)\">",
+        "                                <div id=\"voiceSpeakProgressFill\" style=\"height:100%;width:2%;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width .35s ease-out\"></div>",
+        "                            </div>",
+        "                            <div id=\"voiceSpeakProgressText\" class=\"text-[11px] opacity-55 mt-1\">合成中…</div>",
+        "                        </div>",
         "                        <div class=\"flex items-center gap-2 mt-2\">",
         "                            <button id=\"voicePlayBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>试听</button>",
         "                            <button id=\"voiceSaveBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>导出音频…</button>",
@@ -270,15 +276,78 @@ function showVoiceCloneModal(options = {}) {
         }
     });
 
+    // ===== 合成进度条 =====
+    // 合成是一个阻塞请求，没有逐帧进度可拿，所以别装成"精确百分比"：
+    // 按文字长度和引擎速度估一条曲线，先快步到 55%，之后慢慢爬到 92% 等结果；
+    // 请求返回时直接补到 100%。VoiceStudio 首次调用还要加载模型，单独提示。
+    const progressUi = {
+        wrap: overlay.querySelector('#voiceSpeakProgressWrap'),
+        fill: overlay.querySelector('#voiceSpeakProgressFill'),
+        text: overlay.querySelector('#voiceSpeakProgressText'),
+        timer: null,
+        startedAt: 0,
+        estimateMs: 6000,
+    };
+    const setProgress = (percent, label) => {
+        if (progressUi.fill) progressUi.fill.style.width = Math.max(2, Math.min(100, percent)) + '%';
+        if (label && progressUi.text) progressUi.text.textContent = label;
+    };
+    const stopProgress = () => {
+        if (progressUi.timer) { clearInterval(progressUi.timer); progressUi.timer = null; }
+    };
+    const startProgress = (engine, charCount) => {
+        if (!progressUi.wrap) return;
+        // 粗估：Breeze 约 12 字/秒；VoiceStudio 首次含加载模型，给 40 秒底
+        const perChar = engine === 'voicestudio' ? 260 : 85;
+        progressUi.estimateMs = Math.max(3000, Math.min(180000, charCount * perChar));
+        progressUi.startedAt = Date.now();
+        progressUi.wrap.style.display = '';
+        setProgress(2, '合成中… 0.0s');
+        stopProgress();
+        progressUi.timer = setInterval(() => {
+            const elapsed = Date.now() - progressUi.startedAt;
+            const ratio = elapsed / progressUi.estimateMs;
+            let percent;
+            if (ratio <= 1) {
+                percent = 2 + ratio * 53;                     // 0~1 倍估时：走到 55%
+            } else {
+                percent = 55 + Math.min(37, Math.log(ratio) * 20);  // 超出估时：爬到 92%
+            }
+            const secs = (elapsed / 1000).toFixed(1);
+            const hint = engine === 'voicestudio' && elapsed > 20000
+                ? '（VoiceStudio 首次调用在加载模型，慢是正常的）'
+                : '';
+            setProgress(percent, '合成中… ' + secs + 's' + hint);
+        }, 250);
+    };
+    const finishProgress = (ok, message) => {
+        stopProgress();
+        if (!progressUi.wrap) return;
+        if (ok) {
+            setProgress(100, message || '完成');
+            setTimeout(() => { if (progressUi.wrap) progressUi.wrap.style.display = 'none'; }, 900);
+        } else {
+            setProgress(100, message || '失败');
+            if (progressUi.fill) progressUi.fill.style.background = '#ef4444';
+            setTimeout(() => {
+                if (progressUi.wrap) progressUi.wrap.style.display = 'none';
+                if (progressUi.fill) progressUi.fill.style.background = 'linear-gradient(90deg,#3b82f6,#60a5fa)';
+                setProgress(2, '');
+            }, 1800);
+        }
+    };
+
     overlay.querySelector('#voiceSpeakBtn').addEventListener('click', async () => {
         const text = overlay.querySelector('#voiceTextInput').value.trim();
         if (!text) { showNotification('先输入要念的台词', 'info'); return; }
         // 本地 Breeze 音色没有 speaker_id，必须用 profileId 判断
         if (!voiceState.profileId && !voiceState.speakerId) { showNotification('先选一个音色（或先克隆一个）', 'info'); return; }
         speakStatus.textContent = '正在合成…';
+        const engineForProgress = overlay.querySelector('#voiceEngineSelect')?.value || '';
+        startProgress(engineForProgress, text.length);
         try {
             const fmt = (overlay.querySelector('#voiceFormatSelect')?.value || '1-24000').split('-');
-            const engine = overlay.querySelector('#voiceEngineSelect')?.value || '';
+            const engine = engineForProgress;
             const callSpeak = () => rendererApi.post('/api/v1/voice/speak', {
                 text,
                 speaker_id: voiceState.speakerId || '',
@@ -308,6 +377,8 @@ function showVoiceCloneModal(options = {}) {
                 }
             }
             voiceState.lastOutput = result?.path || '';
+            const elapsedSecs = ((Date.now() - progressUi.startedAt) / 1000).toFixed(1);
+            finishProgress(true, '完成 · ' + elapsedSecs + 's');
             speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();
             const playBtnEl = overlay.querySelector('#voicePlayBtn');
             const saveBtnEl = overlay.querySelector('#voiceSaveBtn');
@@ -324,6 +395,7 @@ function showVoiceCloneModal(options = {}) {
             }
         } catch (error) {
             speakStatus.textContent = '';
+            finishProgress(false, '失败：' + (error?.message || String(error)).slice(0, 40));
             showNotification(error?.message || String(error), 'error');
         }
     });

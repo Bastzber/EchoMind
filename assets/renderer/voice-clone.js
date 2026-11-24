@@ -179,7 +179,14 @@ function showVoiceCloneModal(options = {}) {
             label.style.color = 'var(--text-primary)';
             const meta = document.createElement('span');
             meta.className = 'opacity-45';
-            meta.textContent = (profile.provider === 'breeze' ? '本地' : '云端')
+            const providerName = String(profile.provider || '');
+            meta.textContent = providerName === 'breeze'
+                ? '本地·Breeze'
+                : (providerName === 'voicestudio' ? '本地·VoiceStudio' : '云端·豆包');
+            if (providerName === 'breeze' && !String(profile.ref_text || '').trim()) {
+                meta.textContent += ' · 缺文稿';
+                meta.title = 'Breeze 必须知道样音说的原话才能复刻，点右边的「补文稿」';
+            }
             const pick = document.createElement('button');
             pick.className = 'ml-auto opacity-60 hover:opacity-100';
             pick.textContent = isActive ? '使用中' : '使用';
@@ -202,7 +209,27 @@ function showVoiceCloneModal(options = {}) {
                     showNotification('删除失败: ' + (error?.message || error), 'error');
                 }
             });
-            row.appendChild(label); row.appendChild(meta); row.appendChild(pick); row.appendChild(del);
+            const fill = document.createElement('button');
+            const needsRefText = providerName === 'breeze' && !String(profile.ref_text || '').trim();
+            fill.className = 'opacity-60 hover:opacity-100';
+            fill.textContent = needsRefText ? '补文稿' : '';
+            fill.style.display = needsRefText ? '' : 'none';
+            fill.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                const text = window.prompt('这段样音里说的原话是什么？（Breeze 靠它复刻音色）', '');
+                if (!text || !text.trim()) return;
+                try {
+                    await rendererApi.patch('/api/v1/voice/profiles/' + encodeURIComponent(profile.id), {
+                        ref_text: text.trim(),
+                    }, { timeoutMs: 30000 });
+                    await loadVoiceProfiles();
+                    renderProfiles();
+                    showNotification('已补上文稿，现在可以生成了', 'success');
+                } catch (error) {
+                    showNotification('补文稿失败: ' + (error?.message || error), 'error');
+                }
+            });
+            row.appendChild(label); row.appendChild(meta); row.appendChild(fill); row.appendChild(pick); row.appendChild(del);
             host.appendChild(row);
         });
     };
@@ -251,13 +278,35 @@ function showVoiceCloneModal(options = {}) {
         speakStatus.textContent = '正在合成…';
         try {
             const fmt = (overlay.querySelector('#voiceFormatSelect')?.value || '1-24000').split('-');
-            const result = await rendererApi.post('/api/v1/voice/speak', {
+            const engine = overlay.querySelector('#voiceEngineSelect')?.value || '';
+            const callSpeak = () => rendererApi.post('/api/v1/voice/speak', {
                 text,
                 speaker_id: voiceState.speakerId || '',
                 profile_id: voiceState.profileId || '',
+                engine,
                 channels: Number(fmt[0]) || 1,
                 sample_rate: Number(fmt[1]) || 24000,
-            }, { timeoutMs: 240000 });
+            }, { timeoutMs: 600000 });
+            let result;
+            try {
+                result = await callSpeak();
+            } catch (firstError) {
+                // Breeze 缺样音文稿：别再静默用默认声音，当场让用户补上再重试
+                if (firstError?.code === 'voice_ref_text_missing' && voiceState.profileId) {
+                    const text = window.prompt('这个音色还没有「样音文稿」，Breeze 会用默认声音。这段样音里说的原话是什么？', '');
+                    if (text && text.trim()) {
+                        await rendererApi.patch('/api/v1/voice/profiles/' + encodeURIComponent(voiceState.profileId), {
+                            ref_text: text.trim(),
+                        }, { timeoutMs: 30000 });
+                        await loadVoiceProfiles();
+                        result = await callSpeak();
+                    } else {
+                        throw firstError;
+                    }
+                } else {
+                    throw firstError;
+                }
+            }
             voiceState.lastOutput = result?.path || '';
             speakStatus.textContent = '已生成：' + String(result?.path || '').split(/[\\/]/).pop();
             const playBtnEl = overlay.querySelector('#voicePlayBtn');

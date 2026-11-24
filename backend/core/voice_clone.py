@@ -226,6 +226,51 @@ def clone_voice_voicestudio(name: str, sample: Path, duration: float, ref_text: 
     return {"ok": True, "speaker_id": vs_id, "profile": entry, "engine": VS_PROVIDER}
 
 
+def _save_profile_fields(profile_id: str, **fields) -> None:
+    items = load_profiles()
+    for item in items:
+        if str(item.get("id")) == str(profile_id):
+            item.update(fields)
+            break
+    else:
+        return
+    save_profiles(items)
+
+
+def ensure_voicestudio_profile(profile: Dict[str, object]) -> Dict[str, object]:
+    """把 EchoMind 的音色档案映射成 VoiceStudio 档案（没有就拿样音现建一个）。
+
+    为什么要这层映射：EchoMind 的音色列表里既有 breeze 档案也有豆包档案，
+    用户在下拉框里换引擎时，不该被「这条档案是谁建的」绑死 —— 选中 VoiceStudio
+    就用 VoiceStudio 的模型念。样音已经在档案里，推过去建档案只要十几秒，
+    建过就记下 vs_profile_id，下次直接用。
+    """
+    existing = str(profile.get("vs_profile_id") or "").strip()
+    if not existing and str(profile.get("provider") or "") == VS_PROVIDER:
+        # 早期用 VoiceStudio 克隆的档案把 id 直接存在 speaker_id 里
+        existing = str(profile.get("speaker_id") or "").strip()
+    if existing:
+        return {"ok": True, "id": existing, "cached": True}
+    sample = str(profile.get("sample") or "")
+    if not sample or not Path(sample).is_file():
+        return {"ok": False, "error": "这个音色没有样音文件，VoiceStudio 复刻不了它"}
+    if not voicestudio_available():
+        return {"ok": False, "error": "没连上 VoiceStudio（%s）。先把 VoiceStudio 打开。" % voicestudio_url()}
+    name = str(profile.get("name") or "EchoMind 音色")
+    result = clone_voice_voicestudio(
+        "%s（EchoMind）" % name,
+        Path(sample),
+        float(profile.get("duration") or 0.0),
+        str(profile.get("ref_text") or ""),
+    )
+    if not result.get("ok"):
+        return result
+    vs_id = str(result.get("speaker_id") or "")
+    if profile.get("id") and vs_id:
+        _save_profile_fields(str(profile.get("id")), vs_profile_id=vs_id)
+    return {"ok": True, "id": vs_id, "cached": False}
+
+
 def vs_speak_to_cache(text: str, voice: str, speed: float = 1.0, model: str = "omnivoice") -> Dict[str, object]:
     """用 VoiceStudio 的档案合成一段语音，落到 EchoMind 的 tts_cache。"""
     if not (text or "").strip():

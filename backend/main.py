@@ -2905,6 +2905,9 @@ class VoiceSpeakRequest(BaseModel):
     text: str
     speaker_id: str = ""
     profile_id: str = ""
+    # 合成引擎：下拉框选什么就用什么，不被「这条档案是谁建的」绑死。
+    # 空字符串时退回档案自带的 provider（兼容老前端）。
+    engine: str = ""
     save_dir: Optional[str] = None
     channels: int = 1
     sample_rate: int = 24000
@@ -2963,6 +2966,67 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
     elif payload.speaker_id:
         profile = next((item for item in load_profiles() if str(item.get("speaker_id")) == payload.speaker_id), None)
 
+    # 引擎以请求里的选择为准；没传才看档案自己的 provider。
+    # 以前只看 provider：用户在下拉框里换引擎完全没效果，克隆出来永远是同一个声音。
+    engine = (payload.engine or "").strip().lower()
+    if not engine and profile:
+        engine = str(profile.get("provider") or "").strip().lower()
+
+    if engine in ("voicestudio", "omnivoice", "vs"):
+        from core.voice_clone import ensure_voicestudio_profile, vs_speak_to_cache
+
+        if not profile:
+            raise SoundBotAPIError("profile_required", "先选一个音色（或先克隆一个）", status_code=400)
+        mapped = await asyncio.to_thread(ensure_voicestudio_profile, profile)
+        if not mapped.get("ok"):
+            raise SoundBotAPIError(
+                "voicestudio_unavailable",
+                str(mapped.get("error") or "VoiceStudio 不可用"),
+                status_code=400,
+            )
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: vs_speak_to_cache(payload.text, str(mapped.get("id") or "default")),
+        )
+        if not result.get("ok"):
+            raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)
+        return {"success": True, "path": result.get("path"), "provider": "voicestudio"}
+
+    if engine == "breeze":
+        from core import tts as _tts
+
+        sample = str((profile or {}).get("sample") or "")
+        ref_text = str((profile or {}).get("ref_text") or "").strip()
+        # Breeze 的克隆是零样本：ref_audio 和 ref_text 必须成对给，少一个服务端直接拒。
+        # 以前少给就被静默降级成默认声音 —— 用户看到的就是「克隆了但都一样」。
+        if not sample or not os.path.isfile(sample):
+            raise SoundBotAPIError(
+                "voice_sample_missing",
+                "这个音色没有样音文件，Breeze 没法复用它。改用 VoiceStudio 或豆包，或重新克隆一个。",
+                status_code=400,
+            )
+        if not ref_text:
+            raise SoundBotAPIError(
+                "voice_ref_text_missing",
+                "这个音色缺「样音文稿」，Breeze 会用默认声音念。点音色列表里的「补文稿」补上这句原话，再生成。",
+                status_code=400,
+            )
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: _tts.breeze_speak(
+                payload.text,
+                ref_audio=sample,
+                ref_text=ref_text,
+                channels=2 if int(getattr(payload, "channels", 1) or 1) >= 2 else 1,
+                sample_rate=int(getattr(payload, "sample_rate", 24000) or 24000),
+            ),
+        )
+        if not result.get("ok"):
+            raise SoundBotAPIError("voice_speak_failed", str(result.get("error") or "合成失败"), status_code=400)
+        return {"success": True, "path": result.get("path"), "provider": "breeze"}
+
     if profile and (profile.get("provider") or "") == "voicestudio":
         # VoiceStudio 那边已经存了音色档案，这里只按档案 id 让它合成
         from core.voice_clone import vs_speak_to_cache
@@ -2979,7 +3043,19 @@ async def voice_speak_endpoint(payload: VoiceSpeakRequest):
 
     if profile and (profile.get("provider") or "volc") == "breeze":
         sample = str(profile.get("sample") or "")
-        ref_text = str(profile.get("ref_text") or "")
+        ref_text = str(profile.get("ref_text") or "").strip()
+        if not sample or not os.path.isfile(sample):
+            raise SoundBotAPIError(
+                "voice_sample_missing",
+                "这个音色没有样音文件，Breeze 没法复用它。改用 VoiceStudio 或豆包，或重新克隆一个。",
+                status_code=400,
+            )
+        if not ref_text:
+            raise SoundBotAPIError(
+                "voice_ref_text_missing",
+                "这个音色缺「样音文稿」，Breeze 会用默认声音念。点音色列表里的「补文稿」补上这句原话，再生成。",
+                status_code=400,
+            )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,

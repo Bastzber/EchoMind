@@ -7,121 +7,88 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg-primary: #0a0a0a;
-      --bg-secondary: #141414;
-      --border-color: #262626;
-      --text-primary: #e5e5e5;
-      --text-secondary: #a3a3a3;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+      --bg: #0d0d0d;
+      --bg-elev: #141414;
+      --line: #242424;
+      --tx: #e8e8e8;
+      --tx2: #8a8a8a;
+      --accent: #6b8afd;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     }
-
     * { box-sizing: border-box; }
-
+    html, body { margin: 0; background: transparent; }
     body {
-      width: 400px;
-      height: 240px;
-      margin: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      color: var(--text-primary);
-      background: var(--bg-primary);
-      user-select: none;
+      width: 400px; height: 240px; overflow: hidden;
+      display: flex; align-items: stretch; justify-content: stretch;
+      color: var(--tx); user-select: none;
       -webkit-app-region: drag;
     }
 
-    main {
-      width: calc(100% - 24px);
-      padding: 28px;
-      text-align: center;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
-    }
-
-    .brand {
-      font-size: 22px;
-      font-weight: 650;
-      letter-spacing: -0.02em;
-    }
-
-    .status {
-      margin-top: 14px;
-      font-size: 14px;
-      font-weight: 500;
-    }
-
-    .progress {
-      min-height: 18px;
-      margin-top: 6px;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 18px;
-    }
-
-    .indicator {
-      width: 112px;
-      height: 3px;
-      margin: 22px auto 0;
+    .card {
+      position: relative; flex: 1; margin: 0;
+      padding: 30px 28px 24px;
+      background:
+        radial-gradient(120% 90% at 50% -20%, rgba(107,138,253,.10), transparent 60%),
+        var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 16px;
       overflow: hidden;
-      background: var(--border-color);
-      border-radius: 999px;
+      display: flex; flex-direction: column; align-items: center;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
     }
 
-    .indicator::after {
-      content: "";
-      display: block;
-      width: 42%;
-      height: 100%;
-      background: var(--text-primary);
-      border-radius: inherit;
-      animation: loading 1.1s ease-in-out infinite;
+    .mark {
+      width: 40px; height: 40px; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      background: #1c1c1c; border: 1px solid #2a2a2a;
+      font-size: 18px; font-weight: 600; color: var(--tx);
+      letter-spacing: -.02em;
     }
 
-    body.error .indicator::after {
-      width: 100%;
-      background: #ef4444;
-      animation: none;
+    .brand { margin-top: 14px; font-size: 19px; font-weight: 600; letter-spacing: .01em; }
+    .status { margin-top: 6px; font-size: 13px; color: var(--tx); }
+    .progress { margin-top: 4px; font-size: 11px; color: var(--tx2); min-height: 15px; }
+
+    .track {
+      position: relative; width: 148px; height: 2px; margin-top: auto;
+      background: #1f1f1f; border-radius: 999px; overflow: hidden;
     }
+    .track::after {
+      content: ""; position: absolute; top: 0; bottom: 0; width: 38%;
+      background: linear-gradient(90deg, rgba(107,138,253,0), var(--accent), rgba(107,138,253,0));
+      border-radius: inherit; animation: sweep 1.25s ease-in-out infinite;
+    }
+    body.error .track::after { width: 100%; background: #ef4444; animation: none; }
+
+    .foot { margin-top: 12px; font-size: 10px; color: #5c5c5c; letter-spacing: .04em; }
 
     .actions {
-      display: none;
-      margin: 18px auto 0;
-      gap: 8px;
-      justify-content: center;
+      display: none; margin-top: 14px; gap: 8px; justify-content: center;
       -webkit-app-region: no-drag;
     }
-
-    .action-button {
-      padding: 7px 18px;
-      color: var(--text-primary);
-      background: transparent;
-      border: 1px solid var(--border-color);
-      border-radius: 7px;
-      font: inherit;
-      font-size: 12px;
-      text-decoration: none;
-      cursor: pointer;
-      -webkit-app-region: no-drag;
-    }
-
-    .action-button:hover { background: rgba(255, 255, 255, 0.06); }
     body.error .actions { display: flex; }
+    body.error .foot { display: none; }
+    .action-button {
+      padding: 6px 14px; color: var(--tx); background: transparent;
+      border: 1px solid var(--line); border-radius: 7px;
+      font: inherit; font-size: 12px; text-decoration: none; cursor: pointer;
+    }
+    .action-button:hover { background: rgba(255,255,255,.06); }
 
-    @keyframes loading {
-      from { transform: translateX(-110%); }
-      to { transform: translateX(350%); }
+    @keyframes sweep {
+      from { transform: translateX(-120%); }
+      to { transform: translateX(360%); }
     }
   </style>
 </head>
 <body>
-  <main role="status" aria-live="polite">
-    <div class="brand">回声</div>
+  <main class="card" role="status" aria-live="polite">
+    <div class="mark">回</div>
+    <div class="brand">回声 · AI 音效管理器</div>
     <div class="status" id="status">正在启动服务…</div>
     <div class="progress" id="progress">初始化中</div>
-    <div class="indicator" aria-hidden="true"></div>
+    <div class="track" aria-hidden="true"></div>
+    <div class="foot">本地索引 · 听感检索 · 声音克隆</div>
     <div class="actions">
       <a class="action-button" href="soundbot-action://open-logs">打开日志</a>
       <button class="action-button" id="closeButton" type="button">退出应用</button>

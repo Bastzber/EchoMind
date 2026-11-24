@@ -12,6 +12,8 @@ const { spawn, execFile } = require('child_process');
 const net = require('net');
 const crypto = require('crypto');
 const fsSync = fs;   // 增量更新里用到同步 API（existsSync/createReadStream）
+// 透明窗口（自绘圆角）在部分 Windows 驱动上需要显式打开这个开关
+try { app.commandLine.appendSwitch('enable-transparent-visuals'); } catch (e) { /* 忽略 */ }
 const audioCapabilityManifest = require('./config/audio_capabilities.json');
 const supportedAudioExtensions = new Set(Object.keys(audioCapabilityManifest.formats || {}));
 const supportedAudioFilterExtensions = [...supportedAudioExtensions].map((value) => value.slice(1));
@@ -1955,10 +1957,12 @@ function createWindow() {
     frame: false,
     transparent: true,
     roundedCorners: true,
-    hasShadow: true,
+    hasShadow: false,
     show: false,
     backgroundColor: '#00000000'
   });
+  // 透明窗口在部分 Windows 显卡驱动上要显式把背景刷成全透明
+  try { mainWindow.setBackgroundColor('#00000000'); } catch (e) { /* 老版本 Electron 忽略 */ }
 
   // A preload failure removes every desktop API from the renderer while the
   // HTML can still look healthy. Capture it explicitly instead of allowing a
@@ -3273,9 +3277,11 @@ function createSplashWindow() {
     height: 240,
     frame: false,
     alwaysOnTop: true,
-    transparent: false,
+    // 透明 + 自绘圆角，和主窗口同一套观感（Win10 没有系统圆角）
+    transparent: true,
+    hasShadow: false,
     resizable: false,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: '#00000000',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

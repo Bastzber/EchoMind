@@ -108,14 +108,13 @@ function showVoiceCloneModal(options = {}) {
         "      </div>",
         "      <div id=\"voiceProfileList\" class=\"vc-lib-list\"></div>",
         "      <div id=\"voiceLibCurrent\" class=\"vc-current\">当前没选音色</div>",
-        "      <button id=\"voiceCloneNewBtn\" class=\"vc-btn vc-btn--block\" style=\"margin-top:2px\">+ 克隆新音色</button>",
         "    </aside>",
         "    <section class=\"vc-work\">",
         "      <div class=\"vc-card vc-card--tight\">",
         "        <div class=\"vc-row\">",
         "          <span class=\"vc-title\">样音</span>",
         "          <span id=\"voiceSampleInfo\" class=\"vc-sample\">还没选样音</span>",
-        "          <button id=\"voicePickFileBtn\" class=\"vc-btn vc-btn--ghost\" style=\"padding:6px 10px;font-size:11px\">换一个…</button>",
+        "          <button id=\"voicePickFileBtn\" class=\"vc-btn vc-btn--ghost\" style=\"padding:6px 10px;font-size:11px\">+ 克隆新音色</button>",
         "        </div>",
         "      </div>",
         "      <div class=\"vc-card vc-card--tight\">",
@@ -213,10 +212,7 @@ function showVoiceCloneModal(options = {}) {
             renderProfiles();
         });
     });
-    overlay.querySelector('#voiceCloneNewBtn')?.addEventListener('click', () => {
-        overlay.querySelector('#voiceNameInput')?.focus();
-        overlay.querySelector('#voicePickFileBtn')?.click();
-    });
+
     // 从音色库的「长文本转语音」进来，直接落在长音频页
     if (options?.tab === 'long') setTab('long');
 
@@ -244,6 +240,9 @@ function showVoiceCloneModal(options = {}) {
             const filePath = picked?.filePaths?.[0] || picked?.filePath || '';
             if (!filePath) return;
             useSample(String(filePath), 0);
+            // 「+ 克隆新音色」的流程：选完样音直接跳到音色名称，少点一次
+            nameInput?.focus();
+            nameInput?.select?.();
         } catch (error) {
             showNotification('选择文件失败: ' + (error?.message || error), 'error');
         }

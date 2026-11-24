@@ -8,3 +8,7 @@ EchoMind测试版V22.zip
 update-beta22-r01.zip
   大小   0.07 GB (75687303 bytes)
   sha256 c17a010b57dc29ac6064ef0a0312210a89541fcc6929dab68bde4cac436baac5
+
+OmniVoice-weights.zip（离线权重，可选）
+  大小   3.04 GB (3267474142 bytes)
+  sha256 6206fd8e792d58381f5c5fac11d3fc81b27f0cb578a635e4a4443d9ae1f5d9e3

@@ -53,3 +53,15 @@
 | 想回退到 V21 | 把备份目录里的文件拷回程序目录，或用 V21 的完整包覆盖 |
 
 日志位置：`%APPDATA%\EchoMind\logs\`（`soundbot-main.log` 是主日志）。
+
+## 六、离线用内置 OmniVoice（权重单独包）
+
+内置 OmniVoice 的**推理代码**已经打进安装包，但**权重（约 3.04 GB）单独发**，需要离线用的人自己放一次。
+
+1. 下载 `OmniVoice-weights.zip`（约 3.04 GB，sha256 `6206fd8e792d58381f5c5fac11d3fc81b27f0cb578a635e4a4443d9ae1f5d9e3`）
+2. 解压得到 `omnivoice` 文件夹
+3. 放到 `%APPDATA%\EchoMind\models\`（即最终路径为 `%APPDATA%\EchoMind\models\omnivoice\config.json`）
+4. 重启 EchoMind → 声音克隆 → 合成引擎选「本地 OmniVoice」，那行显示「内置模型已就绪」就说明认到了，不用再点下载
+
+> 不想手动放的：在同一个界面点「下载模型」，它会自己下到同一位置（需要能连 HuggingFace）。
+> 许可：omnivoice 推理代码 AGPL-3.0-only；音频分词器权重是 Boson Higgs Audio 2 社区许可（包里带 LICENSE）。

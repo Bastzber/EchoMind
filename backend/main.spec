@@ -120,18 +120,16 @@ except Exception as e:
 # transformers 用 distribution 元数据检查 accelerate 版本（不是 import），
 # 缺 dist-info 就算代码打进去了也会抛 PackageNotFoundError。
 # copy_metadata 在这套环境里没落地，所以直接按 site-packages 里的目录搬。
-try:
-    import importlib.metadata as _importlib_metadata
+import sysconfig as _sysconfig
 
-    _accel_dist = _importlib_metadata.distribution('accelerate')
-    _accel_dir = Path(str(_accel_dist._path))
-    if _accel_dir.is_dir():
+_site_packages = Path(_sysconfig.get_paths().get('purelib') or '')
+_accel_dirs = sorted(_site_packages.glob('accelerate-*.dist-info'))
+if _accel_dirs:
+    for _accel_dir in _accel_dirs:
         datas.append((str(_accel_dir), _accel_dir.name))
         print(f'[metadata] accelerate -> {_accel_dir.name}')
-    else:
-        print('Warning: accelerate dist-info 目录不存在')
-except Exception as _e:
-    print(f'Warning: accelerate dist-info 收集失败: {_e}')
+else:
+    print(f'Warning: 在 {_site_packages} 下找不到 accelerate-*.dist-info')
 
 # Preserve PyAV distribution metadata and its bundled license notices.
 try:

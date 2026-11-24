@@ -362,7 +362,9 @@ a.binaries = [
 # the build environment.  Keep frozen availability checks truthful: packages
 # excluded above must not reappear as orphaned ``*.dist-info`` directories.
 _excluded_metadata_prefixes = (
-    'accelerate-', 'aiofiles-', 'aiosqlite-', 'audioread-', 'flax-',
+    # 注意：accelerate 不能排除 —— transformers 加载 device_map 模型（CLAP/BGE/OmniVoice）
+    # 时靠它的 dist-info 做版本检查，缺了会直接报 PackageNotFoundError，模型全废。
+    'aiofiles-', 'aiosqlite-', 'audioread-', 'flax-',
     'jax-', 'jaxlib-', 'kubernetes-', 'librosa-', 'llvmlite-', 'numba-',
     'onnxruntime-', 'openpyxl-', 'pandas-', 'scikit_learn-', 'scipy-',
     'sentence_transformers-', 'soundfile-', 'soxr-', 'tensorflow-',

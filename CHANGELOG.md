@@ -3,11 +3,43 @@
 > 说明：本项目沿用 SoundBot 的变更记录格式（[Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)），
 > 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。测试版编号 V<n> 对应 `0.3.0-beta.<n>`。
 
+## [0.3.0-beta.22] - 2026-11-25 (Prerelease / 预发布)
+
+> 测试版 V22。声音克隆从「要另开一个软件」变成装完就能用；主界面按原型重排。
+
+### Added / 新增
+
+- 内置 OmniVoice 引擎（k2-fsa OmniVoice，Qwen3 底座 + Higgs 音频分词器），不再依赖 VoiceStudio 应用；首次使用自动下载约 3.1 GB 权重，推理跑在独立子进程 / Built-in OmniVoice engine; no VoiceStudio app required, ~3.1 GB weights fetched on first use, inference isolated in a worker process
+- 新接口 `GET /api/v1/files/by-ids`：按 id 批量取元数据，供「最近使用」回放播放历史 / New `/api/v1/files/by-ids` batch metadata endpoint
+
+### Changed / 变更
+
+- 合成引擎下拉框真正生效：选哪个引擎就用哪个模型念，不再被音色档案自带的 provider 绑住 / The engine dropdown is now authoritative for synthesis
+- 声音克隆面板重排成「左音色库 + 右工作区」，按钮改主次网格，窄窗不再竖排 / Voice Clone dialog re-laid out: library on the left, workspace on the right
+- 音色列表每行可**试听样音**；缺文稿的音色用黄点提示，点黄点补文稿 / Each voice row can preview its reference sample; missing reference text shows a warning dot
+- 生成完**不再自动播放**；试听按钮改成播放/暂停切换 / No autoplay after synthesis; preview button toggles play/pause
+- 主界面：工具条收进「工具 ▾」抽屉（Ctrl+T）；顶部六个入口统一成带边框的中性按钮并靠左排 / Tool strip collapsed into a drawer (Ctrl+T); header entries unified and left-aligned
+- 左栏换成「库 / 整理」分组导航，文件夹树、标签、历史按需展开；「最近使用」直接把播放历史列进主列表 / Left rail becomes a grouped nav; folder tree, tags and history open on demand
+- 列表补「标签」列、恢复显示一句话描述，行高更紧凑 / Tag column added, AI description restored, denser rows
+- 无边框窗口 + 四角 14px 倒角（Win10 也可用），顶栏自绘最小化/最大化/关闭；启动页重做，品牌标记换成应用图标 / Frameless window with 14 px rounded corners on Win10; redesigned splash using the app icon
+- 删除长音频面板，短音频本身就能念四分半的长文本 / Removed the long-form panel: the short panel already handles 4.5-minute text
+
+### Fixed / 修复
+
+- 「克隆了但都是一个声音」：Breeze/OmniVoice 缺样音文稿时不再静默退回默认声音，改成明确报错 + 一键补文稿 / Cloning no longer silently falls back to the default voice when the reference transcript is missing
+- 克隆结果存不下来：导出和保存到音效库都被路径校验拒绝 / Clone output could not be saved: export and save-to-library were rejected by the path guard
+- 打包漏了 `accelerate` 的 dist-info，导致 CLAP/BGE 模型加载失败、界面显示「模型错误」 / The `accelerate` dist-info is no longer filtered out of the bundle: CLAP/BGE failed to load without it
+- 模型胶囊只有问号能点：顶栏拖拽区吞掉点击，现在整块可点，弹窗里能看到当前阈值效果并可恢复默认 / The model pill is clickable everywhere; the popup shows what the current threshold means and can reset to 0.15
+- 损坏文件面板的 ✕ 点不动、历史条目点不动（找不到就按 id 回查，再不行按路径播） / Broken-file panel close button and history entries are now clickable
+- 点「收藏」显示全部音效 / The Favorites entry opens favorites instead of the full list
+
+---
+
 ## [Unreleased]
 
 ### Added / 新增
 
-- 去掉音色库右上角重复的「长文本转语音」按钮（已并进声音克隆的标签页）/ Removed the duplicate long-form TTS button from the voice library header
+- 去掉音色库右上角重复的「长文本转语音」按钮（已并进声音克隆的标签页） / Removed the duplicate long-form TTS button from the voice library header
 - 音色库「引擎」标签显示实际引擎：Breeze 在跑就显示 breeze，不再固定显示 volc / Voice library engine label now reflects the engine actually in use
 - 长文本转语音并进「声音克隆」：顶部两个标签页（短音频 / 长音频），共用同一个音色库 / Long-form TTS folded into the Voice Clone dialog as a second tab, sharing one voice library
 - 新增「长文本转语音」：粘贴整章文字后台生成，进度可查，可中途停止，输出文件夹和文件名自己选 / Long-form text to speech: paste a chapter, watch progress, stop midway, choose output folder and filename

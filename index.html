@@ -587,7 +587,8 @@
             <!-- 模型状态 -->
             <div class="relative flex items-center gap-1">
                 <div id="modelStatusDisplay" class="flex items-center gap-2 whitespace-nowrap shrink-0 h-10 px-2.5 py-1.5 rounded-lg text-xs border opacity-80 hover:opacity-100 transition-opacity"
-                     style="background-color: var(--bg-tertiary); border-color: var(--border-color); display: none;">
+                     title="点一下调整搜索相似度阈值"
+                     style="background-color: var(--bg-tertiary); border-color: var(--border-color); display: none; cursor: pointer;">
                     <div id="modelStatusIcon" class="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style="border-color: var(--border-color); border-top-color: #8b5cf6;"></div>
                     <span id="modelStatusText" data-i18n="model.loading">模型加载中...</span>
                 <span class="help-dot ml-0.5" data-help="模型状态&#10;&#10;CLAP 音频模型 + BGE 文本模型。&#10;加载完成才能做语义搜索。&#10;点这个胶囊可以调搜索相似度阈值。">?</span>
@@ -607,7 +608,10 @@
                     <div class="mt-3 pt-3 border-t text-xs" style="border-color: var(--border-color); color: var(--text-secondary);">
                         <p data-i18n="threshold.hint.low">• 值越低，结果越多</p>
                         <p data-i18n="threshold.hint.high">• 值越高，结果越精确</p>
+                        <p id="thresholdEffect" class="mt-1" style="color: var(--text-primary);"></p>
                     </div>
+                    <button id="thresholdResetBtn" class="mt-3 w-full px-3 py-1.5 rounded-md text-xs border transition-colors hover:bg-white/5"
+                            style="border-color: var(--border-color); color: var(--text-primary);">恢复默认 0.15</button>
                 </div>
             </div>
 

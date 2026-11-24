@@ -425,6 +425,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.stopPropagation();
         thresholdPopup.classList.toggle('hidden');
         thresholdPopup.classList.toggle('visible');
+        if (!thresholdPopup.classList.contains('hidden')) {
+            describeThreshold(parseInt(thresholdSlider.value));
+        }
     });
             
     // 点击其他地方关闭阈值弹窗
@@ -435,11 +438,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
             
+    // 阈值 -> 一句人话，告诉用户现在是什么效果
+    const thresholdEffectEl = document.getElementById('thresholdEffect');
+    const describeThreshold = (value) => {
+        if (!thresholdEffectEl) return;
+        let text = '适中：相关度 0.15 以上都会出现';
+        if (value < 10) text = '很宽松：几乎沾边就会出来，结果多但要自己筛';
+        else if (value < 25) text = '适中：相关度 0.15 上下都会出现';
+        else if (value < 50) text = '偏严：只留比较像的，结果少一些但更准';
+        else if (value < 75) text = '很严：只留高度相似的，容易搜不到';
+        else text = '极严：基本只出几乎一样的声音';
+        thresholdEffectEl.textContent = '当前：' + text;
+    };
+
+    const resetThresholdBtn = document.getElementById('thresholdResetBtn');
+    resetThresholdBtn?.addEventListener('click', () => {
+        thresholdSlider.value = '15';
+        thresholdSlider.dispatchEvent(new Event('input'));
+        thresholdSlider.dispatchEvent(new Event('change'));
+    });
+
     // 滑块值变化时更新显示
     thresholdSlider.addEventListener('input', (e) => {
         const value = parseInt(e.target.value);
         currentSearchThreshold = value / 100;
         thresholdValue.textContent = currentSearchThreshold.toFixed(2);
+        describeThreshold(value);
                 
         // 更新滑块颜色渐变
         const percent = value;

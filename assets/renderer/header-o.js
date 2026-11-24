@@ -46,6 +46,21 @@
     }
 
     // 无边框窗口：顶栏右侧自己画 最小化 / 最大化 / 关闭
+    // 拖动区不能盖住可点击控件：整个顶栏设成 no-drag，只在「品牌区」和空白间隔上开 drag。
+    // 之前顶栏是 drag，导致 #modelStatusDisplay 这种 div 胶囊的点击被系统吃掉（只有 .help-dot 能点）。
+    function fixDragRegions() {
+        const header = document.querySelector('header.h-14');
+        if (!header) return;
+        header.style.webkitAppRegion = 'no-drag';
+        const brand = header.firstElementChild;
+        if (brand && !brand.querySelector('button, a, input')) {
+            brand.style.webkitAppRegion = 'drag';
+        }
+        header.querySelectorAll('.flex-1, [class*="flex-1"]').forEach((el) => {
+            if (!el.querySelector('button, a, input, select')) el.style.webkitAppRegion = 'drag';
+        });
+    }
+
     function mountWindowButtons() {
         if (document.getElementById('oWinBtns')) return;
         const header = document.querySelector('header.h-14');
@@ -85,6 +100,7 @@
         styleButtons();
         alignLeft();
         mountWindowButtons();
+        fixDragRegions();
         const nav = document.querySelector('#fileMenuBtn')?.closest('nav');
         if (nav && !nav.dataset.oObserved) {
             nav.dataset.oObserved = '1';

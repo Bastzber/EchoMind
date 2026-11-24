@@ -330,6 +330,11 @@
         #navFishWrap.playing #fishBubble2 { animation-duration: 1.1s; }
 
         #navFishWrap.hidden-fish { display: none; }
+
+        /* O 排法：工具抽屉里的分组小标题 */
+        #quickBar .qa-group{font-size:10px;color:var(--text-secondary);opacity:.6;letter-spacing:.06em;
+            padding:0 4px 0 8px;border-left:1px solid var(--border-color);margin-left:2px}
+        #quickBar .qa-group:first-child{border-left:0;padding-left:2px;margin-left:0}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -628,9 +633,18 @@
         </div>
     </header>
 
-    <!-- ==================== 常用工具条（常驻） ==================== -->
-    <div id="quickBar" class="h-11 px-3 flex items-center gap-2 border-b shrink-0 overflow-x-auto"
+    <!-- ==================== 工具抽屉（默认收起，点一下展开那一排常用工具） ==================== -->
+    <div id="toolStrip" class="h-9 px-3 flex items-center gap-2 border-b shrink-0"
          style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+        <span class="text-[11px] opacity-45 shrink-0">工具</span>
+        <button id="toolDrawerToggle" class="quick-btn" style="padding:2px 8px;">
+            <span id="toolDrawerLabel">日常 · 修数据 · AI</span><span id="toolDrawerCaret" style="margin-left:4px;">▾</span>
+        </button>
+        <span class="flex-1"></span>
+        <span class="text-[11px] opacity-40 shrink-0">Ctrl+T 展开/收起</span>
+    </div>
+    <div id="quickBar" class="h-11 px-3 flex items-center gap-2 border-b shrink-0 overflow-x-auto"
+         style="border-color: var(--border-color); background-color: var(--bg-secondary); display: none;">
         <span class="text-[11px] opacity-40 mr-1 shrink-0">常用</span>
         <span id="quickActions" class="flex items-center gap-2 shrink-0"></span>
         <button id="quickAddBtn" class="quick-btn quick-plus" data-help="添加常用功能&#10;&#10;把常用的功能加到这一行，下次打开还在。">＋</button>
@@ -1069,6 +1083,7 @@
     <script defer src="./assets/renderer/main-waveform.js"></script>
     <script defer src="./assets/renderer/data-state.js"></script>
     <script defer src="./assets/renderer/app-core.js"></script>
+    <script defer src="./assets/renderer/layout-o.js"></script>
     <script defer src="./assets/renderer/app-ui.js"></script>
     <script defer src="./assets/renderer/app-data.js"></script>
     <script defer src="./assets/renderer/app-data-2.js"></script>

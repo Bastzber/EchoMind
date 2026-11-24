@@ -186,9 +186,25 @@
         const box = container();
         if (!box) return;
         box.innerHTML = '';
+        // O 排法：这一排按用途分三段（日常 / 修数据 / AI），段之间插一个小标题
+        const GROUPS = {
+            dup: '日常', tags: '日常', rename: '日常', fx: '日常', voiceLib: '日常',
+            transcode: '修数据', review: '修数据', repair: '修数据', repairIndex: '修数据',
+            cleanTemp: '修数据', rebuild: '修数据',
+            devocal: 'AI', split: 'AI', txv: 'AI', txvFix: 'AI'
+        };
+        let lastGroup = '';
         current.forEach((id) => {
             const meta = REGISTRY.find((item) => item.id === id);
             if (!meta) return;
+            const group = GROUPS[id] || '其他';
+            if (group !== lastGroup) {
+                const label = document.createElement('span');
+                label.className = 'qa-group';
+                label.textContent = group;
+                box.appendChild(label);
+                lastGroup = group;
+            }
             const btn = document.createElement('button');
             btn.className = 'quick-btn';
             btn.setAttribute('data-help', meta.help);

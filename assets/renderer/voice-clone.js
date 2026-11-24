@@ -15,94 +15,159 @@ async function loadVoiceProfiles() {
     return voiceState.profiles;
 }
 
+
+// 声音克隆面板的样式（变体 D：左音色库 + 右工作区）。
+// 全部 vc- 前缀，避免和 index.html 里那套 utility class 撞名。
+const VC_CSS = [
+  '.vc-panel{width:900px;max-width:96vw;max-height:86vh;overflow-y:auto;border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.5);padding:16px;display:flex;flex-direction:column;gap:10px}',
+  '.vc-head{display:flex;align-items:center;gap:8px}',
+  '.vc-logo{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(107,138,253,.22);font-size:11px;font-weight:700;color:#8ea7ff}',
+  '.vc-title-wrap{display:flex;flex-direction:column;line-height:1.25}',
+  '.vc-title{font-size:13px;font-weight:600}',
+  '.vc-sub{font-size:11px;color:var(--text-secondary)}',
+  '.vc-tabs{display:flex;gap:4px;padding:4px;border-radius:8px;background:var(--bg-tertiary)}',
+  '.vc-tab{flex:1;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;color:var(--text-secondary);background:transparent;border:0;cursor:pointer}',
+  '.vc-tab.is-on{background:var(--accent-color,#6b8afd);color:#fff}',
+  '.vc-cols{display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px}',
+  '@media(max-width:860px){.vc-cols{grid-template-columns:1fr}}',
+  '.vc-lib{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-secondary)}',
+  '.vc-lib-head{display:flex;align-items:center;gap:6px}',
+  '.vc-label{font-size:11px;color:var(--text-secondary)}',
+  '.vc-input{background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;padding:7px 9px;font-size:12px;font-family:inherit;width:100%}',
+  '.vc-input:focus{outline:none;border-color:var(--accent-color,#6b8afd)}',
+  '.vc-chips{display:flex;flex-wrap:wrap;gap:6px}',
+  '.vc-chip{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-color);background:transparent;color:var(--text-secondary);cursor:pointer}',
+  '.vc-chip.is-on{color:var(--text-primary);border-color:var(--accent-color,#6b8afd)}',
+  '.vc-lib-list{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto}',
+  '.vc-voice{display:flex;align-items:center;gap:6px;padding:7px 9px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-tertiary);flex-wrap:nowrap}',
+  '.vc-voice.is-active{border-color:var(--accent-color,#6b8afd);box-shadow:inset 0 0 0 1px var(--accent-color,#6b8afd)}',
+  '.vc-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-color,#6b8afd);flex:0 0 auto}',
+  '.vc-dot--warn{background:#f59e0b}',
+  '.vc-vname{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.vc-vmeta{font-size:11px;color:var(--text-secondary)}',
+  '.vc-current{font-size:11px;color:var(--text-secondary)}',
+  '.vc-work{display:flex;flex-direction:column;gap:10px;min-width:0}',
+  '.vc-card{border:1px solid var(--border-color);border-radius:10px;padding:12px;background:var(--bg-primary)}',
+  '.vc-card--tight{padding:10px}',
+  '.vc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+  '.vc-sample{font-size:11px;color:var(--text-secondary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.vc-btn{border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-primary);border-radius:6px;padding:8px 14px;font-size:12px;font-weight:500;cursor:pointer;line-height:1.2;white-space:nowrap}',
+  '.vc-btn--primary{background:#3b82f6;border-color:#3b82f6;color:#fff}',
+  '.vc-btn--ghost{background:transparent}',
+  '.vc-btn--danger{color:#ef4444;border-color:#3a2222;background:transparent}',
+  '.vc-btn--block{width:100%}',
+  '.vc-btn[disabled]{opacity:.38;cursor:not-allowed}',
+  '.vc-link{background:transparent;border:0;color:var(--text-secondary);font-size:11px;cursor:pointer;padding:0}',
+  '.vc-link:hover{color:var(--text-primary)}',
+  '.vc-hint{font-size:11px;color:#f59e0b}',
+  '.vc-status{font-size:11px;color:var(--text-secondary);min-height:14px}',
+  '.vc-status--err{color:#ef4444}',
+  '.vc-bar{height:6px;border-radius:999px;background:var(--bg-tertiary);overflow:hidden;border:1px solid var(--border-color)}',
+  '.vc-bar>i{display:block;height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width .35s ease-out}',
+  '.vc-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}'
+].join('');
+
+function ensureVoiceCloneStyles() {
+    if (document.getElementById('voiceCloneStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'voiceCloneStyles';
+    style.textContent = VC_CSS;
+    document.head.appendChild(style);
+}
+
 function showVoiceCloneModal(options = {}) {
+    ensureVoiceCloneStyles();
     document.getElementById('voiceCloneOverlay')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'voiceCloneOverlay';
     overlay.className = 'fixed inset-0 flex items-center justify-center';
     overlay.style.cssText = 'z-index:330;background:rgba(0,0,0,0.6)';
     overlay.innerHTML = [
-        "                <div class=\"rounded-xl shadow-2xl w-[560px] max-h-[86vh] overflow-y-auto p-5 flex flex-col gap-3\"",
-        "                     style=\"background: var(--bg-secondary); border: 1px solid var(--border-color);\">",
-        "                    <div class=\"flex items-center gap-2\">",
-        "                        <span class=\"w-7 h-7 rounded-lg flex items-center justify-center\" style=\"background: rgba(107,138,253,0.22);\">",
-        "                            <span style=\"font-size:11px;font-weight:700;color:#8ea7ff\">声</span>",
-        "                        </span>",
-        "                        <div class=\"flex flex-col leading-tight\">",
-        "                            <span class=\"text-sm font-semibold\">声音克隆</span>",
-        "                            <span class=\"text-[11px] opacity-50\">选一段约 15 秒人声 → 复刻音色 → 输入台词生成语音</span>",
-        "                        </div>",
-        "                        <button id=\"voiceCloseBtn\" class=\"ml-auto text-xs opacity-50 hover:opacity-100\">关闭</button>",
-        "                    </div>",
-        "                    <div class=\"flex items-center gap-1 p-1 rounded-lg\" style=\"background:var(--bg-tertiary)\">",
-        "                        <button id=\"voiceTabShort\" class=\"flex-1 px-3 py-1.5 rounded-md text-xs font-medium\" style=\"background:var(--accent-color,#6b8afd);color:#fff\">短音频克隆</button>",
-        "                        <button id=\"voiceTabLong\" class=\"flex-1 px-3 py-1.5 rounded-md text-xs font-medium\" style=\"color:var(--text-secondary)\">长音频克隆</button>",
-        "                    </div>",
-        "                    <div id=\"voiceShortPane\" class=\"flex flex-col gap-3\">",
-        "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
-        "                        <div class=\"text-xs font-medium mb-2\">① 选择样音</div>",
-        "                        <div class=\"flex items-center gap-2 mb-2\">",
-        "                            <span class=\"text-[11px] opacity-50\">合成引擎</span>",
-        "                            <select id=\"voiceEngineSelect\" class=\"px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\">",
-        "                                <option value=\"breeze\">本地 Breeze TTS 2（离线）</option>",
-        "                                <option value=\"voicestudio\">本地 VoiceStudio（OmniVoice）</option>",
-        "                                <option value=\"volc\">豆包云端（需 API Key）</option>",
-        "                            </select>",
-        "                        </div>",
-        "                        <div id=\"voiceRefTextBox\" class=\"flex items-center gap-2 mb-2\">",
-        "                            <span class=\"text-[11px] opacity-50\">样音文稿</span>",
-        "                            <textarea id=\"voiceRefTextInput\" rows=\"2\" class=\"flex-1 px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary);resize:vertical\" placeholder=\"这段样音里说的原话（本地克隆必需，要完整）\"></textarea>",
-        "                        </div>",
-        "                        <div class=\"flex items-center gap-2\">",
-        "                            <button id=\"voicePickFileBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">选择音频文件…</button>",
-        "                            <button id=\"voiceUseCurrentBtn\" class=\"px-3 py-1 rounded text-xs border\" style=\"border-color:var(--border-color)\">用列表里选中的音效</button>",
-        "                            <span id=\"voiceSampleInfo\" class=\"text-[11px] opacity-55 truncate\"></span>",
-        "                        </div>",
-        "                        <div class=\"flex items-center gap-2 mt-2\">",
-        "                            <span class=\"text-[11px] opacity-50\">音色名称</span>",
-        "                            <input id=\"voiceNameInput\" class=\"flex-1 px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"例如：我的声音\">",
-        "                        </div>",
-        "                    </div>",
-        "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
-        "                        <div class=\"flex items-center gap-2 mb-2\">",
-        "                            <span class=\"text-xs font-medium\">② 克隆音色</span>",
-        "                            <button id=\"voiceLibOpenBtn\" class=\"ml-auto text-[11px] opacity-60 hover:opacity-100\">管理音色库</button>",
-        "                        </div>",
-        "                        <div class=\"flex items-center gap-2\">",
-        "                            <button id=\"voiceCloneRunBtn\" class=\"px-3 py-1.5 rounded text-xs font-medium\" style=\"background:#3b82f6;color:#fff\">开始克隆</button>",
-        "                            <span id=\"voiceCloneStatus\" class=\"text-[11px] opacity-55\"></span>",
-        "                        </div>",
-        "                        <div id=\"voiceProfileList\" class=\"mt-2 flex flex-col gap-1\"></div>",
-        "                    </div>",
-        "                    <div class=\"rounded-lg p-3\" style=\"border:1px solid var(--border-color)\">",
-        "                        <div class=\"flex items-center gap-2 mb-2\">",
-        "                            <span class=\"text-xs font-medium\">③ 用这个音色说话</span>",
-        "                            <span class=\"text-[11px] opacity-45 ml-auto\">输出</span>",
-        "                            <select id=\"voiceFormatSelect\" class=\"px-2 py-0.5 rounded text-[11px]\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\">",
-        "                                <option value=\"1-24000\">单声道 24 kHz</option>",
-        "                                <option value=\"2-24000\">双声道 24 kHz</option>",
-        "                                <option value=\"2-48000\">双声道 48 kHz</option>",
-        "                                <option value=\"1-48000\">单声道 48 kHz</option>",
-        "                            </select>",
-        "                        </div>",
-        "                        <textarea id=\"voiceTextInput\" rows=\"3\" class=\"w-full px-2 py-1 rounded text-xs\" style=\"background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary)\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
-        "                        <div id=\"voiceSpeakProgressWrap\" class=\"mt-2\" style=\"display:none\">",
-        "                            <div style=\"height:6px;border-radius:999px;background:var(--bg-tertiary);overflow:hidden;border:1px solid var(--border-color)\">",
-        "                                <div id=\"voiceSpeakProgressFill\" style=\"height:100%;width:2%;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width .35s ease-out\"></div>",
-        "                            </div>",
-        "                            <div id=\"voiceSpeakProgressText\" class=\"text-[11px] opacity-55 mt-1\">合成中…</div>",
-        "                        </div>",
-        "                        <div class=\"flex items-center gap-2 mt-2\">",
-        "                            <button id=\"voicePlayBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>试听</button>",
-        "                            <button id=\"voiceSaveBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>导出音频…</button>",
-        "                            <button id=\"voiceToLibBtn\" class=\"px-3 py-1.5 rounded text-xs border\" style=\"border-color:var(--border-color)\" disabled>保存到音效库</button>",
-        "                            <button id=\"voiceSpeakBtn\" class=\"px-3 py-1.5 rounded text-xs font-medium\" style=\"background:#3b82f6;color:#fff\">生成语音</button>",
-        "                            <span id=\"voiceSpeakStatus\" class=\"text-[11px] opacity-55\"></span>",
-        "                        </div>",
-        "                    </div>",
-        "                    </div>",
-        "                    <div id=\"voiceLongPane\" class=\"hidden\"></div>",
-        "                </div>"
+        "<div class=\"vc-panel\" style=\"background:var(--bg-secondary);border:1px solid var(--border-color)\">",
+        "  <div class=\"vc-head\">",
+        "    <span class=\"vc-logo\">声</span>",
+        "    <span class=\"vc-title-wrap\">",
+        "      <span class=\"vc-title\">声音克隆</span>",
+        "      <span class=\"vc-sub\">选一段约 15 秒人声 → 复刻音色 → 输入台词生成语音</span>",
+        "    </span>",
+        "    <button id=\"voiceCloseBtn\" class=\"vc-link\" style=\"margin-left:auto\">关闭</button>",
+        "  </div>",
+        "  <div class=\"vc-tabs\">",
+        "    <button id=\"voiceTabShort\" class=\"vc-tab is-on\">短音频克隆</button>",
+        "    <button id=\"voiceTabLong\" class=\"vc-tab\">长音频克隆</button>",
+        "  </div>",
+        "  <div id=\"voiceShortPane\" class=\"vc-cols\">",
+        "    <aside class=\"vc-lib\">",
+        "      <div class=\"vc-lib-head\"><span class=\"vc-title\">音色库</span><span id=\"voiceLibCount\" class=\"vc-label\" style=\"margin-left:auto\">0</span></div>",
+        "      <input id=\"voiceLibSearch\" class=\"vc-input\" placeholder=\"搜音色名…\">",
+        "      <div class=\"vc-chips\" id=\"voiceLibFilters\">",
+        "        <button class=\"vc-chip is-on\" data-engine=\"all\">全部</button>",
+        "        <button class=\"vc-chip\" data-engine=\"breeze\">Breeze</button>",
+        "        <button class=\"vc-chip\" data-engine=\"voicestudio\">VoiceStudio</button>",
+        "        <button class=\"vc-chip\" data-engine=\"volc\">云端</button>",
+        "      </div>",
+        "      <div id=\"voiceProfileList\" class=\"vc-lib-list\"></div>",
+        "      <button id=\"voiceCloneNewBtn\" class=\"vc-btn vc-btn--block\" style=\"margin-top:8px\">+ 克隆新音色</button>",
+        "      <div id=\"voiceLibCurrent\" class=\"vc-current\">当前没选音色</div>",
+        "      <button id=\"voiceLibOpenBtn\" class=\"vc-link\" style=\"margin-top:6px\">管理音色库</button>",
+        "    </aside>",
+        "    <section class=\"vc-work\">",
+        "      <div class=\"vc-card vc-card--tight\">",
+        "        <div class=\"vc-row\">",
+        "          <span class=\"vc-title\">样音</span>",
+        "          <span id=\"voiceSampleInfo\" class=\"vc-sample\">还没选样音</span>",
+        "          <button id=\"voicePickFileBtn\" class=\"vc-btn vc-btn--ghost\" style=\"padding:6px 10px;font-size:11px\">换一个…</button>",
+        "          <button id=\"voiceUseCurrentBtn\" class=\"vc-btn vc-btn--ghost\" style=\"padding:6px 10px;font-size:11px\">用列表里选中的</button>",
+        "        </div>",
+        "      </div>",
+        "      <div class=\"vc-card vc-card--tight\">",
+        "        <div class=\"vc-row\">",
+        "          <span class=\"vc-label\" style=\"width:56px\">音色名称</span>",
+        "          <input id=\"voiceNameInput\" class=\"vc-input\" style=\"flex:1;min-width:0\" placeholder=\"例如：我的声音\">",
+        "          <button id=\"voiceCloneRunBtn\" class=\"vc-btn vc-btn--primary\">开始克隆</button>",
+        "        </div>",
+        "        <div id=\"voiceRefTextBox\" class=\"vc-row\" style=\"margin-top:8px\">",
+        "          <span class=\"vc-label\" style=\"width:56px\">样音文稿</span>",
+        "          <textarea id=\"voiceRefTextInput\" rows=\"2\" class=\"vc-input\" style=\"flex:1;min-width:0;resize:vertical\" placeholder=\"这段样音里说的原话（Breeze 克隆必需，要完整）\"></textarea>",
+        "        </div>",
+        "        <div id=\"voiceCloneStatus\" class=\"vc-status\" style=\"margin-top:6px\"></div>",
+        "      </div>",
+        "      <div class=\"vc-card vc-card--tight\">",
+        "        <div class=\"vc-row\">",
+        "          <span class=\"vc-label\" style=\"width:56px\">合成引擎</span>",
+        "          <select id=\"voiceEngineSelect\" class=\"vc-input\" style=\"width:230px;flex:0 0 auto\">",
+        "            <option value=\"breeze\">本地 Breeze TTS 2（离线）</option>",
+        "            <option value=\"voicestudio\">本地 VoiceStudio（OmniVoice）</option>",
+        "            <option value=\"volc\">豆包云端（需 API Key）</option>",
+        "          </select>",
+        "          <span class=\"vc-label\">输出</span>",
+        "          <select id=\"voiceFormatSelect\" class=\"vc-input\" style=\"width:150px;flex:0 0 auto\">",
+        "            <option value=\"1-24000\">单声道 24 kHz</option>",
+        "            <option value=\"2-24000\">双声道 24 kHz</option>",
+        "            <option value=\"2-48000\">双声道 48 kHz</option>",
+        "            <option value=\"1-48000\">单声道 48 kHz</option>",
+        "          </select>",
+        "        </div>",
+        "        <div class=\"vc-hint\" style=\"margin-top:6px\">引擎决定用哪个模型念，和音色是谁克隆的无关</div>",
+        "      </div>",
+        "      <div class=\"vc-card\">",
+        "        <textarea id=\"voiceTextInput\" rows=\"5\" class=\"vc-input\" style=\"min-height:120px\" placeholder=\"输入要念的台词，例如：欢迎使用回声音效库\"></textarea>",
+        "        <div id=\"voiceSpeakProgressWrap\" style=\"display:none;margin-top:10px\">",
+        "          <div class=\"vc-bar\"><i id=\"voiceSpeakProgressFill\" style=\"width:2%\"></i></div>",
+        "          <div id=\"voiceSpeakProgressText\" class=\"vc-status\" style=\"margin-top:5px\">合成中…</div>",
+        "        </div>",
+        "        <div class=\"vc-grid2\" style=\"margin-top:12px\">",
+        "          <button id=\"voiceSpeakBtn\" class=\"vc-btn vc-btn--primary\" style=\"grid-column:1/-1;padding:11px\">生成语音</button>",
+        "          <button id=\"voicePlayBtn\" class=\"vc-btn\" disabled>试听</button>",
+        "          <button id=\"voiceSaveBtn\" class=\"vc-btn\" disabled>导出音频…</button>",
+        "          <button id=\"voiceToLibBtn\" class=\"vc-btn vc-btn--ghost\" style=\"grid-column:1/-1\" disabled>保存到音效库</button>",
+        "        </div>",
+        "        <div id=\"voiceSpeakStatus\" class=\"vc-status\" style=\"margin-top:6px\"></div>",
+        "      </div>",
+        "    </section>",
+        "  </div>",
+        "  <div id=\"voiceLongPane\" class=\"hidden\"></div>",
+        "</div>"
     ].join('');
     document.body.appendChild(overlay);
     overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
@@ -119,10 +184,9 @@ function showVoiceCloneModal(options = {}) {
         const isShort = tab === 'short';
         shortPane?.classList.toggle('hidden', !isShort);
         longPane?.classList.toggle('hidden', isShort);
-        const on = 'background:var(--accent-color,#6b8afd);color:#fff';
-        const off = 'color:var(--text-secondary)';
-        if (tabShort) tabShort.style.cssText = isShort ? on : off;
-        if (tabLong) tabLong.style.cssText = isShort ? off : on;
+        // 高亮走 .vc-tab.is-on，别再写内联 cssText —— 会把新样式整块覆盖掉
+        if (tabShort) tabShort.classList.toggle('is-on', isShort);
+        if (tabLong) tabLong.classList.toggle('is-on', !isShort);
         // 长文本面板按需挂载：每次切过去重建，避免它和短音频那套状态互相干扰
         if (!isShort && typeof renderLongTtsPanel === 'function' && longPane) {
             renderLongTtsPanel(longPane, { profiles: voiceState.profiles });
@@ -130,6 +194,26 @@ function showVoiceCloneModal(options = {}) {
     };
     tabShort?.addEventListener('click', () => setTab('short'));
     tabLong?.addEventListener('click', () => setTab('long'));
+
+    // 音色库：搜索框 + 引擎筛选 + 「克隆新音色」快捷入口
+    const libSearch = overlay.querySelector('#voiceLibSearch');
+    libSearch?.addEventListener('input', () => {
+        voiceState.libSearch = libSearch.value || '';
+        renderProfiles();
+    });
+    overlay.querySelectorAll('#voiceLibFilters .vc-chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            voiceState.libEngineFilter = chip.dataset.engine || 'all';
+            overlay.querySelectorAll('#voiceLibFilters .vc-chip').forEach((item) => {
+                item.classList.toggle('is-on', item === chip);
+            });
+            renderProfiles();
+        });
+    });
+    overlay.querySelector('#voiceCloneNewBtn')?.addEventListener('click', () => {
+        overlay.querySelector('#voiceNameInput')?.focus();
+        overlay.querySelector('#voicePickFileBtn')?.click();
+    });
     // 从音色库的「长文本转语音」进来，直接落在长音频页
     if (options?.tab === 'long') setTab('long');
 
@@ -168,45 +252,107 @@ function showVoiceCloneModal(options = {}) {
         useSample(currentSound.filePath, duration);
     });
 
+    // 音色库：搜索 + 按引擎筛选 + 每行「引擎 / 缺文稿 / 使用 / 删除」
+    const providerLabel = (profile) => {
+        const provider = String(profile.provider || '');
+        if (provider === 'breeze') return '本地 · Breeze';
+        if (provider === 'voicestudio') return '本地 · VoiceStudio';
+        return '云端 · 豆包';
+    };
     const renderProfiles = () => {
         const host = overlay.querySelector('#voiceProfileList');
+        if (!host) return;
+        const keyword = String(voiceState.libSearch || '').trim().toLowerCase();
+        const engineFilter = String(voiceState.libEngineFilter || 'all');
         host.innerHTML = '';
+
+        const visible = voiceState.profiles.filter((profile) => {
+            const provider = String(profile.provider || '');
+            if (engineFilter !== 'all' && provider !== engineFilter) return false;
+            if (!keyword) return true;
+            return String(profile.name || '').toLowerCase().includes(keyword);
+        });
+
+        const countEl = overlay.querySelector('#voiceLibCount');
+        if (countEl) countEl.textContent = String(voiceState.profiles.length);
+        const currentEl = overlay.querySelector('#voiceLibCurrent');
+        const active = voiceState.profiles.find((item) => String(item.id) === String(voiceState.profileId));
+        if (currentEl) {
+            currentEl.textContent = active
+                ? '当前使用：' + (active.name || '未命名') + '（' + providerLabel(active) + '）'
+                : '当前没选音色';
+        }
+
         if (!voiceState.profiles.length) {
-            host.innerHTML = '<div class="text-[11px] opacity-40">还没有克隆过音色</div>';
+            host.innerHTML = '<div class="vc-label">还没有克隆过音色</div>';
             return;
         }
-        voiceState.profiles.forEach((profile) => {
-            const row = document.createElement('div');
-            row.className = 'flex items-center gap-2 text-[11px] px-2 py-1 rounded';
-            const isActive = String(profile.id) === String(voiceState.profileId);
-            row.style.cssText = 'border:1px solid ' + (isActive ? 'var(--accent-color,#6b8afd)' : 'var(--border-color)');
-            const label = document.createElement('span');
-            label.textContent = profile.name || '未命名';
-            label.style.color = 'var(--text-primary)';
-            const meta = document.createElement('span');
-            meta.className = 'opacity-45';
+        if (!visible.length) {
+            host.innerHTML = '<div class="vc-label">没有匹配的音色</div>';
+            return;
+        }
+
+        visible.forEach((profile) => {
             const providerName = String(profile.provider || '');
-            meta.textContent = providerName === 'breeze'
-                ? '本地·Breeze'
-                : (providerName === 'voicestudio' ? '本地·VoiceStudio' : '云端·豆包');
-            if (providerName === 'breeze' && !String(profile.ref_text || '').trim()) {
-                meta.textContent += ' · 缺文稿';
-                meta.title = 'Breeze 必须知道样音说的原话才能复刻，点右边的「补文稿」';
+            const needsRefText = providerName === 'breeze' && !String(profile.ref_text || '').trim();
+            const isActive = String(profile.id) === String(voiceState.profileId);
+
+            const row = document.createElement('div');
+            row.className = 'vc-voice' + (isActive ? ' is-active' : '');
+            row.style.flexWrap = 'nowrap';
+            row.title = needsRefText ? 'Breeze 必须知道样音说的原话才能复刻，点「补文稿」' : (profile.name || '');
+
+            const dot = document.createElement('span');
+            dot.className = 'vc-dot' + (needsRefText ? ' vc-dot--warn' : '');
+
+            const info = document.createElement('span');
+            info.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column';
+            const nameEl = document.createElement('span');
+            nameEl.className = 'vc-vname';
+            nameEl.textContent = profile.name || '未命名';
+            const metaEl = document.createElement('span');
+            metaEl.className = 'vc-vmeta';
+            metaEl.textContent = providerLabel(profile) + (needsRefText ? ' · 缺文稿' : '');
+            info.appendChild(nameEl);
+            info.appendChild(metaEl);
+
+            const mkBtn = (text, className, onClick) => {
+                const button = document.createElement('button');
+                button.className = className;
+                button.textContent = text;
+                button.style.padding = '3px 6px';
+                button.style.fontSize = '10px';
+                button.addEventListener('click', onClick);
+                return button;
+            };
+
+            row.appendChild(dot);
+            row.appendChild(info);
+            if (needsRefText) {
+                row.appendChild(mkBtn('补文稿', 'vc-btn vc-btn--ghost', async (event) => {
+                    event.stopPropagation();
+                    const text = window.prompt('这段样音里说的原话是什么？（Breeze 靠它复刻音色）', '');
+                    if (!text || !text.trim()) return;
+                    try {
+                        await rendererApi.patch('/api/v1/voice/profiles/' + encodeURIComponent(profile.id), {
+                            ref_text: text.trim(),
+                        }, { timeoutMs: 30000 });
+                        await loadVoiceProfiles();
+                        renderProfiles();
+                        showNotification('已补上文稿，现在可以生成了', 'success');
+                    } catch (error) {
+                        showNotification('补文稿失败: ' + (error?.message || error), 'error');
+                    }
+                }));
             }
-            const pick = document.createElement('button');
-            pick.className = 'ml-auto opacity-60 hover:opacity-100';
-            pick.textContent = isActive ? '使用中' : '使用';
-            pick.addEventListener('click', () => {
+            row.appendChild(mkBtn(isActive ? '使用中' : '使用', 'vc-btn vc-btn--ghost', () => {
                 voiceState.speakerId = profile.speaker_id || '';
                 voiceState.profileId = profile.id || '';
                 voiceState.provider = profile.provider || 'volc';
                 renderProfiles();
-                speakStatus.textContent = '已选：' + (profile.name || '未命名');
-            });
-            const del = document.createElement('button');
-            del.className = 'opacity-40 hover:opacity-100';
-            del.textContent = '删除';
-            del.addEventListener('click', async () => {
+                if (speakStatus) speakStatus.textContent = '已选：' + (profile.name || '未命名');
+            }));
+            row.appendChild(mkBtn('删除', 'vc-btn vc-btn--danger', async () => {
                 try {
                     await rendererApi.delete('/api/v1/voice/profiles/' + encodeURIComponent(profile.id));
                     await loadVoiceProfiles();
@@ -214,28 +360,7 @@ function showVoiceCloneModal(options = {}) {
                 } catch (error) {
                     showNotification('删除失败: ' + (error?.message || error), 'error');
                 }
-            });
-            const fill = document.createElement('button');
-            const needsRefText = providerName === 'breeze' && !String(profile.ref_text || '').trim();
-            fill.className = 'opacity-60 hover:opacity-100';
-            fill.textContent = needsRefText ? '补文稿' : '';
-            fill.style.display = needsRefText ? '' : 'none';
-            fill.addEventListener('click', async (event) => {
-                event.stopPropagation();
-                const text = window.prompt('这段样音里说的原话是什么？（Breeze 靠它复刻音色）', '');
-                if (!text || !text.trim()) return;
-                try {
-                    await rendererApi.patch('/api/v1/voice/profiles/' + encodeURIComponent(profile.id), {
-                        ref_text: text.trim(),
-                    }, { timeoutMs: 30000 });
-                    await loadVoiceProfiles();
-                    renderProfiles();
-                    showNotification('已补上文稿，现在可以生成了', 'success');
-                } catch (error) {
-                    showNotification('补文稿失败: ' + (error?.message || error), 'error');
-                }
-            });
-            row.appendChild(label); row.appendChild(meta); row.appendChild(fill); row.appendChild(pick); row.appendChild(del);
+            }));
             host.appendChild(row);
         });
     };

@@ -224,6 +224,20 @@
     function init() {
         document.getElementById('brokenFilesBtn')?.addEventListener('click', openModal);
         document.getElementById('closeBrokenFilesModal')?.addEventListener('click', closeModal);
+        // 兜底：用捕获阶段的事件委托关窗。
+        // 之前 ✕ 点不动，怀疑是某个 z-index 更高的层/拖拽区把点击吃掉了；
+        // 委托在捕获阶段先跑，点 ✕ 或点遮罩空白处都能关。
+        document.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!target || !target.closest) return;
+            if (target.closest('#closeBrokenFilesModal')) {
+                event.stopPropagation();
+                closeModal();
+                return;
+            }
+            const modal = document.getElementById('brokenFilesModal');
+            if (modal && !modal.classList.contains('hidden') && target === modal) closeModal();
+        }, true);
         document.getElementById('cleanupAllBrokenBtn')?.addEventListener('click', cleanupAll);
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') closeModal();

@@ -92,10 +92,6 @@ function showVoiceCloneModal(options = {}) {
         "    </span>",
         "    <button id=\"voiceCloseBtn\" class=\"vc-link\" style=\"margin-left:auto\">关闭</button>",
         "  </div>",
-        "  <div class=\"vc-tabs\">",
-        "    <button id=\"voiceTabShort\" class=\"vc-tab is-on\">短音频克隆</button>",
-        "    <button id=\"voiceTabLong\" class=\"vc-tab\">长音频克隆</button>",
-        "  </div>",
         "  <div id=\"voiceShortPane\" class=\"vc-cols\">",
         "    <aside class=\"vc-lib\">",
         "      <div class=\"vc-lib-head\"><span class=\"vc-title\">音色库</span><span id=\"voiceLibCount\" class=\"vc-label\" style=\"margin-left:auto\">0</span></div>",
@@ -135,7 +131,6 @@ function showVoiceCloneModal(options = {}) {
         "          <select id=\"voiceEngineSelect\" class=\"vc-input\" style=\"width:260px;flex:0 0 auto\">",
         "            <option value=\"omnivoice\">本地 OmniVoice（内置，无需装 VoiceStudio）</option>",
         "            <option value=\"breeze\">本地 Breeze TTS 2（离线）</option>",
-        "            <option value=\"voicestudio\">VoiceStudio 应用（需先打开它）</option>",
         "            <option value=\"volc\">豆包云端（需 API Key）</option>",
         "          </select>",
         "          <span class=\"vc-label\">输出</span>",
@@ -168,34 +163,13 @@ function showVoiceCloneModal(options = {}) {
         "      </div>",
         "    </section>",
         "  </div>",
-        "  <div id=\"voiceLongPane\" class=\"hidden\"></div>",
         "</div>"
     ].join('');
     document.body.appendChild(overlay);
     overlay.addEventListener('mousedown', (event) => { if (event.target === overlay) overlay.remove(); });
     overlay.querySelector('#voiceCloseBtn').addEventListener('click', () => overlay.remove());
 
-    // ===== 两个模式共用一个音色库（voiceState.profiles），只是承接的文本长度不同 =====
-    const shortPane = overlay.querySelector('#voiceShortPane');
-    const longPane = overlay.querySelector('#voiceLongPane');
-    const tabShort = overlay.querySelector('#voiceTabShort');
-    const tabLong = overlay.querySelector('#voiceTabLong');
-    let activeTab = 'short';
-    const setTab = (tab) => {
-        activeTab = tab;
-        const isShort = tab === 'short';
-        shortPane?.classList.toggle('hidden', !isShort);
-        longPane?.classList.toggle('hidden', isShort);
-        // 高亮走 .vc-tab.is-on，别再写内联 cssText —— 会把新样式整块覆盖掉
-        if (tabShort) tabShort.classList.toggle('is-on', isShort);
-        if (tabLong) tabLong.classList.toggle('is-on', !isShort);
-        // 长文本面板按需挂载：每次切过去重建，避免它和短音频那套状态互相干扰
-        if (!isShort && typeof renderLongTtsPanel === 'function' && longPane) {
-            renderLongTtsPanel(longPane, { profiles: voiceState.profiles });
-        }
-    };
-    tabShort?.addEventListener('click', () => setTab('short'));
-    tabLong?.addEventListener('click', () => setTab('long'));
+    // 11-25：长音频面板已删除（短音频本身就能念 4 分半，分段/后台/写文件夹那套不再需要）
 
     // 音色库：搜索框 + 引擎筛选 + 「克隆新音色」快捷入口
     const libSearch = overlay.querySelector('#voiceLibSearch');
@@ -212,9 +186,6 @@ function showVoiceCloneModal(options = {}) {
             renderProfiles();
         });
     });
-
-    // 从音色库的「长文本转语音」进来，直接落在长音频页
-    if (options?.tab === 'long') setTab('long');
 
     const sampleInfo = overlay.querySelector('#voiceSampleInfo');
     const nameInput = overlay.querySelector('#voiceNameInput');
@@ -770,11 +741,6 @@ function showVoiceCloneModal(options = {}) {
         loadVoiceProfiles().then(renderProfiles);
     });
 
-    loadVoiceProfiles().then(renderProfiles).then(() => {
-        // 面板已打开在长音频页时，音色列表刷新了要跟着重建下拉
-        if (activeTab === 'long' && typeof renderLongTtsPanel === 'function' && longPane) {
-            renderLongTtsPanel(longPane, { profiles: voiceState.profiles });
-        }
-    });
+    loadVoiceProfiles().then(renderProfiles);
 }
 

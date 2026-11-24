@@ -517,11 +517,15 @@ function showVoiceCloneModal(options = {}) {
                 if (playBtnEl) playBtnEl.disabled = false;
                 if (saveBtnEl) saveBtnEl.disabled = false;
                 if (toLibBtnEl) toLibBtnEl.disabled = false;
-                if (!audioPlayer) initAudioPlayer();
-                audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
-                audioPlayer.load();
-                await audioPlayer.play().catch(() => { });
-                isPlaying = true;
+                // 生成完不再自动播放（老板要求：要听自己点试听）。
+                // 但先把音源挂上，点试听就不用再等加载。
+                const player = ensurePlayer();
+                player.pause();
+                player.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
+                player.dataset.output = voiceState.lastOutput;
+                player.load();
+                isPlaying = false;
+                syncPlayButton();
             }
         } catch (error) {
             speakStatus.textContent = '';
@@ -530,14 +534,44 @@ function showVoiceCloneModal(options = {}) {
         }
     });
 
-    overlay.querySelector('#voicePlayBtn').addEventListener('click', async () => {
+    // 试听按钮 = 播放/暂停切换：正在放就显示「暂停」，暂停或放完回到「试听」
+    const playBtn = overlay.querySelector('#voicePlayBtn');
+    let playerHooked = false;
+    const ensurePlayer = () => {
+        if (!audioPlayer) initAudioPlayer();
+        if (audioPlayer && !playerHooked) {
+            audioPlayer.addEventListener('play', () => syncPlayButton());
+            audioPlayer.addEventListener('pause', () => syncPlayButton());
+            audioPlayer.addEventListener('ended', () => { isPlaying = false; syncPlayButton(); });
+            playerHooked = true;
+        }
+        return audioPlayer;
+    };
+    const syncPlayButton = () => {
+        if (!playBtn) return;
+        const playing = Boolean(audioPlayer) && !audioPlayer.paused && !audioPlayer.ended;
+        playBtn.textContent = playing ? '暂停' : '试听';
+        playBtn.title = playing ? '点一下暂停' : '点一下试听';
+    };
+
+    playBtn?.addEventListener('click', async () => {
         if (!voiceState.lastOutput) return;
         try {
-            if (!audioPlayer) initAudioPlayer();
-            audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
-            audioPlayer.load();
+            ensurePlayer();
+            // 换了产物、或上一段放完了，才重新挂音源；否则直接续播
+            if (!audioPlayer.src || audioPlayer.ended || audioPlayer.dataset.output !== voiceState.lastOutput) {
+                audioPlayer.src = 'soundmind-audio://local/' + encodeURIComponent(voiceState.lastOutput);
+                audioPlayer.dataset.output = voiceState.lastOutput;
+                audioPlayer.load();
+            }
+            if (!audioPlayer.paused) {
+                audioPlayer.pause();
+                syncPlayButton();
+                return;
+            }
             await audioPlayer.play();
             isPlaying = true;
+            syncPlayButton();
         } catch (error) {
             showNotification('播放失败: ' + (error?.message || error), 'error');
         }

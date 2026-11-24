@@ -363,6 +363,44 @@
             border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
         #oWinBtns button:hover{background:rgba(255,255,255,.08);color:var(--text-primary)}
         #oWinBtns button.o-close:hover{background:#e81123;color:#fff}
+
+        /* === 左栏分组导航（库 / 生产 / 整理 / 维护） === */
+        #oNav{display:flex;flex-direction:column;gap:1px;padding:8px 8px 10px;border-bottom:1px solid var(--border-color);shrink:0}
+        #oNav .o-nav-group{font-size:10px;letter-spacing:.06em;color:var(--text-secondary);opacity:.6;padding:10px 8px 4px}
+        #oNav .o-nav-group:first-child{padding-top:2px}
+        #oNav .o-nav-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px;border:0;border-radius:7px;
+            background:transparent;color:var(--text-primary);font-size:12px;text-align:left;cursor:pointer;
+            transition:background .12s ease}
+        #oNav .o-nav-item:hover{background:rgba(128,128,128,.12)}
+        #oNav .o-nav-item.is-on{background:rgba(107,138,253,.16);font-weight:600}
+        #oNav .o-nav-danger{color:#ef4444}
+        #oNav .o-nav-icon{width:14px;height:14px;opacity:.75;flex:0 0 auto}
+        #oNav .o-nav-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        #oNav .o-nav-badge{font-size:11px;color:var(--text-secondary);opacity:.75;font-variant-numeric:tabular-nums}
+
+        /* 导航更紧凑，给下面的文件夹树留空间 */
+        #oNav{padding:6px 6px 8px}
+        #oNav .o-nav-group{padding:8px 8px 3px}
+        #oNav .o-nav-item{padding:5px 8px;font-size:11.5px;gap:7px}
+        #oNav .o-nav-icon{width:13px;height:13px}
+        /* 旧左栏里和导航重复的入口隐藏（点击仍可通过 id 触发） */
+        #leftAside > div[data-i18n] , #leftAside > #brokenFilesBtn{display:none !important}
+
+        /* 左栏：默认只留分组导航，文件夹/标签/历史按需下拉 */
+        #leftAside > #folderPanelSection, #leftAside > #tagPanelSection, #leftAside > #historyPanels{display:none}
+        #leftAside > .o-drawer-on{display:flex !important;flex:1 1 auto;min-height:0;height:auto !important}
+        #leftAside > #historyPanels.o-drawer-on{display:block !important;flex:0 0 auto}
+        #leftAside > #sideSplitter{display:none !important}
+
+        /* 导航更紧 + 可滚动，保证 11 项都在视野内 */
+        #oNav{padding:4px 6px 6px;max-height:62%;overflow-y:auto}
+        #oNav .o-nav-group{padding:6px 8px 2px;font-size:9.5px}
+        #oNav .o-nav-item{padding:4px 8px;font-size:11.5px;border-radius:6px}
+        #oNav .o-nav-badge{font-size:10.5px}
+
+        /* 导航不自己滚动，整列一起滚（避免出现两个滚动条） */
+        #leftAside{overflow-y:auto}
+        #oNav{max-height:none;overflow:visible}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -1116,6 +1154,7 @@
     <script defer src="./assets/renderer/data-state.js"></script>
     <script defer src="./assets/renderer/app-core.js"></script>
     <script defer src="./assets/renderer/header-o.js"></script>
+    <script defer src="./assets/renderer/o-nav.js"></script>
     <script defer src="./assets/renderer/layout-o.js"></script>
     <script defer src="./assets/renderer/app-ui.js"></script>
     <script defer src="./assets/renderer/app-data.js"></script>

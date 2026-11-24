@@ -64,9 +64,12 @@
             header.dataset.collapsible = '1';
 
             var key = panel.getAttribute('data-panel') || ('panel' + index);
+            // 折角放到标题最左边（放最右边会被「＋ / 浮动」按钮挤掉，看不见）
             var caret = document.createElement('span');
-            caret.style.cssText = 'margin-left:6px;font-size:10px;opacity:.55;cursor:pointer;user-select:none';
-            header.appendChild(caret);
+            caret.className = 'layout-o-caret';
+            caret.style.cssText = 'font-size:12px;line-height:1;opacity:.6;margin-right:6px;cursor:pointer;user-select:none';
+            var titleBox = header.firstElementChild || header;
+            titleBox.insertBefore(caret, titleBox.firstElementChild);
 
             var saved = state[key];
             var collapsed = saved === true;

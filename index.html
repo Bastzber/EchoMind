@@ -335,6 +335,12 @@
         #quickBar .qa-group{font-size:10px;color:var(--text-secondary);opacity:.6;letter-spacing:.06em;
             padding:0 4px 0 8px;border-left:1px solid var(--border-color);margin-left:2px}
         #quickBar .qa-group:first-child{border-left:0;padding-left:2px;margin-left:0}
+
+        /* O 排法：列表行更紧凑（原来 py-3 + 双行，一屏只能看 9 条） */
+        #soundList .sound-row{padding-top:6px !important;padding-bottom:6px !important}
+        #soundList .sound-row .text-xs.opacity-50{display:none}
+        /* 左栏折叠小三角 */
+        .layout-o-caret{transition:transform .15s ease}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -686,6 +692,8 @@
                 <div class="overflow-y-auto p-2 pt-0 flex-1 min-h-0" id="folderTree" data-panel-body></div>
             </div>
             
+            <!-- 待处理（O 排法：把告警类入口归到一组，别散在导航里） -->
+            <div class="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider opacity-45 shrink-0" data-i18n="sidebar.todo">待处理</div>
             <!-- 损坏文件入口 -->
             <button id="brokenFilesBtn"
                     class="mx-2 my-1 px-3 py-2 rounded-md text-sm flex items-center gap-2 transition-colors hover:bg-black/5 dark:hover:bg-white/5"

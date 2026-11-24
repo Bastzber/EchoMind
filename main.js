@@ -1939,7 +1939,9 @@ function createWindow() {
     ...initialBounds,
     minWidth: Math.min(1280, require('electron').screen.getPrimaryDisplay().workAreaSize.width),
     minHeight: 720,
-    title: '回声 - AI 音效管理器',
+    // 不用系统标题栏（那条白色 caption 和软件皮肤打架）：
+    // hidden + 深色 overlay，只保留右上角的 最小化/最大化/关闭
+    title: '',
     icon: path.join(__dirname, 'assets', 'audio-icon.png'),
     webPreferences: {
       nodeIntegration: false,
@@ -1949,7 +1951,12 @@ function createWindow() {
       webSecurity: true,
       allowRunningInsecureContent: false
     },
-    titleBarStyle: 'default',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0a0a0a',
+      symbolColor: '#d4d4d4',
+      height: 40
+    },
     show: false,
     backgroundColor: '#0a0a0a'
   });

@@ -347,6 +347,10 @@
             opacity:.6;letter-spacing:.06em;user-select:none}
         #quickBar .quick-btn{white-space:nowrap}
         /* 旧的单行分组标签样式留着不冲突，但不再使用 */
+
+        /* === 自绘标题栏（隐藏系统 caption 后）：顶栏可拖、右上角给系统按钮留位 === */
+        header.h-14{-webkit-app-region:drag;padding-right:148px}
+        header.h-14 button,header.h-14 nav,header.h-14 a,header.h-14 input,header.h-14 select,header.h-14 .help-dot{-webkit-app-region:no-drag}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

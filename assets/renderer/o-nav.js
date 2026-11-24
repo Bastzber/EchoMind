@@ -95,8 +95,27 @@
             if (bar && bar.style.display === 'none' && toggle) toggle.click();
             return;
         }
-        if (action === 'all') { showDrawer('folder'); clickInTree('全部'); return; }
-        if (action === 'favorites') { showDrawer('folder'); clickInTree('收藏'); return; }
+        if (action === 'all') {
+            showDrawer('folder');
+            // 用应用自己的「全部音效」入口，别靠点树节点（树里不一定有那一行）
+            if (typeof showAllSounds === 'function') { showAllSounds(); return; }
+            clickInTree('全部');
+            return;
+        }
+        if (action === 'favorites') {
+            // 收藏行是 app-ui.js 动态建在标签树里的 #favoriteRow，点它会 toggle。
+            // 这里直接调 showFavorites()，保证「点一次就看收藏」，不会被 toggle 掉。
+            if (typeof showFavorites === 'function') {
+                if (typeof setSidebarView === 'function') setSidebarView('favorites');
+                document.querySelectorAll('#categoryTree .sidebar-item, #folderTree .sidebar-item')
+                    .forEach((el) => el.classList.remove('active'));
+                document.getElementById('favoriteRow')?.classList.add('active');
+                showFavorites();
+                return;
+            }
+            clickInTree('收藏');
+            return;
+        }
         if (action === 'recent') {
             showDrawer('history');
             const history = document.getElementById('historyPanels');

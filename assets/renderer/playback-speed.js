@@ -1,68 +1,6 @@
 // 用「真正在播的解码器」（Chromium）算波形和时长，回写后端。
 // 起因：MP3 中间有坏帧时 PyAV/miniaudio 会停下（同一个文件后端认为 199 秒、
 // Chromium 能播 390 秒），波形和播放各用一套解码，怎么调都对不上。
-async function rebuildWaveformFromChromium(sound, el) {
-    const fileId = sound && sound.fileId;
-    if (!fileId || sound.__waveformRebuilt === fileId) return false;
-    sound.__waveformRebuilt = fileId;
-    try {
-        // 自定义协议 soundmind-audio:// 在渲染层 fetch 不通（fetch failed），
-        // 改走后端 HTTP 拿字节：/api/v1/files/{uuid}/audio
-        const apiBase = (rendererApi.getConfig && rendererApi.getConfig().apiBase) || 'http://127.0.0.1:8000';
-        const token = (rendererApi.getConfig && rendererApi.getConfig().apiToken) || '';
-        const url = apiBase.replace(/\/$/, '') + '/api/v1/files/' + encodeURIComponent(fileId) + '/audio';
-        const response = await fetch(url, { headers: token ? { 'X-EchoMind-Token': token } : {} });
-        if (!response.ok) return false;
-        const arrayBuffer = await response.arrayBuffer();
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        const ctx = new AudioCtx();
-        let buffer;
-        try {
-            buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-        } finally {
-            ctx.close();
-        }
-        if (!buffer || !buffer.length) return false;
-        const POINTS = 2000;
-        const channels = buffer.numberOfChannels;
-        const data = buffer.getChannelData(0);
-        const step = data.length / POINTS;
-        const peaks = new Array(POINTS).fill(0);
-        let max = 0;
-        for (let i = 0; i < POINTS; i += 1) {
-            const start = Math.floor(i * step);
-            const end = Math.min(data.length, Math.max(start + 1, Math.floor((i + 1) * step)));
-            let peak = 0;
-            for (let j = start; j < end; j += 1) {
-                const v = Math.abs(data[j]);
-                if (v > peak) peak = v;
-            }
-            peaks[i] = peak;
-            if (peak > max) max = peak;
-        }
-        if (max > 0) { for (let i = 0; i < POINTS; i += 1) peaks[i] = peaks[i] / max; }
-        const realDuration = buffer.duration;
-        await rendererApi.post('/api/v1/files/' + encodeURIComponent(fileId) + '/peaks', {
-            peaks,
-            duration: realDuration,
-            sample_rate: buffer.sampleRate,
-            channels,
-        });
-        sound.waveform = peaks;
-        sound.peaks = peaks;
-        sound.waveformDuration = realDuration;
-        sound.waveformSampleRate = buffer.sampleRate;
-        sound.waveformChannels = channels;
-        sound.duration = Math.round(realDuration * 1000);
-        if (typeof drawMainWaveform === 'function') drawMainWaveform();
-        showNotification('波形已按实际解码重算：' + realDuration.toFixed(1) + ' 秒', 'info');
-        return true;
-    } catch (error) {
-        sound.__waveformRebuilt = null;
-        console.warn('[Waveform] 重算失败:', error && error.message);
-        return false;
-    }
-}
 
 /* playback-speed.js —— 倍速 / 倒放
  * 从 index.html 原样搬出的完整顶层函数。
@@ -237,22 +175,6 @@ function attachPlayerHandlers(el) {
     });
     el.addEventListener('loadedmetadata', () => {
         if (el !== audioPlayer || !currentSound) return;
-        // 诊断用：三条时长不一致时提示一次，方便定位「越播越偏」
-        try {
-            const audioSec = Number(el.duration) || 0;
-            const dbSec = Number(currentSound.duration || 0) / 1000;
-            const waveRaw = Number(currentSound.waveformDuration || 0);
-            const waveSec = waveRaw > 10000 ? waveRaw / 1000 : waveRaw;
-            const off = (a, b) => (a > 0 && b > 0 && Math.abs(a - b) > 0.5);
-            if (currentSound.__durationWarned !== true
-                && (off(audioSec, dbSec) || off(audioSec, waveSec))) {
-                currentSound.__durationWarned = true;
-                const who = (currentSound.name || currentSound.filePath || '').toString();
-                showNotification('时长不一致 ' + who.slice(-40) + '：播放 ' + audioSec.toFixed(1)
-                    + 's / 库里 ' + dbSec.toFixed(1)
-                    + 's / 波形 ' + waveSec.toFixed(1) + 's', 'info');
-            }
-        } catch (_e) { /* 诊断失败不影响播放 */ }
         currentSound.duration = Math.round(el.duration * 1000);
         updatePlaybackUI();
 

@@ -49,29 +49,35 @@
         const dropdown = document.getElementById('settingsDropdown');
         if (!dropdown) return;
         const row = document.getElementById('omTempRow');
-        let hideTimer = null;
 
         if (row) {
-            const open = () => {
-                clearTimeout(hideTimer);
+            const panel = panelFor(row);
+            // 只认点击：以前是「悬停展开 + 点击切换」，鼠标本来就停在上面时
+            // 一点击反而把它关掉，看着就像「点了没反应」。
+            // 悬停和点击都只负责「打开」，不负责关闭 —— 关掉的方式是点别处或鼠标移开。
+            // 这样无论用户是点还是划过去，都不会出现「点了没反应」的错觉。
+            const open = (event) => {
+                if (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
                 showPanel(row, true);
             };
-            const scheduleClose = () => {
-                clearTimeout(hideTimer);
-                hideTimer = setTimeout(() => showPanel(row, false), 220);
-            };
             row.addEventListener('mouseenter', open);
-            row.addEventListener('mouseleave', scheduleClose);
-            row.addEventListener('click', (event) => {
-                event.stopPropagation();
-                const panel = panelFor(row);
-                if (panel) showPanel(row, panel.classList.contains('hidden'));
+            row.addEventListener('click', open);
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') open(event);
             });
-            const panel = panelFor(row);
+            // 鼠标从这一行移进面板时不要收起；移出面板就收起
             if (panel) {
-                panel.addEventListener('mouseenter', () => clearTimeout(hideTimer));
-                panel.addEventListener('mouseleave', scheduleClose);
+                panel.addEventListener('mouseleave', () => showPanel(row, false));
             }
+            // 点菜单里别的项，收起子菜单
+            dropdown.querySelectorAll('.om-set-row').forEach((other) => {
+                if (other !== row) {
+                    other.addEventListener('click', () => showPanel(row, false));
+                }
+            });
         }
 
         // 菜单关掉时把详情面板也收起来

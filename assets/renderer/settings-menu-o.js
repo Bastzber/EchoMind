@@ -19,8 +19,6 @@
         // 纵向对齐到「临时文件」这一行，看起来才像它的下一级菜单
         panel.classList.toggle('hidden', !show);
         if (show) {
-            const rowTop = row.offsetTop || 0;
-            panel.style.top = Math.max(0, rowTop - 6) + 'px';
             const chev = row.querySelector('.om-chev');
             if (chev) chev.style.transform = 'rotate(90deg)';
             const icon = row.querySelector('.om-ico');
@@ -54,24 +52,19 @@
             const panel = panelFor(row);
             // 只认点击：以前是「悬停展开 + 点击切换」，鼠标本来就停在上面时
             // 一点击反而把它关掉，看着就像「点了没反应」。
-            // 悬停和点击都只负责「打开」，不负责关闭 —— 关掉的方式是点别处或鼠标移开。
-            // 这样无论用户是点还是划过去，都不会出现「点了没反应」的错觉。
-            const open = (event) => {
+            // 就当普通折叠项：点一次展开、再点收起。就地在菜单里往下伸，
+            // 不做侧滑面板（那玩意儿用户点了经常以为没反应）。
+            const toggle = (event) => {
                 if (event) {
                     event.preventDefault();
                     event.stopPropagation();
                 }
-                showPanel(row, true);
+                showPanel(row, panel ? panel.classList.contains('hidden') : false);
             };
-            row.addEventListener('mouseenter', open);
-            row.addEventListener('click', open);
+            row.addEventListener('click', toggle);
             row.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter' || event.key === ' ') open(event);
+                if (event.key === 'Enter' || event.key === ' ') toggle(event);
             });
-            // 鼠标从这一行移进面板时不要收起；移出面板就收起
-            if (panel) {
-                panel.addEventListener('mouseleave', () => showPanel(row, false));
-            }
             // 点菜单里别的项，收起子菜单
             dropdown.querySelectorAll('.om-set-row').forEach((other) => {
                 if (other !== row) {

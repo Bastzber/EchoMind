@@ -10,7 +10,8 @@ async function loadTagStats() {
         window.__tagStats = window.__tagStats || [];
     }
     try {
-        const layered = await rendererApi.get('/api/v1/tags');
+        // 左栏只显示「我的标签」(origin=user)：AI 标签那 3800 个只用于搜索，不铺在左栏
+        const layered = await rendererApi.get('/api/v1/tags?origin=user');
         window.__tagLayers = {
             scene: (layered && layered.scene) || [],
             attr: (layered && layered.attr) || [],
@@ -27,7 +28,7 @@ async function loadTagStats() {
 // 保存标签后调 loadTagStats 会让用户干等两秒以上（11-03 反馈：左侧 7 秒才刷新）。
 async function refreshTagTree() {
     try {
-        const layered = await rendererApi.get('/api/v1/tags');
+        const layered = await rendererApi.get('/api/v1/tags?origin=user');
         window.__tagLayers = {
             scene: (layered && layered.scene) || [],
             attr: (layered && layered.attr) || [],

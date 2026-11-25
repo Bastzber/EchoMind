@@ -435,30 +435,9 @@
                 <!-- 文件下拉菜单 -->
                 <div id="fileDropdown" class="dropdown-menu hidden absolute top-full left-0 mt-2 w-56 rounded-lg shadow-xl border py-2 z-50"
                      style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50" data-i18n="lang.title">语言</div>
-                    <button id="newProjectBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="folder-plus" class="w-4 h-4"></i><span data-i18n="project.new">新建工程</span>
-                    </button>
-                    <button id="openProjectBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="folder-open" class="w-4 h-4"></i><span data-i18n="project.switch">打开工程</span>
-                    </button>
-                    <button id="recentProjectsBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="clock" class="w-4 h-4"></i><span data-i18n="project.recent">最近工程</span>
-                    </button>
+                    <!-- 工程切换已去掉：全站只有一个默认工程，标签/收藏/库里不会再打架 -->
                     <div class="border-t my-2" style="border-color: var(--border-color);"></div>
-                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50" data-i18n="project.current">当前工程</div>
-                    <div id="currentProjectInfo" class="px-4 py-2 text-sm opacity-70">
-                        <span id="currentProjectName" data-i18n="project.default">默认工程</span>
-                    </div>
-                </div>
-            </div>
-            <div class="relative">
-                <button id="importBtn" class="menu-btn h-10 px-3 rounded-md text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5">
-                    <i data-lucide="upload" class="w-4 h-4"></i><span data-i18n="file.import">导入</span>
-                </button>
-                <!-- 导入下拉菜单 -->
-                <div id="importDropdown" class="dropdown-menu hidden absolute top-full left-0 mt-2 w-48 rounded-lg shadow-xl border py-2 z-50"
-                     style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50">导入</div>
                     <button id="importFileBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
                         <i data-lucide="file-audio" class="w-4 h-4"></i><span data-i18n="file.import.audio">导入音频文件</span>
                     </button>

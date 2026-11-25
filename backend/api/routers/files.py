@@ -350,10 +350,16 @@ async def set_file_tags(
                 else:
                     tag_id = uuid.uuid4().hex
                     cursor.execute(
-                        "INSERT INTO tags (id, project_id, name, layer, created_at) VALUES (?,?,?,?,?)",
-                        (tag_id, project_id, name, "attr", datetime.now().isoformat()),
+                        "INSERT INTO tags (id, project_id, name, layer, created_at, origin) "
+                        "VALUES (?,?,?,?,?,?)",
+                        (tag_id, project_id, name, "attr", datetime.now().isoformat(), "user"),
                     )
                     resolved.append(tag_id)
+                # 用户手打的标签一律标 user，左栏「我的标签」才看得到
+                cursor.execute(
+                    "UPDATE tags SET origin='user' WHERE project_id=? AND name=? AND origin!='user'",
+                    (project_id, name),
+                )
             tag_ids = resolved
         try:
             tag_layers.set_file_tags(cursor, project_id, file_uuid, [str(t) for t in tag_ids])

@@ -55,6 +55,11 @@ def ensure_schema(cursor: sqlite3.Cursor) -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_file_tags_tag ON file_tags(project_id, tag_id)"
     )
+    # origin: 'user' = 用户自己手打/新建的标签（左栏只显示这些）
+    #         'ai'   = 从 files.tags 回填的 AI 标签（只用于搜索，不上左栏）
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(tags)").fetchall()}
+    if "origin" not in cols:
+        cursor.execute("ALTER TABLE tags ADD COLUMN origin TEXT NOT NULL DEFAULT 'ai'")
 
 
 def migrate_from_files(cursor: sqlite3.Cursor, project_id: str = "default") -> int:
@@ -103,18 +108,21 @@ def migrate_from_files(cursor: sqlite3.Cursor, project_id: str = "default") -> i
     return linked
 
 
-def list_tags(cursor: sqlite3.Cursor, project_id: str = "default") -> List[Dict[str, Any]]:
-    rows = cursor.execute(
-        """
+def list_tags(
+    cursor: sqlite3.Cursor, project_id: str = "default", origin: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    sql = """
         SELECT t.id, t.name, t.layer, t.color, t.sort_order, COUNT(ft.file_uuid)
         FROM tags t
         LEFT JOIN file_tags ft ON ft.tag_id = t.id AND ft.project_id = t.project_id
         WHERE t.project_id=?
-        GROUP BY t.id
-        ORDER BY t.layer DESC, t.sort_order, COUNT(ft.file_uuid) DESC
-        """,
-        (project_id,),
-    ).fetchall()
+        """
+    params: List[Any] = [project_id]
+    if origin:
+        sql += " AND t.origin=?"
+        params.append(origin)
+    sql += " GROUP BY t.id ORDER BY t.layer DESC, t.sort_order, COUNT(ft.file_uuid) DESC"
+    rows = cursor.execute(sql, tuple(params)).fetchall()
     return [
         {
             "id": r[0],

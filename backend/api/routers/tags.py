@@ -196,12 +196,16 @@ async def merge_tags(payload: Dict[str, Any], project_id: str = Query(default="d
 
 
 @router.get("/api/v1/tags")
-async def list_tags(project_id: str = Query(default="default")):
+async def list_tags(
+    project_id: str = Query(default="default"),
+    origin: Optional[str] = Query(default=None, description="user / ai，不传则全部"),
+):
     from core import tag_layers
 
     db_manager = get_db_manager()
     with db_manager.get_cursor() as cursor:
-        tags = tag_layers.list_tags(cursor, project_id)
+        tag_layers.ensure_schema(cursor)
+        tags = tag_layers.list_tags(cursor, project_id, origin=origin)
     return {
         "success": True,
         "scene": [t for t in tags if t["layer"] == "scene"],
@@ -227,9 +231,9 @@ async def create_tag(payload: Dict[str, Any], project_id: str = Query(default="d
     with db_manager.get_cursor() as cursor:
         try:
             cursor.execute(
-                "INSERT INTO tags (id, project_id, name, layer, sort_order, created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (tag_id, project_id, name, layer, 0, datetime.now().isoformat()),
+                "INSERT INTO tags (id, project_id, name, layer, sort_order, created_at, origin) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (tag_id, project_id, name, layer, 0, datetime.now().isoformat(), "user"),
             )
             cursor.connection.commit()
         except Exception as exc:

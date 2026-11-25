@@ -105,8 +105,10 @@ function renderCategoryTree() {
     (window.__localTags || []).forEach(name => {
         if (name && !(name in tagCounts)) tagCounts[name] = 0;
     });
+    // 只保留本地兜底标签；AI 那 3800 个标签（__tagStats）不再铺进左栏，
+    // 它们只参与搜索和标签管理页。
     const allTagNames = Object.keys(tagCounts)
-        .filter((name) => !layeredNames.has(name))
+        .filter((name) => !layeredNames.has(name) && (window.__localTags || []).includes(name))
         .sort((a, b) => (tagCounts[b] - tagCounts[a]) || a.localeCompare(b, 'zh'));
     const tagQuery = (document.getElementById('tagSearchInput')?.value || '').trim().toLowerCase();
     const showLegacyList = allTagNames.length > 0;

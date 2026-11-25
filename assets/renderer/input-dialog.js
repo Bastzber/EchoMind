@@ -247,7 +247,8 @@ async function switchProject(projectId, projectName, options = {}) {
             rendererAudio.clearPlaybackSourceCache();
 
             // 更新UI显示
-            document.getElementById('currentProjectName').textContent = resolvedProjectName;
+            const projectNameEl = document.getElementById('currentProjectName');
+    if (projectNameEl) projectNameEl.textContent = resolvedProjectName;
 
             // 清空当前数据
             soundData = [];
@@ -324,9 +325,11 @@ async function loadCurrentProject() {
         localStorage.removeItem('soundmind_current_project');
     }
 
-    // 默认使用 default 工程
+    // 默认使用 default 工程（工程切换 UI 已删，这里只保证状态是 default）
     currentProject = appState.set('currentProject', { id: 'default', name: '默认工程' });
-    document.getElementById('currentProjectName').textContent = currentProject.name;
+    // 顶栏的「当前工程」标签已随工程功能一起移除，元素可能不存在
+    const nameEl = document.getElementById('currentProjectName');
+    if (nameEl) nameEl.textContent = currentProject.name;
     return false;
 }
 

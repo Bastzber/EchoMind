@@ -189,8 +189,7 @@ function attachPlayerHandlers(el) {
         // 波形以后端解码为准，播放源也强制用同一份解码（见下面的 force_transcode）。
         (async () => {
             const fileId = sound && sound.fileId;
-            if (!fileId || sound.__durationChecked === fileId) return;
-            sound.__durationChecked = fileId;
+            if (!fileId) return;
             try {
                 const meta = await rendererApi.get('/api/v1/files/' + encodeURIComponent(fileId) + '/audio-meta');
                 const real = Number(meta && meta.duration) || 0;
@@ -198,8 +197,8 @@ function attachPlayerHandlers(el) {
                 if (Math.abs(real - elementDuration) <= 0.5) return;
                 // 只在「真实比播放器报的长」时换：说明播放器少算了，转 WAV 才有意义。
                 // 反过来（WAV 比真实短）说明是转码少吐样本，换了更糟。
+                // 只挡「这个音效已经成功换过源」，换失败下次还能再来一次
                 if (sound.__transcodeRetried === fileId) return;
-                sound.__transcodeRetried = fileId;
                 const wasPlaying = isPlaying;
                 const at = el.currentTime;
                 if (typeof rendererAudio !== 'undefined') rendererAudio.clearPlaybackSourceCache?.();
@@ -212,7 +211,7 @@ function attachPlayerHandlers(el) {
                     if (wasPlaying) el.play().catch(() => {});
                 }, { once: true });
                 el.src = src;
-                showNotification('时长校正：原始 ' + elementDuration.toFixed(1) + 's → 实际 ' + real.toFixed(1) + 's', 'info');
+                sound.__transcodeRetried = fileId;
             } catch (err) {
                 showNotification('时长校正失败: ' + ((err && err.message) || err), 'warning');
             }

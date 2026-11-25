@@ -731,13 +731,55 @@ function registerAudioProtocol() {
       //   net.fetch            → duration = Infinity
       //   读 Buffer + 带长度    → duration = 190.0112  ✅
       //   registerFileProtocol → duration = 190.0112  ✅（Electron 45 已移除，不用）
+      // 必须支持 Range（206）。只回 200 全量的时候，Chromium 能读元数据、能从头播，
+      // 但一旦 seek（点波形定位、拖进度条、切到靠后的位置）它就卡住不再前进 ——
+      // 表现出来就是「点了位置又从头发」或「声音跟着卡死」。
       try {
+        const total = (await fs.promises.stat(filePath)).size;
+        const contentType = guessAudioContentType(filePath);
+        const rangeHeader = request.headers.get('Range') || request.headers.get('range') || '';
+        const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+        if (match && (match[1] || match[2])) {
+          let start = match[1] ? parseInt(match[1], 10) : 0;
+          let end = match[2] ? parseInt(match[2], 10) : total - 1;
+          if (!match[1]) {
+            // "bytes=-N"：最后 N 字节
+            const suffix = parseInt(match[2], 10);
+            start = Math.max(0, total - suffix);
+            end = total - 1;
+          }
+          if (start >= total) {
+            return new Response('range not satisfiable', {
+              status: 416,
+              headers: { 'Content-Range': `bytes */${total}` },
+            });
+          }
+          end = Math.min(end, total - 1);
+          const length = end - start + 1;
+          const handle = await fs.promises.open(filePath, 'r');
+          try {
+            const buffer = Buffer.alloc(length);
+            await handle.read(buffer, 0, length, start);
+            return new Response(buffer, {
+              status: 206,
+              headers: {
+                'Content-Type': contentType,
+                'Content-Length': String(length),
+                'Content-Range': `bytes ${start}-${end}/${total}`,
+                'Accept-Ranges': 'bytes',
+              },
+            });
+          } finally {
+            await handle.close();
+          }
+        }
         const data = await fs.promises.readFile(filePath);
         return new Response(data, {
           status: 200,
           headers: {
-            'Content-Type': guessAudioContentType(filePath),
+            'Content-Type': contentType,
             'Content-Length': String(data.byteLength),
+            'Accept-Ranges': 'bytes',
           },
         });
       } catch (error) {

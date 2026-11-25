@@ -162,7 +162,10 @@
             ctx.beginPath();
             ctx.moveTo(0, centerY);
             for (let index = 0; index <= samples; index += 1) {
-                const amplitude = Math.abs(waveformData[Math.min(index, samples - 1)]);
+                // 用 0.6 次方压缩动态范围：整条按全局峰值归一时，安静的尾巴几乎看不见，
+                // 用户会以为「波形到头了声音还在响」。压缩后安静段也留得住形状。
+                const raw = Math.abs(waveformData[Math.min(index, samples - 1)]);
+                const amplitude = Math.pow(Math.min(1, raw), 0.6);
                 ctx.lineTo(index * step, centerY + direction * amplitude * maxAmplitude * 0.5);
             }
             ctx.lineTo(actualWidth, centerY);

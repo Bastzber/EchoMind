@@ -171,6 +171,21 @@ function attachPlayerHandlers(el) {
     });
     el.addEventListener('loadedmetadata', () => {
         if (el !== audioPlayer || !currentSound) return;
+        // 诊断用：三条时长不一致时提示一次，方便定位「越播越偏」
+        try {
+            const audioSec = Number(el.duration) || 0;
+            const dbSec = Number(currentSound.duration || 0) / 1000;
+            const waveRaw = Number(currentSound.waveformDuration || 0);
+            const waveSec = waveRaw > 10000 ? waveRaw / 1000 : waveRaw;
+            const off = (a, b) => (a > 0 && b > 0 && Math.abs(a - b) > 0.5);
+            if (currentSound.__durationWarned !== true
+                && (off(audioSec, dbSec) || off(audioSec, waveSec))) {
+                currentSound.__durationWarned = true;
+                showNotification('时长不一致：播放 ' + audioSec.toFixed(1)
+                    + 's / 库里 ' + dbSec.toFixed(1)
+                    + 's / 波形 ' + waveSec.toFixed(1) + 's', 'info');
+            }
+        } catch (_e) { /* 诊断失败不影响播放 */ }
         currentSound.duration = Math.round(el.duration * 1000);
         updatePlaybackUI();
     });

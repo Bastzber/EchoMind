@@ -157,9 +157,10 @@ function waveformDurationSec() {
 }
 
 function displayProgressRatio() {
-    // 画波形时是按 waveformDuration 平铺的，播放头必须用同一条时长换算，
-    // 否则两条时长差几秒就会越走越偏；但单位要先统一成秒。
-    const duration = waveformDurationSec();
+    // 分母优先用 <audio> 自己报的时长：这样进度条一定和「实际在播的声音」同步收尾，
+    // 不受库里/波形元数据那条时长准不准的影响（用户反馈 3:10 的音频，条到 3:00 就停了）。
+    // audio 还没加载时再退回 waveformDuration。
+    const duration = effectiveDurationSec() || waveformDurationSec();
     if (!duration) return 0;
     const raw = (playbackProgress / 1000) / duration;
     const ratio = reverseMode ? (1 - raw) : raw;

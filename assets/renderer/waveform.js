@@ -29,7 +29,11 @@
         if (!payload || !isValidData(payload.peaks)) throw new Error(invalidMessage);
         sound.waveform = payload.peaks;
         sound.peaks = payload.peaks;
-        sound.waveformDuration = payload.duration;
+        // 后端那条 duration 可能是 0（解不全的文件）——别用它盖掉已知的真实时长，
+        // 否则波形换算回退到 0，播放头和波形又对不上。
+        const incoming = Number(payload.duration) || 0;
+        const known = Number(sound.waveformDuration) || 0;
+        sound.waveformDuration = incoming > 0 ? incoming : known;
         sound.waveformSampleRate = payload.sample_rate;
         sound.waveformChannels = payload.channels;
         sound.waveformError = null;

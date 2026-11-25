@@ -262,11 +262,9 @@ function attachPlayerHandlers(el) {
         const elementDuration = Number(el.duration) || 0;
         // 波形没有时长信息（后端解不全那种文件），或者和播放器报的对不上：
         // 直接用 Chromium 的解码重算一遍波形和时长，之后就和播放完全同源。
-        const waveKnown = Number(sound && sound.waveformDuration) || 0;
-        if (sound && sound.fileId && sound.__waveformRebuilt !== sound.fileId
-            && (!waveKnown || (elementDuration > 0 && Math.abs(waveKnown - elementDuration) > 0.5))) {
-            rebuildWaveformFromChromium(sound, el);
-        }
+        // 注意：不要用 Chromium 的 decodeAudioData 重算波形 —— 这类坏帧 MP3 它每次报的
+        // 时长都不一样（198.9 / 385 / 571 都出现过），越算越乱。
+        // 波形以后端解码为准，播放源也强制用同一份解码（见下面的 force_transcode）。
         (async () => {
             const fileId = sound && sound.fileId;
             if (!fileId || sound.__durationChecked === fileId) return;
@@ -278,12 +276,6 @@ function attachPlayerHandlers(el) {
                 if (Math.abs(real - elementDuration) <= 0.5) return;
                 // 只在「真实比播放器报的长」时换：说明播放器少算了，转 WAV 才有意义。
                 // 反过来（WAV 比真实短）说明是转码少吐样本，换了更糟。
-                if (real <= elementDuration + 0.5) {
-                    // 播放器报的时长和探测结果对不上：用 Chromium 自己解码重算波形，
-                    // 让波形、时长、可播放长度三者同源（MP3 中间有坏帧就靠这个自愈）
-                    await rebuildWaveformFromChromium(sound, el);
-                    return;
-                }
                 if (sound.__transcodeRetried === fileId) return;
                 sound.__transcodeRetried = fileId;
                 const wasPlaying = isPlaying;

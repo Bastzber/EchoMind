@@ -782,7 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 导入单个音频文件
     document.getElementById('importFileBtn').addEventListener('click', async () => {
-        document.getElementById('importDropdown').classList.add('hidden');
+        document.getElementById('importDropdown')?.classList.add('hidden');
                 
         console.log('点击了导入音频文件按钮');
         console.log('window.electronAPI:', window.electronAPI);
@@ -821,7 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
     // 导入文件夹 - 使用新的异步导入 API（带进度）
     document.getElementById('importFolderBtn').addEventListener('click', async () => {
-        document.getElementById('importDropdown').classList.add('hidden');
+        document.getElementById('importDropdown')?.classList.add('hidden');
         console.log('[DEBUG] 点击导入文件夹按钮');
 
         try {

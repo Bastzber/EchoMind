@@ -563,7 +563,7 @@ function initProjectManagement() {
     });
 
     // 新建工程按钮
-    document.getElementById('newProjectBtn').addEventListener('click', (e) => {
+    document.getElementById('newProjectBtn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         showNewProjectModal();
         fileDropdown.classList.add('hidden');
@@ -571,7 +571,7 @@ function initProjectManagement() {
     });
 
     // 打开工程按钮
-    document.getElementById('openProjectBtn').addEventListener('click', (e) => {
+    document.getElementById('openProjectBtn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         showOpenProjectModal();
         fileDropdown.classList.add('hidden');
@@ -579,7 +579,7 @@ function initProjectManagement() {
     });
 
     // 最近工程按钮
-    document.getElementById('recentProjectsBtn').addEventListener('click', (e) => {
+    document.getElementById('recentProjectsBtn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         showOpenProjectModal(true); // 显示最近工程
         fileDropdown.classList.add('hidden');

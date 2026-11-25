@@ -516,16 +516,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         toggleSettings();
     });
             
-    // 导入按钮 - 显示下拉菜单
-    document.getElementById('importBtn').addEventListener('click', (e) => {
+    // 导入已并进「文件」菜单，独立导入按钮不再存在；这里保留兼容写法
+    document.getElementById('importBtn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         const dropdown = document.getElementById('importDropdown');
+        if (!dropdown) return;
         dropdown.classList.toggle('hidden');
         dropdown.classList.toggle('visible');
-                
-        // 隐藏设置下拉菜单
-        document.getElementById('settingsDropdown').classList.add('hidden');
-        document.getElementById('settingsDropdown').classList.remove('visible');
+        document.getElementById('settingsDropdown')?.classList.add('hidden');
+        document.getElementById('settingsDropdown')?.classList.remove('visible');
     });
             
     // 点击其他地方关闭下拉菜单
@@ -534,9 +533,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('settingsDropdown').classList.add('hidden');
             document.getElementById('settingsDropdown').classList.remove('visible');
         }
-        if (!e.target.closest('#importDropdown') && !e.target.closest('#importBtn')) {
-            document.getElementById('importDropdown').classList.add('hidden');
-            document.getElementById('importDropdown').classList.remove('visible');
+        const importDropdown = document.getElementById('importDropdown');
+        if (importDropdown && !e.target.closest('#importDropdown') && !e.target.closest('#importBtn')) {
+            importDropdown.classList.add('hidden');
+            importDropdown.classList.remove('visible');
         }
     });
             

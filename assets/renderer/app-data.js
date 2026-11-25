@@ -1134,8 +1134,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const startProgress = startX / (logicalCanvasWidth * waveformZoomLevel);
                 const endProgress = endX / (logicalCanvasWidth * waveformZoomLevel);
 
-                selectionStart = Math.max(0, startProgress * currentSound.duration);
-                selectionEnd = Math.min(currentSound.duration, endProgress * currentSound.duration);
+                // 库里 duration 可能是 0（元数据没提取到），用播放器真实时长兜底
+                const durMs = (typeof effectiveDurationSec === 'function' && effectiveDurationSec() > 0)
+                    ? effectiveDurationSec() * 1000
+                    : (Number(currentSound.duration) || 0);
+                selectionStart = Math.max(0, startProgress * durMs);
+                selectionEnd = Math.min(durMs, endProgress * durMs);
 
                 // 实时更新显示
                 updateSelectionInfo(selectionStart, selectionEnd);
@@ -1178,11 +1182,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const rect = waveformCanvas.getBoundingClientRect();
                 const clickX = e.clientX - rect.left + waveformScrollOffset;
                 const logicalCanvasWidth = waveformCanvas.getBoundingClientRect().width;
-                const progress = clickX / (logicalCanvasWidth * waveformZoomLevel);
-                // 转换为秒（duration 是毫秒，audioPlayer.currentTime 是秒）
-                const clickTime = Math.max(0, Math.min(currentSound.duration / 1000, progress * (currentSound.duration / 1000)));
+                const progress = Math.max(0, Math.min(1, clickX / (logicalCanvasWidth * waveformZoomLevel)));
+                // duration 可能是 0（库里没提取到），优先用播放器真实时长，否则点哪里都跳回 0
+                const durSec = (typeof effectiveDurationSec === 'function' && effectiveDurationSec() > 0)
+                    ? effectiveDurationSec()
+                    : (Number(currentSound.duration) / 1000) || 0;
+                const clickTime = Math.max(0, Math.min(durSec, progress * durSec));
 
-                audioPlayer.currentTime = clickTime;
+                // 记下想播的位置：按播放键时 loadAndPlaySound 会重设 src（currentTime 归零），
+                // 靠这个值把它拉回点击的位置，不然点了波形再播还是从头开始。
+                window.__echomindPendingSeek = clickTime;
+                try {
+                    audioPlayer.currentTime = clickTime;
+                } catch (_e) { /* 还没加载完就先记下位置 */ }
+                playbackProgress = Math.round(clickTime * 1000);
                 updatePlaybackUI();
                 drawMainWaveform();
             }

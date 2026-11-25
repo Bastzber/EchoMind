@@ -138,7 +138,9 @@ function effectiveDurationSec() {
     const audioDur = (typeof audioPlayer !== 'undefined' && audioPlayer && Number.isFinite(audioPlayer.duration))
         ? Number(audioPlayer.duration) : 0;
     if (audioDur > 0.05) return audioDur;
-    return Number(currentSound?.duration) || 0;
+    // 兜底：currentSound.duration 是毫秒，换算成秒（以前直接返回毫秒，除出来差 1000 倍）
+    const dbMs = Number(currentSound?.duration) || 0;
+    return dbMs > 0 ? dbMs / 1000 : 0;
 }
 
 // waveformDuration 的单位不统一：后端解码给的是「秒」，重复检测那条路径塞的是「毫秒」。

@@ -315,6 +315,17 @@ async function loadAndPlaySound(sound) {
 
         await rendererAudio.waitForMetadata(audioPlayer);
 
+        // 点了波形之后再按播放：src 被重设会把位置清零，这里拉回点到的地方
+        const pendingSeek = Number(window.__echomindPendingSeek);
+        window.__echomindPendingSeek = null;
+        if (Number.isFinite(pendingSeek) && pendingSeek > 0.05) {
+            try {
+                audioPlayer.currentTime = Math.min(pendingSeek, audioPlayer.duration || pendingSeek);
+                playbackProgress = Math.round(audioPlayer.currentTime * 1000);
+                updatePlaybackUI();
+            } catch (_e) { /* 忽略 */ }
+        }
+
         // 尝试播放
         try {
             applyPlaybackRate();

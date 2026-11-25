@@ -522,6 +522,10 @@ function drawSingleMiniWaveform(soundId) {
 function selectSound(sound, { preload = true } = {}) {
     cancelActiveWaveformRequest();
     const previousSound = currentSound;
+    // 换了一条音效：之前点波形留下的定位不再适用
+    if (!previousSound || String(previousSound.id) !== String(sound && sound.id)) {
+        window.__echomindPendingSeek = null;
+    }
     currentSound = sound;
     playbackProgress = 0;
     

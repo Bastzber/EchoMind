@@ -322,11 +322,20 @@ async function loadAndPlaySound(sound) {
         await rendererAudio.waitForMetadata(audioPlayer);
 
         // 点了波形之后再按播放：src 被重设会把位置清零，这里拉回点到的地方
+        const pendingRatio = Number(window.__echomindPendingSeekRatio);
         const pendingSeek = Number(window.__echomindPendingSeek);
         window.__echomindPendingSeek = null;
-        if (Number.isFinite(pendingSeek) && pendingSeek > 0.05) {
+        window.__echomindPendingSeekRatio = null;
+        let targetSeek = null;
+        if (Number.isFinite(pendingRatio) && pendingRatio > 0 && audioPlayer.duration > 0) {
+            // 用百分比换算：换源后时长变了也能落在同一个视觉位置
+            targetSeek = Math.min(pendingRatio * audioPlayer.duration, audioPlayer.duration);
+        } else if (Number.isFinite(pendingSeek) && pendingSeek > 0.05) {
+            targetSeek = Math.min(pendingSeek, audioPlayer.duration || pendingSeek);
+        }
+        if (targetSeek !== null && targetSeek > 0.05) {
             try {
-                audioPlayer.currentTime = Math.min(pendingSeek, audioPlayer.duration || pendingSeek);
+                audioPlayer.currentTime = targetSeek;
                 playbackProgress = Math.round(audioPlayer.currentTime * 1000);
                 updatePlaybackUI();
             } catch (_e) { /* 忽略 */ }

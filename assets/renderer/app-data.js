@@ -1151,6 +1151,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 鼠标松开 - 判断是点击还是拖拽
     waveformCanvas.addEventListener('mouseup', (e) => {
         if (!currentSound) return;
+        // 波形还没就绪时别接受定位：这时画布上还是上一条音效的图，点了必然对不上
+        if (!getSoundWaveform(currentSound)) return;
 
         // 重置dragHandle标记
         mouseStartedInDragHandle = false;
@@ -1191,7 +1193,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 // 记下想播的位置：按播放键时 loadAndPlaySound 会重设 src（currentTime 归零），
                 // 靠这个值把它拉回点击的位置，不然点了波形再播还是从头开始。
+                // 同时记「百分比」：换了播放源（原始文件 ↔ 转码 WAV）时长可能不一样，
+                // 用百分比换算才落在同一个视觉位置上。
                 window.__echomindPendingSeek = clickTime;
+                window.__echomindPendingSeekRatio = progress;
                 try {
                     audioPlayer.currentTime = clickTime;
                 } catch (_e) { /* 还没加载完就先记下位置 */ }

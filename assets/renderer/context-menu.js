@@ -632,7 +632,9 @@ async function setSoundTags(sound, tags, options = {}) {
                 if (hit && hit !== sound) hit.tags = [...tags];
             }
         } catch (_e) { /* 忽略 */ }
-        renderSoundList();
+        // 只更新这一行，不整表重绘（补4）
+        const updatedInPlace = (typeof updateSoundRowTags === 'function') && updateSoundRowTags(sound);
+        if (!updatedInPlace) renderSoundList();
         renderCategoryTree();
         if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
         if (!options.silent) showNotification(`已保存 ${tags.length} 个标签`, 'success');
@@ -653,7 +655,12 @@ async function pasteTagsToSounds(ids) {
             await window.electronAPI.backendAPI.batchSetTags(targets.map(t => t.filePath), copiedTags);
         }
         targets.forEach(t => { t.tags = [...copiedTags]; });
-        renderSoundList();
+        let allInPlace = true;
+        targets.forEach((t) => {
+            const ok = (typeof updateSoundRowTags === 'function') && updateSoundRowTags(t);
+            if (!ok) allInPlace = false;
+        });
+        if (!allInPlace) renderSoundList();
         renderCategoryTree();
         showNotification(`已粘贴标签到 ${targets.length} 个文件`, 'success');
     } catch (err) {

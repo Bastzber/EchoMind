@@ -326,9 +326,8 @@ async function showAboutDialog() {
     panel.style.border = '1px solid var(--border-color)';
             panel.innerHTML = `
                 <div class="flex items-center gap-3 mb-4">
-                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:linear-gradient(135deg,#8b5cf6,#22d3ee);">
-                        <span class="text-white font-semibold">E</span>
-                    </div>
+                    <img src="assets/audio-icon.png" alt="回声 EchoMind 图标" draggable="false"
+                         class="w-10 h-10 rounded-xl" style="object-fit:contain;">
                     <div>
                         <div class="text-base font-semibold">回声 EchoMind</div>
                         <div class="text-xs opacity-50 font-mono">v${escapeHtml(version)}</div>

@@ -131,6 +131,51 @@ function setViewMode(mode) {
 // 记住最近一次渲染用的数据源：切换列表/卡片时要原样重画，
 // 否则会退回 soundData（整库分页），搜索结果直接变空
 let lastRenderArgs = null;
+// 行级更新：只重建某一行的标签单元格，不整表重绘（避免丢滚动位置和选中态）
+// 找不到行（卡片视图 / 已被筛选掉）时返回 false，调用方再决定要不要全量重绘。
+function updateSoundRowTags(sound) {
+    if (!sound) return false;
+    const rows = document.querySelectorAll('#soundList .sound-row');
+    let row = null;
+    for (const candidate of rows) {
+        if (candidate.dataset && candidate.dataset.id === String(sound.id)) { row = candidate; break; }
+    }
+    if (!row) return false;
+    const cell = row.querySelector('.w-56');
+    if (!cell) return false;
+    const tags = Array.isArray(sound.tags) ? sound.tags : [];
+    cell.title = tags.join('、');
+    cell.innerHTML = '';
+    if (tags.length) {
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-wrap items-center gap-1 max-h-8 overflow-hidden';
+        tags.slice(0, 4).forEach((tag) => {
+            const pill = document.createElement('span');
+            pill.className = 'px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap';
+            pill.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary)';
+            pill.textContent = tag;
+            wrap.appendChild(pill);
+        });
+        if (tags.length > 4) {
+            const more = document.createElement('span');
+            more.className = 'text-[10px] opacity-50';
+            more.textContent = '+' + (tags.length - 4);
+            wrap.appendChild(more);
+        }
+        cell.appendChild(wrap);
+    } else {
+        const none = document.createElement('span');
+        none.className = 'text-[11px] opacity-35';
+        none.textContent = '未打标签';
+        cell.appendChild(none);
+    }
+    try {
+        row.scrollIntoView({ block: 'nearest' });
+        row.classList.add('row-just-updated');
+        setTimeout(() => row.classList.remove('row-just-updated'), 1500);
+    } catch (_e) { /* 忽略 */ }
+    return true;
+}
 function renderSoundList(filter = '', sounds = soundData) {
     lastRenderArgs = { filter, sounds };
     const container = document.getElementById('soundList');

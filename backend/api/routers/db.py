@@ -421,14 +421,21 @@ async def update_file_tags(
             raise HTTPException(status_code=404, detail="文件不存在")
 
         # 我的标签：按路径反查 file_uuid，写 tags + file_tags 两层。
+        # 注意：系统标签（payload.tags）也要一起写进 file_tags —— 侧边栏计数读的是
+        # file_tags，以前只有 custom 非空才写，于是「AI 打标签 / 批量打标签」全变成
+        # files.tags 有、file_tags 空，左侧属性标签全显示 0（补2）。
         custom_written = 0
-        if custom_tags:
+        sync_names = [str(t).strip() for t in (list(tags) if isinstance(tags, list) else []) if str(t).strip()]
+        for extra in custom_tags:
+            if extra not in sync_names:
+                sync_names.append(extra)
+        if sync_names:
             record = db_manager.get_file(file_path, current_project_id)
             file_uuid = getattr(record, "file_uuid", None) if record else None
             if file_uuid:
                 with db_manager.get_cursor() as cursor:
                     resolved: List[str] = []
-                    for tag_name in custom_tags:
+                    for tag_name in sync_names:
                         row = cursor.execute(
                             "SELECT id FROM tags WHERE project_id=? AND name=?",
                             (current_project_id, tag_name),

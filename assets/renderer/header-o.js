@@ -51,14 +51,11 @@
     function fixDragRegions() {
         const header = document.querySelector('header.h-14');
         if (!header) return;
-        header.style.webkitAppRegion = 'no-drag';
-        const brand = header.firstElementChild;
-        if (brand && !brand.querySelector('button, a, input')) {
-            brand.style.webkitAppRegion = 'drag';
-        }
-        header.querySelectorAll('.flex-1, [class*="flex-1"]').forEach((el) => {
-            if (!el.querySelector('button, a, input, select')) el.style.webkitAppRegion = 'drag';
-        });
+        // 整行可拖；只有交互控件和窗口按钮组是 no-drag。
+        // 反过来（整行 no-drag + 局部 drag）会让菜单栏空白处拖不动——这是 V22 的回归。
+        header.style.webkitAppRegion = 'drag';
+        header.querySelectorAll('button, nav, a, input, select, .help-dot, #oWinBtns, #oWinBtns *')
+            .forEach((el) => { el.style.webkitAppRegion = 'no-drag'; });
     }
 
     function mountWindowButtons() {

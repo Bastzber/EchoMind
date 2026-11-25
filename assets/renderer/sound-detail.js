@@ -98,6 +98,12 @@ function syncSoundToList(sound, patch) {
             if (hit && hit !== sound) Object.assign(hit, patch || {});
         }
     } catch (_e) { /* soundData 不可用时忽略 */ }
+    // tags 变化时只更新那一行（补4）；其它字段仍走全量重绘
+    const onlyTags = Object.keys(patch || {}).every((key) => key === 'tags');
+    if (onlyTags && typeof updateSoundRowTags === 'function' && updateSoundRowTags(sound)) {
+        if (typeof renderCategoryTree === 'function') renderCategoryTree();
+        return;
+    }
     if (typeof renderSoundList === 'function') renderSoundList();
     if (typeof renderCategoryTree === 'function') renderCategoryTree();
 }

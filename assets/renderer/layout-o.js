@@ -99,9 +99,38 @@
         });
     }
 
+    // 标签面板加一个刷新按钮：以前标签树只在启动时加载一次，数据变了界面也不动
+    function addTagRefreshButton() {
+        const panel = document.getElementById('tagPanelSection');
+        if (!panel || document.getElementById('tagRefreshBtn')) return;
+        const header = panel.querySelector(':scope > div');
+        if (!header) return;
+        const btn = document.createElement('button');
+        btn.id = 'tagRefreshBtn';
+        btn.title = '刷新标签计数';
+        btn.style.cssText = 'margin-left:8px;padding:2px 6px;border-radius:6px;border:1px solid var(--border-color);'
+            + 'background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer';
+        btn.textContent = '刷新';
+        btn.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            btn.textContent = '…';
+            try {
+                if (typeof refreshTagTree === 'function') await refreshTagTree();
+                else if (typeof loadTagStats === 'function') await loadTagStats();
+                if (typeof renderCategoryTree === 'function') renderCategoryTree();
+                btn.textContent = '刷新';
+            } catch (error) {
+                btn.textContent = '刷新';
+                if (typeof showNotification === 'function') showNotification('刷新标签失败: ' + (error?.message || error), 'error');
+            }
+        });
+        header.appendChild(btn);
+    }
+
     function boot() {
         setupDrawer();
         setupPanels();
+        addTagRefreshButton();
     }
 
     if (document.readyState === 'loading') {

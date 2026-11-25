@@ -181,7 +181,8 @@ function attachPlayerHandlers(el) {
             if (currentSound.__durationWarned !== true
                 && (off(audioSec, dbSec) || off(audioSec, waveSec))) {
                 currentSound.__durationWarned = true;
-                showNotification('时长不一致：播放 ' + audioSec.toFixed(1)
+                const who = (currentSound.name || currentSound.filePath || '').toString();
+                showNotification('时长不一致 ' + who.slice(-40) + '：播放 ' + audioSec.toFixed(1)
                     + 's / 库里 ' + dbSec.toFixed(1)
                     + 's / 波形 ' + waveSec.toFixed(1) + 's', 'info');
             }
@@ -217,7 +218,9 @@ function attachPlayerHandlers(el) {
                 }, { once: true });
                 el.src = src;
                 showNotification('时长校正：原始 ' + elementDuration.toFixed(1) + 's → 实际 ' + real.toFixed(1) + 's', 'info');
-            } catch (_e) { /* 探测失败就按原来的播 */ }
+            } catch (err) {
+                showNotification('时长校正失败: ' + ((err && err.message) || err), 'warning');
+            }
         })();
     });
     el.addEventListener('error', (e) => {

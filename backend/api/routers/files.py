@@ -412,6 +412,15 @@ async def get_playback_source(
     service = get_audio_service()
     try:
         if force_transcode or service.requires_playback_transcode(record.path):
+            if force_transcode:
+                # 强制转码通常是因为「播放器报的时长不对」，很可能是旧的缓存 WAV 本身就残了；
+                # 先把这份缓存删掉再生成，避免一直复用坏文件。
+                try:
+                    stale = await _run_audio_work(service.prepare_playback_wav, record.path)
+                    if stale and Path(str(stale)).is_file():
+                        Path(str(stale)).unlink(missing_ok=True)
+                except Exception as exc:
+                    logger.debug("[Playback] 清理旧转码缓存失败: %s", exc)
             source = await _run_audio_work(service.prepare_playback_wav, record.path)
             mode = "transcoded_wav"
         else:

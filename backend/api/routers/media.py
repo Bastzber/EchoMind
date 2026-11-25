@@ -16,8 +16,9 @@ import logging
 import mimetypes
 import os
 import tempfile
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -41,6 +42,57 @@ def _transcoded_path(source: Path, file_uuid: str) -> Path:
     except OSError:
         stamp, size = 0, 0
     return _cache_dir() / f"{file_uuid}-{stamp}-{size}.wav"
+
+
+_DURATION_CACHE: Dict[str, Tuple[float, float]] = {}
+
+
+@router.get("/api/v1/files/{file_uuid}/audio-meta")
+async def file_audio_meta(file_uuid: str, project_id: str = Query(default="default")):
+    """真实时长/采样率/声道（<audio> 对 VBR MP3 报的时长经常偏短，用它校正）。"""
+    from main import get_db_manager
+    from core.audio_service import get_audio_service
+
+    db_manager = get_db_manager()
+    with db_manager.get_cursor() as cursor:
+        row = cursor.execute(
+            "SELECT path, duration, sample_rate, channels FROM files WHERE project_id=? AND file_uuid=?",
+            (project_id, file_uuid),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    path = str(row["path"] or "")
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="磁盘上找不到这个文件")
+
+    now = time.time()
+    cached = _DURATION_CACHE.get(path)
+    if cached and now - cached[0] < 600:
+        info = cached[1]
+        return {"duration": info.get("duration"), "sample_rate": info.get("sample_rate"),
+                "channels": info.get("channels"), "cached": True}
+
+    info: Dict[str, float] = {}
+    try:
+        service = get_audio_service()
+        probed = await asyncio.to_thread(service.probe, path)
+        info = {
+            "duration": float(getattr(probed, "duration", 0) or 0),
+            "sample_rate": int(getattr(probed, "sample_rate", 0) or 0),
+            "channels": int(getattr(probed, "channels", 0) or 0),
+        }
+    except Exception as exc:
+        logger.debug("[Audio] 探测时长失败 %s: %s", path, exc)
+
+    if not info.get("duration"):
+        info = {
+            "duration": float(row["duration"] or 0),
+            "sample_rate": int(row["sample_rate"] or 0),
+            "channels": int(row["channels"] or 0),
+        }
+    if info.get("duration"):
+        _DURATION_CACHE[path] = (now, info)
+    return {**info, "cached": False}
 
 
 @router.get("/api/v1/files/{file_uuid}/audio")

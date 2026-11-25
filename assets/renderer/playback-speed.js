@@ -188,6 +188,37 @@ function attachPlayerHandlers(el) {
         } catch (_e) { /* 诊断失败不影响播放 */ }
         currentSound.duration = Math.round(el.duration * 1000);
         updatePlaybackUI();
+
+        // VBR MP3 的时长常被浏览器报短（实测 204.2 秒的文件报 198 秒），
+        // 结果是「声音比进度条长」—— 让后端报真实时长，差得多就换成转码 WAV（时长精确）。
+        const sound = currentSound;
+        const elementDuration = Number(el.duration) || 0;
+        (async () => {
+            const fileId = sound && sound.fileId;
+            if (!fileId || sound.__durationChecked === fileId) return;
+            sound.__durationChecked = fileId;
+            try {
+                const meta = await rendererApi.get('/api/v1/files/' + encodeURIComponent(fileId) + '/audio-meta');
+                const real = Number(meta && meta.duration) || 0;
+                if (!real || !elementDuration) return;
+                if (Math.abs(real - elementDuration) <= 0.5) return;
+                if (sound.__transcodeRetried === fileId) return;
+                sound.__transcodeRetried = fileId;
+                const wasPlaying = isPlaying;
+                const at = el.currentTime;
+                if (typeof rendererAudio !== 'undefined') rendererAudio.clearPlaybackSourceCache?.();
+                const payload = await rendererApi.get('/api/v1/files/' + encodeURIComponent(fileId)
+                    + '/playback-source?force_transcode=1&t=' + Date.now());
+                if (!payload || !payload.path) return;
+                const src = 'soundmind-audio://local/' + encodeURIComponent(payload.path);
+                el.addEventListener('loadedmetadata', () => {
+                    try { el.currentTime = at; } catch (_e) { /* 忽略 */ }
+                    if (wasPlaying) el.play().catch(() => {});
+                }, { once: true });
+                el.src = src;
+                showNotification('时长校正：原始 ' + elementDuration.toFixed(1) + 's → 实际 ' + real.toFixed(1) + 's', 'info');
+            } catch (_e) { /* 探测失败就按原来的播 */ }
+        })();
     });
     el.addEventListener('error', (e) => {
         if (el !== audioPlayer) return;

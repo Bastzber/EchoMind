@@ -393,8 +393,16 @@ async def get_file_waveform(file_id: str, project_id: Optional[str] = None):
 
 
 @router.get("/api/v1/files/{file_id}/playback-source")
-async def get_playback_source(file_id: str, project_id: Optional[str] = None):
-    """Return an original path or a cached PCM WAV for Chromium-incompatible files."""
+async def get_playback_source(
+    file_id: str,
+    project_id: Optional[str] = None,
+    force_transcode: bool = Query(default=False, description="即使格式本来能播也转成 WAV（时长精确）"),
+):
+    """Return an original path or a cached PCM WAV for Chromium-incompatible files.
+
+    force_transcode=1：MP3 这类本来能直接播的也转 WAV。用于「浏览器报的时长和真实时长
+    对不上」（VBR MP3 常见：204.2 秒的文件报 198 秒），转成 WAV 后时长精确、进度条不再偏。
+    """
     from core.audio_service import get_audio_service, AudioServiceError
 
     effective_project = project_id or getattr(config, 'CURRENT_PROJECT_ID', 'default')
@@ -403,7 +411,7 @@ async def get_playback_source(file_id: str, project_id: Optional[str] = None):
         raise SoundBotAPIError("file_not_found", "文件不存在", status_code=404)
     service = get_audio_service()
     try:
-        if service.requires_playback_transcode(record.path):
+        if force_transcode or service.requires_playback_transcode(record.path):
             source = await _run_audio_work(service.prepare_playback_wav, record.path)
             mode = "transcoded_wav"
         else:

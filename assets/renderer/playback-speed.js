@@ -203,6 +203,9 @@ function attachPlayerHandlers(el) {
                 const real = Number(meta && meta.duration) || 0;
                 if (!real || !elementDuration) return;
                 if (Math.abs(real - elementDuration) <= 0.5) return;
+                // 只在「真实比播放器报的长」时换：说明播放器少算了，转 WAV 才有意义。
+                // 反过来（WAV 比真实短）说明是转码少吐样本，换了更糟。
+                if (real <= elementDuration + 0.5) return;
                 if (sound.__transcodeRetried === fileId) return;
                 sound.__transcodeRetried = fileId;
                 const wasPlaying = isPlaying;

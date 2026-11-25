@@ -2,7 +2,11 @@
     'use strict';
 
     const namespace = global.SoundBotRenderer = global.SoundBotRenderer || {};
-    const TRANSCODE_EXTENSIONS = new Set(['aif', 'aiff', 'm4a', 'aac', 'wma', 'wav', 'caf']);
+    // 只有 Chromium 自己播不了的格式才转码。
+    // wav/m4a/aac 本来能直接播，以前也塞进来走转码，结果解码器少吐样本：
+    // 实测 138.52 秒的 AAC 转出来只有 130.92 秒 —— 声音比时长快 5%，
+    // 进度条和声音越播越偏（用户反馈「相差 15 秒」就是这一条）。
+    const TRANSCODE_EXTENSIONS = new Set(['aif', 'aiff', 'wma', 'caf', 'au', 'ape']);
     const playbackSourceCache = new Map();
 
     function extensionOf(sound) {

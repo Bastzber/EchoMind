@@ -41,7 +41,8 @@ function drawMainWaveform() {
             scrollOffset: waveformScrollOffset,
             selectionStart,
             selectionEnd,
-            duration: (typeof effectiveDurationSec === 'function' ? effectiveDurationSec() : currentSound.duration)
+            // 选区几何用毫秒（selectionStart/End 是毫秒），别换成秒
+            duration: currentSound.duration
         });
     }
     

@@ -141,12 +141,27 @@ function effectiveDurationSec() {
     return Number(currentSound?.duration) || 0;
 }
 
+// waveformDuration 的单位不统一：后端解码给的是「秒」，重复检测那条路径塞的是「毫秒」。
+// 直接拿去当分母会出现「一秒走完整个进度条」（毫秒÷秒=1000倍）。
+// 这里统一换算成秒：拿音频真实时长当参照，取更接近的那个量级。
+function waveformDurationSec() {
+    const audioDur = effectiveDurationSec();
+    const raw = Number(currentSound?.waveformDuration);
+    if (!Number.isFinite(raw) || raw <= 0) return audioDur;
+    if (audioDur > 0.05) {
+        const asSeconds = Math.abs(raw - audioDur);
+        const asMillis = Math.abs(raw / 1000 - audioDur);
+        return asMillis < asSeconds ? raw / 1000 : raw;
+    }
+    return raw > 10000 ? raw / 1000 : raw;
+}
+
 function displayProgressRatio() {
-    // 画波形时是按 waveformDuration（后端解码出的真实时长）平铺的，
-    // 播放头也必须用同一条时长换算，否则两条时长差几秒就会越走越偏。
-    const duration = Number(currentSound?.waveformDuration) || effectiveDurationSec();
+    // 画波形时是按 waveformDuration 平铺的，播放头必须用同一条时长换算，
+    // 否则两条时长差几秒就会越走越偏；但单位要先统一成秒。
+    const duration = waveformDurationSec();
     if (!duration) return 0;
-    const raw = playbackProgress / duration;
+    const raw = (playbackProgress / 1000) / duration;
     const ratio = reverseMode ? (1 - raw) : raw;
     return Math.max(0, Math.min(1, ratio));
 }

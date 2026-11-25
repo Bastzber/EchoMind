@@ -165,7 +165,9 @@
                 // 用 0.6 次方压缩动态范围：整条按全局峰值归一时，安静的尾巴几乎看不见，
                 // 用户会以为「波形到头了声音还在响」。压缩后安静段也留得住形状。
                 const raw = Math.abs(waveformData[Math.min(index, samples - 1)]);
-                const amplitude = Math.pow(Math.min(1, raw), 0.6);
+                // 底噪也留 1.2% 的最小高度：安静尾巴不再画成一条缝，
+                // 让「波形走到底」和「声音走到底」在视觉上同时发生。
+                const amplitude = Math.max(0.045, Math.pow(Math.min(1, raw), 0.55));
                 ctx.lineTo(index * step, centerY + direction * amplitude * maxAmplitude * 0.5);
             }
             ctx.lineTo(actualWidth, centerY);

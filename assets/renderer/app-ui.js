@@ -25,7 +25,9 @@ function renderCategoryTree() {
         setSidebarView('favorites');
         showFavorites();
     });
-    container.appendChild(favRow);
+    // 左栏「库 / 收藏」已经在顶部导航里，这里不再重复渲染黄色收藏行
+    // （导航点收藏时仍会 setSidebarView('favorites') + showFavorites()）。
+    // container.appendChild(favRow);
 
     // ===== 我的标签分组 =====
     const tagHeader = document.createElement('div');

@@ -194,6 +194,22 @@ function updatePlaybackUI() {
         currentTimeEl.textContent = formatTime(displayCurrentTimeMs());
         durationTimeEl.textContent = formatTime(effectiveDurationSec() * 1000);
 
+        // 诊断：三条时长不一致时，把数字直接打在时长旁边（截图就能看出是哪条错）
+        try {
+            const audioSec = Number(audioPlayer && audioPlayer.duration) || 0;
+            const dbSec = Number(currentSound.duration || 0) / 1000;
+            const waveRaw = Number(currentSound.waveformDuration || 0);
+            const waveSec = waveRaw > 10000 ? waveRaw / 1000 : waveRaw;
+            const bad = (audioSec > 0 && dbSec > 0 && Math.abs(audioSec - dbSec) > 0.5)
+                || (audioSec > 0 && waveSec > 0 && Math.abs(audioSec - waveSec) > 0.5);
+            if (bad) {
+                durationTimeEl.title = '播放 ' + audioSec.toFixed(1) + 's / 库里 ' + dbSec.toFixed(1)
+                    + 's / 波形 ' + waveSec.toFixed(1) + 's';
+                durationTimeEl.textContent = formatTime(effectiveDurationSec() * 1000)
+                    + ' ⚠' + audioSec.toFixed(0) + '/' + dbSec.toFixed(0) + '/' + waveSec.toFixed(0);
+            }
+        } catch (_e) { /* 诊断不影响播放 */ }
+
         const progress = displayProgressRatio() * 100;
         progressBar.style.width = `${progress}%`;
         

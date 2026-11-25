@@ -436,9 +436,12 @@
         .om-seg-item.active,.om-seg-item[data-active="1"]{background:rgba(255,255,255,.1);color:var(--text-primary)}
         .om-check{width:10px;height:10px;opacity:.8}
         /* 右侧详情面板 */
-        /* 子菜单就地展开（不再做侧滑面板：用户点了常常以为没反应） */
-        .om-set-panel{position:static;width:auto;margin:2px 8px 6px;padding:9px 10px;
-            background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:8px}
+        /* 下一级菜单：整块盖住设置菜单（点「临时文件」进入，左上角返回） */
+        .om-set-panel{position:absolute;inset:0;background:var(--bg-secondary);
+            border-radius:inherit;padding:6px 0;display:flex;flex-direction:column;overflow:auto}
+        .om-back-row{color:var(--text-secondary)}
+        .om-back-row:hover{color:var(--text-primary)}
+        .om-panel-body{padding:2px 12px 8px}
         .om-panel-title{font-size:12px;color:var(--text-primary);font-weight:600;margin-bottom:4px}
         .om-panel-path{font-size:11px;color:var(--text-secondary);line-height:1.45;word-break:break-all;margin-bottom:8px}
         .om-panel-warn{font-size:10.5px;line-height:1.4;color:#d8a13a;background:rgba(216,161,58,.12);
@@ -724,24 +727,31 @@
                         <span id="fishToggleLabel" class="om-lbl">藏起回声</span>
                     </button>
 
-                    <!-- 临时文件详情（C 方案）：悬停/点击「临时文件」时从右侧展开 -->
+                    <!-- 临时文件：点一下进入下一级菜单（整页子视图，带返回） -->
                     <div id="tempDetailPanel" class="om-set-panel hidden">
-                        <div class="om-panel-title">临时文件目录</div>
-                        <div id="tempDirText" class="om-panel-path" data-i18n="loading">加载中...</div>
-                        <div id="tempDirPermissionHint" class="om-panel-warn hidden">
-                            <i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>
-                            <span data-i18n="settings.temp.dir.permission">此目录需要磁盘访问权限，点击重新选择以授权</span>
+                        <button id="omTempBack" class="om-set-row om-back-row">
+                            <i data-lucide="chevron-left" class="om-ico"></i>
+                            <span class="om-lbl">返回</span>
+                        </button>
+                        <div class="om-sep"></div>
+                        <div class="om-panel-body">
+                            <div class="om-panel-title">临时文件目录</div>
+                            <div id="tempDirText" class="om-panel-path" data-i18n="loading">加载中...</div>
+                            <div id="tempDirPermissionHint" class="om-panel-warn hidden">
+                                <i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>
+                                <span data-i18n="settings.temp.dir.permission">此目录需要磁盘访问权限，点击重新选择以授权</span>
+                            </div>
+                            <button id="tempDirBtn" class="om-panel-act">
+                                <i data-lucide="folder-open" class="om-ico"></i><span>更改目录…</span>
+                            </button>
+                            <button id="resetTempDirBtn" class="om-panel-act">
+                                <i data-lucide="rotate-ccw" class="om-ico"></i><span data-i18n="settings.temp.dir.reset">恢复默认位置</span>
+                            </button>
+                            <button id="clearTempClipsBtn" class="om-panel-act om-danger">
+                                <i data-lucide="trash-2" class="om-ico"></i><span data-i18n="settings.cache.clear">清理临时裁切文件</span>
+                            </button>
+                            <div class="om-panel-hint">清理只删裁切产物，不影响音效库</div>
                         </div>
-                        <button id="tempDirBtn" class="om-panel-act">
-                            <i data-lucide="folder-open" class="om-ico"></i><span>更改目录…</span>
-                        </button>
-                        <button id="resetTempDirBtn" class="om-panel-act">
-                            <i data-lucide="rotate-ccw" class="om-ico"></i><span data-i18n="settings.temp.dir.reset">恢复默认位置</span>
-                        </button>
-                        <button id="clearTempClipsBtn" class="om-panel-act om-danger">
-                            <i data-lucide="trash-2" class="om-ico"></i><span data-i18n="settings.cache.clear">清理临时裁切文件</span>
-                        </button>
-                        <div class="om-panel-hint">清理只删裁切产物，不影响音效库</div>
                     </div>
                 </div>
             </div>

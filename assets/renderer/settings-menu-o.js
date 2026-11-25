@@ -50,27 +50,24 @@
 
         if (row) {
             const panel = panelFor(row);
-            // 只认点击：以前是「悬停展开 + 点击切换」，鼠标本来就停在上面时
-            // 一点击反而把它关掉，看着就像「点了没反应」。
-            // 就当普通折叠项：点一次展开、再点收起。就地在菜单里往下伸，
-            // 不做侧滑面板（那玩意儿用户点了经常以为没反应）。
-            const toggle = (event) => {
-                if (event) {
+            // 点「临时文件」进下一级菜单；子菜单左上角「返回」退回主菜单。
+            // 不做悬停展开 —— 用户明确要求「点进去」。
+            const enter = (event) => {
+                if (event) { event.preventDefault(); event.stopPropagation(); }
+                showPanel(row, true);
+            };
+            row.addEventListener('click', enter);
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') enter(event);
+            });
+            const back = document.getElementById('omTempBack');
+            if (back) {
+                back.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                }
-                showPanel(row, panel ? panel.classList.contains('hidden') : false);
-            };
-            row.addEventListener('click', toggle);
-            row.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter' || event.key === ' ') toggle(event);
-            });
-            // 点菜单里别的项，收起子菜单
-            dropdown.querySelectorAll('.om-set-row').forEach((other) => {
-                if (other !== row) {
-                    other.addEventListener('click', () => showPanel(row, false));
-                }
-            });
+                    showPanel(row, false);
+                });
+            }
         }
 
         // 菜单关掉时把详情面板也收起来

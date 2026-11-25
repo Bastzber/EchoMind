@@ -412,6 +412,43 @@
         /* 改完标签后那一行短暂高亮，方便找到 */
         #soundList .sound-row.row-just-updated{background:rgba(107,138,253,.18)!important;
             transition:background .35s ease}
+
+        /* ===== 设置菜单（B 布局：单列；临时文件详情走 C 方案的右侧面板） ===== */
+        .om-settings{width:236px;padding:6px 0;max-height:none;overflow:visible}
+        .om-set-head{display:flex;align-items:center;justify-content:space-between;
+            padding:8px 12px 7px;font-size:13px;color:#e8e8e8}
+        .om-set-head .om-set-ver{font-size:11px;color:var(--text-secondary);opacity:.7;font-family:ui-monospace,monospace}
+        .om-set-row{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 12px;
+            font-size:13px;color:var(--text-primary);text-align:left;background:transparent;border:0;cursor:pointer}
+        .om-set-row:hover{background:rgba(255,255,255,.06)}
+        .om-set-row.om-set-static{cursor:default}
+        .om-set-row.om-set-static:hover{background:transparent}
+        .om-ico{width:15px;height:15px;flex:0 0 15px;opacity:.7;stroke-width:2}
+        .om-lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .om-val{font-size:11px;color:var(--text-secondary);opacity:.75;white-space:nowrap}
+        .om-chev{width:13px;height:13px;opacity:.35;flex:0 0 13px}
+        .om-sep{height:1px;background:var(--border-color);margin:5px 0;opacity:.8}
+        .om-dot{width:6px;height:6px;border-radius:50%;background:#6b8afd;margin-left:2px}
+        .om-seg{display:inline-flex;border:1px solid var(--border-color);border-radius:7px;overflow:hidden}
+        .om-seg-item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:11px;
+            color:var(--text-secondary);background:transparent;border:0;cursor:pointer}
+        .om-seg-item:hover{background:rgba(255,255,255,.06)}
+        .om-seg-item.active,.om-seg-item[data-active="1"]{background:rgba(255,255,255,.1);color:var(--text-primary)}
+        .om-check{width:10px;height:10px;opacity:.8}
+        /* 右侧详情面板 */
+        .om-set-panel{position:absolute;right:100%;left:auto;top:0;margin-right:6px;width:246px;
+            background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:10px;
+            box-shadow:0 12px 32px rgba(0,0,0,.55);padding:10px 12px}
+        .om-panel-title{font-size:12px;color:var(--text-primary);font-weight:600;margin-bottom:4px}
+        .om-panel-path{font-size:11px;color:var(--text-secondary);line-height:1.45;word-break:break-all;margin-bottom:8px}
+        .om-panel-warn{font-size:10.5px;line-height:1.4;color:#d8a13a;background:rgba(216,161,58,.12);
+            border:1px solid rgba(216,161,58,.28);border-radius:6px;padding:5px 7px;margin:0 0 8px}
+        .om-panel-act{display:flex;align-items:center;gap:7px;width:100%;height:28px;padding:0 6px;
+            border-radius:6px;font-size:12px;color:var(--text-secondary);background:transparent;border:0;cursor:pointer;text-align:left}
+        .om-panel-act:hover{background:rgba(255,255,255,.06);color:var(--text-primary)}
+        .om-panel-act.om-danger{color:#ef4444}
+        .om-panel-act.om-danger:hover{background:rgba(239,68,68,.12);color:#ef4444}
+        .om-panel-hint{font-size:10.5px;color:var(--text-secondary);opacity:.55;margin-top:6px;line-height:1.4}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -626,68 +663,86 @@
                     <i data-lucide="settings" class="w-4 h-4"></i><span data-i18n="settings">设置</span>
                 </button>
                 <!-- Settings Dropdown -->
-                <div id="settingsDropdown" class="dropdown-menu hidden absolute top-full right-0 mt-2 w-64 max-h-[70vh] overflow-y-auto rounded-lg shadow-xl border py-2 z-50"
+                <div id="settingsDropdown" class="dropdown-menu hidden absolute top-full right-0 mt-2 rounded-lg shadow-xl border z-50 om-settings"
                      style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50" data-i18n="lang.title">语言</div>
-                    <button class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-between setting-option" data-type="lang" data-value="zh">
-                        <span data-i18n="lang.zh">中文</span><i data-lucide="check" class="w-4 h-4 check-icon"></i>
-                    </button>
-                    <button class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-between setting-option opacity-50" data-type="lang" data-value="en">
-                        <span data-i18n="lang.en">English</span><i data-lucide="check" class="w-4 h-4 check-icon hidden"></i>
-                    </button>
-                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
-                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50">工具</div>
-                    <button id="dupCheckBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="copy" class="w-4 h-4"></i>
-                        <span>重复音效检测</span><span class="help-dot ml-1" data-help="重复音效检测&#10;&#10;按文件内容（sha256）找完全相同的音效。&#10;可以每组保留一份，其余删到回收站或备份目录。&#10;支持整组删除、忽略跨分类重复。">?</span>
-                    </button>
-                    <button id="checkUpdateMenuBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                        <span>检查更新</span>
-                        <span id="menuVersionText" class="ml-auto text-[10px] opacity-40 font-mono"></span>
-                    </button>
-                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
-                    <div class="px-3 py-2 text-xs font-medium uppercase tracking-wider opacity-50" data-i18n="settings.temp.dir">临时文件目录</div>
-                    <button id="tempDirBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="folder" class="w-4 h-4"></i>
-                        <span id="tempDirText" class="truncate" data-i18n="loading">加载中...</span>
-                    </button>
-                    <div id="tempDirPermissionHint" class="px-3 py-1 text-xs opacity-60 hidden" style="color: var(--text-secondary);">
-                        <i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>
-                        <span data-i18n="settings.temp.dir.permission">此目录需要磁盘访问权限，点击重新选择以授权</span>
+                    <div class="om-set-head">
+                        <b>回声</b>
+                        <span id="menuVersionText" class="om-set-ver"></span>
                     </div>
-                    <button id="resetTempDirBtn" class="w-full px-3 py-1 text-xs text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1 opacity-60" style="color: var(--text-secondary);">
-                        <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                        <span data-i18n="settings.temp.dir.reset">恢复默认位置</span>
+                    <button id="openAISettingsBtn" class="om-set-row">
+                        <i data-lucide="bot" class="om-ico"></i>
+                        <span class="om-lbl" data-i18n="settings.ai">AI 设置</span>
+                        <i data-lucide="chevron-right" class="om-chev"></i>
                     </button>
-                    <button id="clearTempClipsBtn" class="w-full px-3 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2 text-red-500 hover:text-red-600 mt-1">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        <span data-i18n="settings.cache.clear">清理临时裁切文件</span>
+                    <button id="openSkinBtn" class="om-set-row">
+                        <i data-lucide="palette" class="om-ico"></i>
+                        <span class="om-lbl">外观 / 皮肤</span>
+                        <span id="skinNameText" class="om-val"></span>
+                        <i data-lucide="chevron-right" class="om-chev"></i>
                     </button>
-                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
-                <button id="fishToggleBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                    <i data-lucide="fish" class="w-4 h-4"></i><span id="fishToggleLabel">藏起回声</span>
-                </button>
-                    <button id="aboutAppBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="info" class="w-4 h-4"></i>
-                        <span>关于回声</span>
-                        <span id="aboutVersionText" class="ml-auto text-[10px] opacity-40 font-mono"></span>
+                    <div class="om-set-row om-set-static">
+                        <i data-lucide="languages" class="om-ico"></i>
+                        <span class="om-lbl">语言</span>
+                        <span class="om-seg">
+                            <button class="om-seg-item setting-option" data-type="lang" data-value="zh">
+                                <span data-i18n="lang.zh">中文</span><i data-lucide="check" class="om-check check-icon"></i>
+                            </button>
+                            <button class="om-seg-item setting-option" data-type="lang" data-value="en">
+                                <span>EN</span><i data-lucide="check" class="om-check check-icon hidden"></i>
+                            </button>
+                        </span>
+                    </div>
+                    <div class="om-sep"></div>
+                    <button id="dupCheckBtn" class="om-set-row">
+                        <i data-lucide="copy" class="om-ico"></i>
+                        <span class="om-lbl">重复音效检测</span>
+                        <span class="help-dot ml-1" data-help="重复音效检测&#10;&#10;按文件内容（sha256）找完全相同的音效。&#10;可以每组保留一份，其余删到回收站或备份目录。&#10;支持整组删除、忽略跨分类重复。">?</span>
                     </button>
-                    <div class="border-t my-2" style="border-color: var(--border-color);"></div>
-                    <button id="openAISettingsBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="bot" class="w-4 h-4"></i>
-                        <span data-i18n="settings.ai">AI 设置</span>
+                    <button id="checkUpdateMenuBtn" class="om-set-row">
+                        <i data-lucide="refresh-cw" class="om-ico"></i>
+                        <span class="om-lbl">检查更新</span>
+                        <span id="omUpdateDot" class="om-dot hidden"></span>
+                    </button>
+                    <div id="omTempRow" class="om-set-row" data-panel="tempDetailPanel">
+                        <i data-lucide="folder-clock" class="om-ico"></i>
+                        <span class="om-lbl">临时文件</span>
+                        <span class="om-val">目录设置</span>
+                        <i data-lucide="chevron-right" class="om-chev"></i>
+                    </div>
+                    <div class="om-sep"></div>
+                    <button id="installUpdateBtn" class="om-set-row" title="选择你下载好的增量更新包（.zip）">
+                        <i data-lucide="package-open" class="om-ico"></i>
+                        <span class="om-lbl">安装更新包…</span>
+                    </button>
+                    <button id="aboutAppBtn" class="om-set-row">
+                        <i data-lucide="info" class="om-ico"></i>
+                        <span class="om-lbl">关于回声</span>
+                        <span id="aboutVersionText" class="om-val hidden"></span>
+                    </button>
+                    <button id="fishToggleBtn" class="om-set-row">
+                        <i data-lucide="fish" class="om-ico"></i>
+                        <span id="fishToggleLabel" class="om-lbl">藏起回声</span>
                     </button>
 
-                    <button id="installUpdateBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2" title="选择你下载好的增量更新包（.zip）">
-                        <i data-lucide="package-open" class="w-4 h-4"></i>
-                        <span>安装更新包…</span>
-                    </button>
-                    <button id="openSkinBtn" class="w-full px-4 py-2 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2">
-                        <i data-lucide="palette" class="w-4 h-4"></i>
-                        <span>外观 / 皮肤</span>
-                        <span id="skinNameText" class="ml-auto text-[10px] opacity-40"></span>
-                    </button>
+                    <!-- 临时文件详情（C 方案）：悬停/点击「临时文件」时从右侧展开 -->
+                    <div id="tempDetailPanel" class="om-set-panel hidden">
+                        <div class="om-panel-title">临时文件目录</div>
+                        <div id="tempDirText" class="om-panel-path" data-i18n="loading">加载中...</div>
+                        <div id="tempDirPermissionHint" class="om-panel-warn hidden">
+                            <i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>
+                            <span data-i18n="settings.temp.dir.permission">此目录需要磁盘访问权限，点击重新选择以授权</span>
+                        </div>
+                        <button id="tempDirBtn" class="om-panel-act">
+                            <i data-lucide="folder-open" class="om-ico"></i><span>更改目录…</span>
+                        </button>
+                        <button id="resetTempDirBtn" class="om-panel-act">
+                            <i data-lucide="rotate-ccw" class="om-ico"></i><span data-i18n="settings.temp.dir.reset">恢复默认位置</span>
+                        </button>
+                        <button id="clearTempClipsBtn" class="om-panel-act om-danger">
+                            <i data-lucide="trash-2" class="om-ico"></i><span data-i18n="settings.cache.clear">清理临时裁切文件</span>
+                        </button>
+                        <div class="om-panel-hint">清理只删裁切产物，不影响音效库</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1150,6 +1205,7 @@
     <script defer src="./assets/renderer/header-o.js"></script>
     <script defer src="./assets/renderer/o-nav.js"></script>
     <script defer src="./assets/renderer/layout-o.js"></script>
+    <script defer src="./assets/renderer/settings-menu-o.js"></script>
     <script defer src="./assets/renderer/app-ui.js"></script>
     <script defer src="./assets/renderer/app-data.js"></script>
     <script defer src="./assets/renderer/app-data-2.js"></script>

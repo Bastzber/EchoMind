@@ -1,0 +1,10 @@
+EchoMind V22-r02（0.3.0-beta.22 / r02）校验信息
+生成时间：2026-11-25
+
+EchoMind测试版V22-r02.zip
+  大小   6.84 GB (7339853321 bytes)
+  sha256 a0a8d31b492702b97dcc000d9428e7a25187edee82818095ab820468207ed2d5
+
+update-beta22-r02.zip
+  大小   0.07 GB (73328833 bytes)
+  sha256 46f1787ac559038926a1503a927356193ea328a6b508701461fad481f1161d6c

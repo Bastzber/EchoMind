@@ -41,7 +41,7 @@ function drawMainWaveform() {
             scrollOffset: waveformScrollOffset,
             selectionStart,
             selectionEnd,
-            duration: currentSound.duration
+            duration: (typeof effectiveDurationSec === 'function' ? effectiveDurationSec() : currentSound.duration)
         });
     }
     

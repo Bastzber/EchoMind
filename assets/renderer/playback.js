@@ -131,8 +131,20 @@ function stopPlayback() {
     renderSoundList(document.getElementById('searchInput').value);
 }
 
+// 播放头用哪条时长来换算：优先用 <audio> 自己报的时长（真实播的那条），
+// 库里的 duration 是入库时算的，转码/缓存副本偶尔差几秒，用错就会看到
+// 播放头和声音越走越偏（用户反馈差 2-3 秒）。
+function effectiveDurationSec() {
+    const audioDur = (typeof audioPlayer !== 'undefined' && audioPlayer && Number.isFinite(audioPlayer.duration))
+        ? Number(audioPlayer.duration) : 0;
+    if (audioDur > 0.05) return audioDur;
+    return Number(currentSound?.duration) || 0;
+}
+
 function displayProgressRatio() {
-    const duration = Number(currentSound?.duration) || 0;
+    // 画波形时是按 waveformDuration（后端解码出的真实时长）平铺的，
+    // 播放头也必须用同一条时长换算，否则两条时长差几秒就会越走越偏。
+    const duration = Number(currentSound?.waveformDuration) || effectiveDurationSec();
     if (!duration) return 0;
     const raw = playbackProgress / duration;
     const ratio = reverseMode ? (1 - raw) : raw;
@@ -140,7 +152,7 @@ function displayProgressRatio() {
 }
 
 function displayCurrentTimeMs() {
-    const duration = Number(currentSound?.duration) || 0;
+    const duration = effectiveDurationSec();
     if (!duration) return playbackProgress;
     return reverseMode ? Math.max(0, duration - playbackProgress) : playbackProgress;
 }
@@ -164,7 +176,7 @@ function updatePlaybackUI() {
     
     if (currentSound) {
         currentTimeEl.textContent = formatTime(displayCurrentTimeMs());
-        durationTimeEl.textContent = formatTime(currentSound.duration);
+        durationTimeEl.textContent = formatTime(effectiveDurationSec() * 1000);
 
         const progress = displayProgressRatio() * 100;
         progressBar.style.width = `${progress}%`;

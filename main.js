@@ -1786,7 +1786,8 @@ function applyCSP(win) {
           "font-src 'self'; " +
           "img-src 'self' data: blob:; " +
           `media-src 'self' blob: soundmind-audio: ${backendOrigin}; ` +
-          `connect-src 'self' blob: ${backendOrigin} ${backendWsOrigin} ` +
+          // soundmind-audio 要进 connect-src：波形重算要 fetch 音频字节喂给 decodeAudioData
+          `connect-src 'self' blob: soundmind-audio: ${backendOrigin} ${backendWsOrigin} ` +
           "https://api.openai.com https://api.moonshot.cn https://api.anthropic.com " +
           "https://api.deepseek.com https://api.siliconflow.cn " +
           "https://generativelanguage.googleapis.com; " +

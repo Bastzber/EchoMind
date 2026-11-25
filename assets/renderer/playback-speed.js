@@ -1,3 +1,69 @@
+// 用「真正在播的解码器」（Chromium）算波形和时长，回写后端。
+// 起因：MP3 中间有坏帧时 PyAV/miniaudio 会停下（同一个文件后端认为 199 秒、
+// Chromium 能播 390 秒），波形和播放各用一套解码，怎么调都对不上。
+async function rebuildWaveformFromChromium(sound, el) {
+    const fileId = sound && sound.fileId;
+    if (!fileId || sound.__waveformRebuilt === fileId) return false;
+    sound.__waveformRebuilt = fileId;
+    try {
+        // 自定义协议 soundmind-audio:// 在渲染层 fetch 不通（fetch failed），
+        // 改走后端 HTTP 拿字节：/api/v1/files/{uuid}/audio
+        const apiBase = (rendererApi.getConfig && rendererApi.getConfig().apiBase) || 'http://127.0.0.1:8000';
+        const token = (rendererApi.getConfig && rendererApi.getConfig().apiToken) || '';
+        const url = apiBase.replace(/\/$/, '') + '/api/v1/files/' + encodeURIComponent(fileId) + '/audio';
+        const response = await fetch(url, { headers: token ? { 'X-EchoMind-Token': token } : {} });
+        if (!response.ok) return false;
+        const arrayBuffer = await response.arrayBuffer();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioCtx();
+        let buffer;
+        try {
+            buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        } finally {
+            ctx.close();
+        }
+        if (!buffer || !buffer.length) return false;
+        const POINTS = 2000;
+        const channels = buffer.numberOfChannels;
+        const data = buffer.getChannelData(0);
+        const step = data.length / POINTS;
+        const peaks = new Array(POINTS).fill(0);
+        let max = 0;
+        for (let i = 0; i < POINTS; i += 1) {
+            const start = Math.floor(i * step);
+            const end = Math.min(data.length, Math.max(start + 1, Math.floor((i + 1) * step)));
+            let peak = 0;
+            for (let j = start; j < end; j += 1) {
+                const v = Math.abs(data[j]);
+                if (v > peak) peak = v;
+            }
+            peaks[i] = peak;
+            if (peak > max) max = peak;
+        }
+        if (max > 0) { for (let i = 0; i < POINTS; i += 1) peaks[i] = peaks[i] / max; }
+        const realDuration = buffer.duration;
+        await rendererApi.post('/api/v1/files/' + encodeURIComponent(fileId) + '/peaks', {
+            peaks,
+            duration: realDuration,
+            sample_rate: buffer.sampleRate,
+            channels,
+        });
+        sound.waveform = peaks;
+        sound.peaks = peaks;
+        sound.waveformDuration = realDuration;
+        sound.waveformSampleRate = buffer.sampleRate;
+        sound.waveformChannels = channels;
+        sound.duration = Math.round(realDuration * 1000);
+        if (typeof drawMainWaveform === 'function') drawMainWaveform();
+        showNotification('波形已按实际解码重算：' + realDuration.toFixed(1) + ' 秒', 'info');
+        return true;
+    } catch (error) {
+        sound.__waveformRebuilt = null;
+        console.warn('[Waveform] 重算失败:', error && error.message);
+        return false;
+    }
+}
+
 /* playback-speed.js —— 倍速 / 倒放
  * 从 index.html 原样搬出的完整顶层函数。
  */
@@ -194,6 +260,13 @@ function attachPlayerHandlers(el) {
         // 结果是「声音比进度条长」—— 让后端报真实时长，差得多就换成转码 WAV（时长精确）。
         const sound = currentSound;
         const elementDuration = Number(el.duration) || 0;
+        // 波形没有时长信息（后端解不全那种文件），或者和播放器报的对不上：
+        // 直接用 Chromium 的解码重算一遍波形和时长，之后就和播放完全同源。
+        const waveKnown = Number(sound && sound.waveformDuration) || 0;
+        if (sound && sound.fileId && sound.__waveformRebuilt !== sound.fileId
+            && (!waveKnown || (elementDuration > 0 && Math.abs(waveKnown - elementDuration) > 0.5))) {
+            rebuildWaveformFromChromium(sound, el);
+        }
         (async () => {
             const fileId = sound && sound.fileId;
             if (!fileId || sound.__durationChecked === fileId) return;
@@ -205,7 +278,12 @@ function attachPlayerHandlers(el) {
                 if (Math.abs(real - elementDuration) <= 0.5) return;
                 // 只在「真实比播放器报的长」时换：说明播放器少算了，转 WAV 才有意义。
                 // 反过来（WAV 比真实短）说明是转码少吐样本，换了更糟。
-                if (real <= elementDuration + 0.5) return;
+                if (real <= elementDuration + 0.5) {
+                    // 播放器报的时长和探测结果对不上：用 Chromium 自己解码重算波形，
+                    // 让波形、时长、可播放长度三者同源（MP3 中间有坏帧就靠这个自愈）
+                    await rebuildWaveformFromChromium(sound, el);
+                    return;
+                }
                 if (sound.__transcodeRetried === fileId) return;
                 sound.__transcodeRetried = fileId;
                 const wasPlaying = isPlaying;

@@ -392,6 +392,89 @@ async def get_file_waveform(file_id: str, project_id: Optional[str] = None):
     return await _waveform_payload(record.path, effective_project)
 
 
+@router.post("/api/v1/files/{file_uuid}/peaks")
+async def save_file_peaks(file_uuid: str, payload: Dict[str, Any], project_id: Optional[str] = None):
+    """用「真正在播的那个解码器」算出来的波形/时长回写数据库。
+
+    Chromium 能跳过 MP3 中间的坏帧，而 PyAV / miniaudio 会在坏帧处停下，
+    于是同一文件会出现「波形 199 秒、实际能播 390 秒」。这个接口让渲染层
+    把 Chromium 解出来的 2000 个峰值和真实时长交回后端，波形和播放从此同源。
+    """
+    import math as _math
+
+    from core.audio_service import get_audio_service
+
+    effective_project = project_id or getattr(config, 'CURRENT_PROJECT_ID', 'default')
+    db_manager = get_db_manager()
+    record = db_manager.get_file_by_uuid(file_uuid, effective_project)
+    if not record:
+        raise SoundBotAPIError("file_not_found", "文件不存在", status_code=404)
+
+    raw_peaks = payload.get("peaks") or []
+    if not isinstance(raw_peaks, list) or not raw_peaks:
+        raise HTTPException(status_code=422, detail="peaks 不能为空")
+    peaks = []
+    for value in raw_peaks[:2000]:
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not _math.isfinite(f):
+            continue
+        peaks.append(min(1.0, max(0.0, f)))
+    if len(peaks) < 8:
+        raise HTTPException(status_code=422, detail="peaks 点数太少")
+    while len(peaks) < 2000:
+        peaks.append(peaks[-1])
+
+    duration = float(payload.get("duration") or 0)
+    sample_rate = int(payload.get("sample_rate") or 0)
+    channels = int(payload.get("channels") or 0)
+
+    fingerprint = await _run_audio_work(get_audio_service().fingerprint, record.path)
+    ok = db_manager.update_peaks(
+        record.path,
+        peaks,
+        effective_project,
+        source_fingerprint=fingerprint.source_key,
+        waveform_fingerprint=fingerprint.key,
+        waveform_version=int(fingerprint.waveform_version),
+    )
+    if not ok:
+        raise SoundBotAPIError("peaks_save_failed", "写入波形失败", status_code=500)
+
+    # 时长/采样率也一起纠正（Chromium 解出来的才是能播到的那条）
+    try:
+        with db_manager.get_cursor() as cursor:
+            sets, params = [], []
+            if duration > 0:
+                sets.append("duration=?")
+                params.append(round(duration, 6))
+            if sample_rate > 0:
+                sets.append("sample_rate=?")
+                params.append(sample_rate)
+            if channels > 0:
+                sets.append("channels=?")
+                params.append(channels)
+            if sets:
+                sets.append("updated_at=?")
+                params.append(datetime.now().isoformat())
+                params.append(file_uuid)
+                params.append(effective_project)
+                cursor.execute(
+                    "UPDATE files SET " + ", ".join(sets) + " WHERE file_uuid=? AND project_id=?",
+                    tuple(params),
+                )
+            cursor.execute(
+                "UPDATE file_artifacts SET state='ready' WHERE project_id=? AND file_uuid=? AND kind='waveform'",
+                (effective_project, file_uuid),
+            )
+    except Exception as exc:
+        logger.debug("[Peaks] 回写时长失败: %s", exc)
+
+    return {"success": True, "points": len(peaks), "duration": duration}
+
+
 @router.get("/api/v1/files/{file_id}/playback-source")
 async def get_playback_source(
     file_id: str,

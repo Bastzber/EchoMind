@@ -15,8 +15,22 @@
     function showPanel(row, show) {
         const panel = panelFor(row);
         if (!panel) return;
-        // 设置菜单贴着窗口右缘，详情一律往左展开（CSS 里已定位 right:100%）
+        // 设置菜单贴着窗口右缘，详情往左展开（CSS 里已定位 right:100%），
+        // 纵向对齐到「临时文件」这一行，看起来才像它的下一级菜单
         panel.classList.toggle('hidden', !show);
+        if (show) {
+            const rowTop = row.offsetTop || 0;
+            panel.style.top = Math.max(0, rowTop - 6) + 'px';
+            const chev = row.querySelector('.om-chev');
+            if (chev) chev.style.transform = 'rotate(90deg)';
+            const icon = row.querySelector('.om-ico');
+            if (icon) icon.style.opacity = '1';
+        } else {
+            const chev = row.querySelector('.om-chev');
+            if (chev) chev.style.transform = '';
+            const icon = row.querySelector('.om-ico');
+            if (icon) icon.style.opacity = '';
+        }
         if (show && typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
     }
 

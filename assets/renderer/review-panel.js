@@ -148,3 +148,48 @@ async function showReviewPanel() {
     await load('');
 }
 
+// 把「待归类」直接铺进主列表：以前点按钮只弹一个小窗，主列表一动不动，
+// 用户以为没反应。现在主列表直接切成待归类的一批，能播、能选、能右键归类。
+async function showUnclassifiedInList() {
+    try {
+        // 后端单页上限 200，这里翻页凑到 1000 条（再多列表也卡）
+        const PAGE = 200;
+        const MAX = 1000;
+        let offset = 0;
+        let total = 0;
+        const items = [];
+        while (items.length < MAX) {
+            const page = await rendererApi.get('/api/v1/db/review/unclassified?limit=' + PAGE + '&offset=' + offset);
+            const batch = (page && page.items) || [];
+            total = (page && page.total) || total;
+            if (!batch.length) break;
+            items.push(...batch);
+            offset += batch.length;
+            if (offset >= total) break;
+        }
+        if (!items.length) {
+            showNotification('没有待归类的音效（_待归类 / 待人工判断 目录都是空的）', 'info');
+            return;
+        }
+        const sounds = items.map((item) => ({
+            id: item.file_uuid,
+            fileId: item.file_uuid,
+            name: item.filename,
+            filePath: item.path,
+            path: item.path,
+            duration: Math.round((item.duration || 0) * 1000),
+            tags: (() => {
+                try { return JSON.parse(item.tags || '[]'); } catch (_e) { return []; }
+            })(),
+            aiDescription: item.description || '',
+        }));
+        if (typeof activeCategory !== 'undefined') activeCategory = null;
+        if (typeof setSidebarView === 'function') setSidebarView(null);
+        if (typeof allSearchResults !== 'undefined') allSearchResults = sounds;
+        soundData = sounds;
+        renderSoundList('', sounds);
+        showNotification('待归类 ' + total + ' 条' + (total > sounds.length ? '，列表先显示前 ' + sounds.length + ' 条' : ''), 'info');
+    } catch (error) {
+        showNotification('读取待归类失败: ' + (error?.message || error), 'error');
+    }
+}

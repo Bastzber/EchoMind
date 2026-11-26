@@ -80,7 +80,8 @@
         { id: 'rename', label: '批量重命名', icon: 'pencil-line', help: '按规则批量改文件名，先在列表里选好音效。', run: () => { const t = requireTargets('重命名'); if (t) showBatchRenameModal(t); } },
         { id: 'transcode', label: '转码', icon: 'repeat', help: '把 OGG / CAF / APE / WMA 等转成 WAV 或 MP3，先在列表里选好音效。', run: () => { const t = requireTargets('转码'); if (t) showTranscodeModal(t); } },
         { id: 'voiceLib', label: '音色库', icon: 'library', help: '管理已登记的音色：试听、改名、修正样音文稿、删除。', run: () => { showVoiceLibraryModal(); } },
-        { id: 'review', label: '待归类审阅', icon: 'list-checks', help: '把 _待归类 里的文件逐个试听并移动到正确目录（保留标签与索引）。', run: () => { showReviewPanel(); } },
+        { id: 'review', label: '待归类审阅', icon: 'list-checks', help: '把 _待归类 里的文件铺到主列表，逐个试听后右键归类（保留标签与索引）。', run: () => { showUnclassifiedInList(); } },
+        { id: 'reviewPanel', label: '试听归类', icon: 'headphones', help: '小窗模式：上一个/下一个试听，回车把当前文件移到目标目录。', run: () => { showReviewPanel(); } },
         { id: 'fx', label: '效果器', icon: 'sliders', help: '给当前音效加混响（房间/大厅/教堂…），可试听并导出为新文件。', run: () => { openEffectPanel(); } },
                                         { id: 'devocal', label: '去人声', icon: 'mic-off', help: '把带人声的歌做成人声消除，生成一版伴奏 WAV。会先检查声道：单声道文件做不了中置消除，会被挑出来跳过。结果先放临时区，试听后自己决定存不存、存到哪，不会写回原文件夹。', run: async () => {
             const targets = requireTargets('去人声');

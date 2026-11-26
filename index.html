@@ -632,6 +632,12 @@
         .detail-btn-pri:disabled{background:transparent;border-color:var(--border-color);color:var(--text-secondary)}
         .detail-btn-danger{border-color:#ef4444;color:#ef4444;margin-top:8px}
         .effect-host{border:0;margin:0;padding:0}
+
+        /* AI 设置左导航：主标题 + 一行小字说明 */
+        .settings-tab .nav-title{display:block;line-height:1.25}
+        .settings-tab .nav-sub{display:block;margin-top:2px;font-size:10.5px;font-weight:400;
+            opacity:.55;line-height:1.3}
+        .settings-tab.border-blue-500 .nav-sub{opacity:.75}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -1561,11 +1567,13 @@
             
             <!-- Tab 切换 -->
             <div class="flex border-b px-6 shrink-0" style="border-color: var(--border-color);">
-                <button id="llmTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-blue-500" style="color: var(--text-primary);" data-i18n="settings.ai.tab.llm">
-                    LLM 模型
+                <button id="llmTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-blue-500" style="color: var(--text-primary);">
+                    <span class="nav-title" data-i18n="settings.ai.tab.llm">对话模型</span>
+                    <span class="nav-sub" data-i18n="settings.ai.tab.llm.sub">帮你写描述、打标签</span>
                 </button>
-                <button id="embeddingTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);" data-i18n="settings.ai.tab.embedding">
-                    Embedding 模型
+                <button id="embeddingTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);">
+                    <span class="nav-title" data-i18n="settings.ai.tab.embedding">声音理解模型</span>
+                    <span class="nav-sub" data-i18n="settings.ai.tab.embedding.sub">决定按感觉搜得准不准</span>
                 </button>
                 <button id="sfxConfigTabBtn" class="settings-tab px-4 py-3 text-sm font-medium border-b-2 border-transparent" style="color: var(--text-secondary);">
                     音频生成
@@ -1589,7 +1597,7 @@
                 <!-- LLM 模型配置 -->
                 <div id="llmConfigContent" class="settings-tab-content">
                     <div class="mb-6">
-                        <div class="flex items-center gap-1 mb-3"><h4 class="text-sm font-medium" data-i18n="settings.ai.select.provider">选择 LLM 提供者</h4><span class="help-dot" data-help="LM Studio / Ollama 跑在本机，不用联网也不花钱，模型得你自己先装好。&#10;OpenAI、Azure、Gemini、Kimi（含 Coding 专用，走 Anthropic 格式）、Claude、DeepSeek、SiliconFlow 走云端 API，按量计费。&#10;自定义 API 可接任何 OpenAI 兼容服务。&#10;&#10;选完在下面填地址、Key、模型名；地址一般不填就用官方默认。">?</span></div>
+                        <div class="flex items-center gap-1 mb-3"><h4 class="text-sm font-medium" data-i18n="settings.ai.select.provider">选一家对话模型</h4><span class="help-dot" data-help="对话模型 = 帮你写一句话描述、打系统标签的那个 AI，跟音频生成、搜索无关。&#10;内置 DeepSeek 默认就能用。&#10;LM Studio / Ollama 跑在本机，不用联网也不花钱，模型得你自己先装好。&#10;OpenAI、Azure、Gemini、Kimi（含 Coding 专用，走 Anthropic 格式）、Claude、DeepSeek、SiliconFlow 走云端 API，按量计费。&#10;自定义 API 可接任何 OpenAI 兼容服务。&#10;&#10;选完在下面填地址、Key、模型名；地址一般不填就用官方默认。">?</span></div>
                         <div id="unsupportedLlmProviderNotice" class="hidden mb-3 rounded-md border px-3 py-2 text-xs"
                              style="border-color: #f59e0b; color: #f59e0b;"></div>
                         <div class="space-y-2">
@@ -2083,7 +2091,7 @@
                 <!-- Embedding 模型配置 -->
                 <div id="embeddingConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-3">选择 Embedding 提供者<span class="help-dot ml-1" data-help="Embedding 决定「语义搜索」准不准，跟聊天用的 LLM 是两回事。&#10;内置 CLAP 直接可用、不用配；LM Studio / Ollama 用你本机加载的嵌入模型；OpenAI 兼容接口填你自己的。&#10;&#10;换了提供方要重建文本索引，否则旧向量跟新模型对不上。">?</span></h4>
+                        <h4 class="text-sm font-medium mb-3">选声音理解模型<span class="help-dot ml-1" data-help="声音理解模型 = 把你说的「金属撞击的清脆声」和库里的音频都变成向量，越接近越靠前，所以它决定按感觉搜得准不准。&#10;内置 CLAP 默认就能用，不用配。&#10;它决定语义搜索准不准，跟聊天用的 LLM 是两回事。&#10;内置 CLAP 直接可用、不用配；LM Studio / Ollama 用你本机加载的嵌入模型；OpenAI 兼容接口填你自己的。&#10;&#10;换了提供方要重建文本索引，否则旧向量跟新模型对不上。">?</span></h4>
                         <div class="space-y-2">
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                                    style="border-color: var(--border-color);"

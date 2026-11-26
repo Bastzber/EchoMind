@@ -22,18 +22,36 @@
         tip.style.left = left + 'px';
         tip.style.top = top + 'px';
     };
+    // 点击可把提示钉住：鼠标移开不消失，再点一次或点别处才收起
+    let pinnedEl = null;
+    const unpin = () => {
+        pinnedEl = null;
+        document.getElementById('helpTip')?.classList.remove('show');
+    };
     const hide = (event) => {
         const el = event.target && event.target.closest ? event.target.closest('[data-help]') : null;
         if (!el) return;
+        if (pinnedEl === el) return; // 钉住的别被移开鼠标弄没
         document.getElementById('helpTip')?.classList.remove('show');
     };
     document.addEventListener('mouseover', show);
     document.addEventListener('mouseout', hide);
     document.addEventListener('click', (event) => {
         const el = event.target.closest && event.target.closest('[data-help]');
-        if (el) { show(event); setTimeout(() => document.getElementById('helpTip')?.classList.remove('show'), 4000); }
-    });
-    window.addEventListener('scroll', () => document.getElementById('helpTip')?.classList.remove('show'), true);
+        if (el) {
+            event.stopPropagation();
+            if (pinnedEl === el) { unpin(); return; }
+            pinnedEl = el;
+            show(event);
+            return;
+        }
+        if (pinnedEl) unpin();
+    }, true);
+    window.addEventListener('scroll', () => {
+        if (pinnedEl) return;
+        document.getElementById('helpTip')?.classList.remove('show');
+    }, true);
+    window.addEventListener('keydown', (event) => { if (event.key === 'Escape') unpin(); });
 })();
 
 // ===== 常用工具条：可自定义（＋添加 / －移除，存 localStorage） =====

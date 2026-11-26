@@ -1461,7 +1461,7 @@
                 <!-- LLM 模型配置 -->
                 <div id="llmConfigContent" class="settings-tab-content">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-3" data-i18n="settings.ai.select.provider">选择 LLM 提供者</h4>
+                        <div class="flex items-center gap-1 mb-3"><h4 class="text-sm font-medium" data-i18n="settings.ai.select.provider">选择 LLM 提供者</h4><span class="help-dot" data-help="LM Studio / Ollama 跑在本机，不用联网也不花钱，模型得你自己先装好。&#10;OpenAI、Azure、Gemini、Kimi（含 Coding 专用，走 Anthropic 格式）、Claude、DeepSeek、SiliconFlow 走云端 API，按量计费。&#10;自定义 API 可接任何 OpenAI 兼容服务。&#10;&#10;选完在下面填地址、Key、模型名；地址一般不填就用官方默认。">?</span></div>
                         <div id="unsupportedLlmProviderNotice" class="hidden mb-3 rounded-md border px-3 py-2 text-xs"
                              style="border-color: #f59e0b; color: #f59e0b;"></div>
                         <div class="space-y-2">
@@ -1473,7 +1473,6 @@
                                 <input type="radio" name="llmProvider" value="lm_studio" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">LM Studio</div>
-                                    <div class="text-xs opacity-60">通过 LM Studio 运行本地大模型</div>
                                 </div>
                             </label>
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1482,7 +1481,6 @@
                                 <input type="radio" name="llmProvider" value="ollama" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">Ollama</div>
-                                    <div class="text-xs opacity-60">通过 Ollama 运行本地大模型</div>
                                 </div>
                             </label>
                             <!-- 云服务 -->
@@ -1493,7 +1491,6 @@
                                 <input type="radio" name="llmProvider" value="openai" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">OpenAI</div>
-                                    <div class="text-xs opacity-60">使用 OpenAI 官方 API</div>
                                 </div>
                             </label>
                             <label class="hidden flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1502,7 +1499,6 @@
                                 <input type="radio" name="llmProvider" value="azure" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">Azure OpenAI</div>
-                                    <div class="text-xs opacity-60">使用 Azure OpenAI 服务</div>
                                 </div>
                             </label>
                             <label class="hidden flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1511,7 +1507,6 @@
                                 <input type="radio" name="llmProvider" value="gemini" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">Google Gemini</div>
-                                    <div class="text-xs opacity-60">使用 Google Gemini 模型</div>
                                 </div>
                             </label>
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1520,7 +1515,6 @@
                                 <input type="radio" name="llmProvider" value="kimi" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">Kimi (Moonshot)</div>
-                                    <div class="text-xs opacity-60">使用 Kimi (Moonshot) AI 模型</div>
                                 </div>
                             </label>
                             <label class="hidden flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1529,7 +1523,6 @@
                                 <input type="radio" name="llmProvider" value="kimi_coding" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">Kimi Coding</div>
-                                    <div class="text-xs opacity-60">Kimi Coding 专用 API（Anthropic 格式）</div>
                                 </div>
                             </label>
                             <label class="hidden flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1538,7 +1531,6 @@
                                 <input type="radio" name="llmProvider" value="anthropic" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">Anthropic (Claude)</div>
-                                    <div class="text-xs opacity-60">使用 Anthropic Claude 系列模型</div>
                                 </div>
                             </label>
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1547,7 +1539,6 @@
                                 <input type="radio" name="llmProvider" value="deepseek" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">DeepSeek</div>
-                                    <div class="text-xs opacity-60">使用 DeepSeek 系列模型</div>
                                 </div>
                             </label>
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1556,7 +1547,6 @@
                                 <input type="radio" name="llmProvider" value="siliconflow" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">SiliconFlow</div>
-                                    <div class="text-xs opacity-60">使用 SiliconFlow 聚合的模型服务</div>
                                 </div>
                             </label>
                             <!-- 自定义 -->
@@ -1567,7 +1557,6 @@
                                 <input type="radio" name="llmProvider" value="custom" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm" data-i18n="settings.ai.provider.custom.api">自定义 API</div>
-                                    <div class="text-xs opacity-60" data-i18n="settings.ai.provider.custom.desc">使用其他 OpenAI 兼容格式的 API</div>
                                 </div>
                             </label>
                         </div>
@@ -1966,7 +1955,7 @@
                 <!-- Embedding 模型配置 -->
                 <div id="embeddingConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-3">选择 Embedding 提供者</h4>
+                        <h4 class="text-sm font-medium mb-3">选择 Embedding 提供者<span class="help-dot ml-1" data-help="Embedding 决定「语义搜索」准不准，跟聊天用的 LLM 是两回事。&#10;内置 CLAP 直接可用、不用配；LM Studio / Ollama 用你本机加载的嵌入模型；OpenAI 兼容接口填你自己的。&#10;&#10;换了提供方要重建文本索引，否则旧向量跟新模型对不上。">?</span></h4>
                         <div class="space-y-2">
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                                    style="border-color: var(--border-color);"
@@ -1974,7 +1963,6 @@
                                 <input type="radio" name="embeddingProvider" value="default" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">默认配置 (CLAP)</div>
-                                    <div class="text-xs opacity-60">使用内置的 CLAP 音频-文本嵌入模型</div>
                                 </div>
                             </label>
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1983,7 +1971,6 @@
                                 <input type="radio" name="embeddingProvider" value="local" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">本地模型</div>
-                                    <div class="text-xs opacity-60">使用 LM Studio 或 Ollama 的 Embedding 模型</div>
                                 </div>
                             </label>
                             <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-black/5 dark:hover:bg-white/5"
@@ -1992,7 +1979,6 @@
                                 <input type="radio" name="embeddingProvider" value="external" class="w-4 h-4">
                                 <div>
                                     <div class="font-medium text-sm">外部 API</div>
-                                    <div class="text-xs opacity-60">使用 OpenAI 兼容格式的 Embedding API</div>
                                 </div>
                             </label>
                         </div>
@@ -2065,8 +2051,7 @@
                 <!-- 音频生成（豆包语音）配置 -->
                 <div id="sfxConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-1">音频生成（豆包语音）</h4>
-                        <p class="text-xs opacity-60 mb-4">用于「创造音效」功能：输入文字描述即可生成音效。API Key 在火山引擎控制台 → 豆包语音 → API Key 管理获取（X-Api-Key）。</p>
+                        <h4 class="text-sm font-medium mb-1">音频生成（豆包语音）<span class="help-dot ml-1" data-help="用于「创造音效」：输入文字描述就能生成音效。&#10;API Key 在火山引擎控制台 → 豆包语音 → API Key 管理里拿，填的是 X-Api-Key。">?</span></h4>
                         <div class="mb-4">
                             <label class="block text-xs font-medium mb-1 opacity-70">豆包语音 API Key (X-Api-Key)</label>
                             <input type="password" id="sfxApiKeyInput"
@@ -2085,7 +2070,6 @@
                                         class="px-3 py-2 rounded-md border text-sm whitespace-nowrap transition-colors hover:opacity-80"
                                         style="background-color: var(--bg-secondary); border-color: var(--border-color); color: var(--text-primary);">选择目录…</button>
                             </div>
-                            <div class="text-xs opacity-50 mt-1">生成后的音效会保存到此目录并自动加入 AI 搜索索引</div>
                         </div>
                         <div class="flex items-center gap-3">
                             <button id="saveSfxConfigBtn"
@@ -2097,16 +2081,9 @@
                 </div>
                 <div id="descConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-1">批量生成一句话描述</h4>
-                        <p class="text-xs opacity-60 mb-4">为库中音效批量生成 AI 一句话描述。描述写入后会同步进文本索引，之后搜索时描述也能被直接命中（无需每次调用 AI）。可断点续跑：中途停止后再次点击会继续处理剩余文件；完成后自动重建文本索引。</p>
+                        <h4 class="text-sm font-medium mb-1">批量生成一句话描述<span class="help-dot ml-1" data-help="给库里音效批量生成 AI 一句话描述。描述写进库后会同步进文本索引，以后搜索直接命中，不用每次再调 AI。&#10;可以断点续跑：中途停下，再点一次接着处理剩下的；全部完成后自动重建文本索引。">?</span></h4>
                         <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
-                            <div class="text-xs font-medium mb-1">🪄 同时自动打上「系统标签」</div>
-                            <p class="text-xs opacity-60">
-                                每生成一条描述，AI 会同时分析音频内容，产出 4~8 个描述性标签
-                                （如「呼啸声 / 电子 / 快速 / 长尾 / 高频」），写入该音效的<b>系统标签</b>。
-                                这就是列表里音效标签的来源——<b>不需要单独操作</b>，跟着描述一起生成。
-                                你手动加的标签叫「我的标签」，两者分开存放、互不影响。
-                            </p>
+                            <div class="text-xs font-medium mb-1">🪄 同时自动打上「系统标签」<span class="help-dot ml-1" data-help="每生成一条描述，AI 会同时分析音频内容，产出 4~8 个描述性标签（如「呼啸声 / 电子 / 快速 / 长尾 / 高频」），一起写进库。">?</span></div>
                         </div>
                         <div class="flex items-center gap-3 mb-4">
                             <button id="batchDescBtn"
@@ -2115,11 +2092,7 @@
                             <span id="descStats" class="text-xs opacity-70"></span>
                         </div>
                         <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color);">
-                            <div class="text-sm font-medium mb-1">知识包（换电脑、分享给别人用）</div>
-                            <p class="text-xs opacity-60 mb-2">一个 zip 里同时包含 <b>一句话描述</b>、<b>标签</b>、
-                                <b>音频向量</b> 和 <b>文本向量</b>。别人把软件和知识包拿走，导入自己库里的音效后，
-                                点「导入知识包」即可全部套用，<b>不用再跑几小时索引</b>。
-                                后来只加了一批新音效？点「导出增量包」，选上次那个包当基线，只导出新增部分。</p>
+                            <div class="text-sm font-medium mb-1">知识包（换电脑、分享给别人用）<span class="help-dot ml-1" data-help="一个 zip 里同时装着一句话描述、标签、音频向量、文本向量。&#10;别人把软件和包一起拿走，导入自己库里的音效后点「导入知识包」，全部直接套用，不用再跑几小时索引。&#10;后加了一批新音效：点「导出增量包」，选上次那个包当基线，只导新增的部分。">?</span></div>
                             <div class="flex items-center gap-3">
                                 <button id="exportKnowledgePackBtn"
                                         class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
@@ -2144,38 +2117,32 @@
                 </div>
                 <div id="windowConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-1">关闭窗口时</h4>
-                        <p class="text-xs opacity-60 mb-4">点击右上角 × 时的行为。选择"最小化到托盘"后，软件会缩到任务栏右下角继续运行，索引和搜索都不会中断。</p>
+                        <h4 class="text-sm font-medium mb-1">关闭窗口时<span class="help-dot ml-1" data-help="点右上角 × 时怎么办。&#10;最小化到托盘：窗口隐藏，右下角保留图标，索引和搜索继续跑；最小化到任务栏：收进任务栏，点任务栏按钮回来；直接退出：跟普通软件一样关掉。">?</span></h4>
                         <label class="flex items-start gap-3 p-3 mb-2 rounded-md border cursor-pointer" style="border-color: var(--border-color);">
                             <input type="radio" name="closeBehavior" value="tray" class="mt-1">
                             <span>
                                 <span class="text-sm block">最小化到托盘（推荐）</span>
-                                <span class="text-xs opacity-60">窗口隐藏，任务栏右下角保留图标，点击图标可恢复</span>
                             </span>
                         </label>
                         <label class="flex items-start gap-3 p-3 mb-2 rounded-md border cursor-pointer" style="border-color: var(--border-color);">
                             <input type="radio" name="closeBehavior" value="minimize" class="mt-1">
                             <span>
                                 <span class="text-sm block">最小化到任务栏</span>
-                                <span class="text-xs opacity-60">窗口收进任务栏，点击任务栏按钮恢复</span>
                             </span>
                         </label>
                         <label class="flex items-start gap-3 p-3 rounded-md border cursor-pointer" style="border-color: var(--border-color);">
                             <input type="radio" name="closeBehavior" value="quit" class="mt-1">
                             <span>
                                 <span class="text-sm block">直接退出程序</span>
-                                <span class="text-xs opacity-60">和普通软件一样，点 × 就完全关闭</span>
                             </span>
                         </label>
                         <div id="windowPrefsStatus" class="text-xs opacity-60 mt-3"></div>
                     </div>
                     <div class="mb-6 pt-5 mt-2 border-t" style="border-color: var(--border-color);">
-                        <h4 class="text-sm font-medium mb-1">开机启动</h4>
-                        <p class="text-xs opacity-60 mb-4">开机后自动启动回声。勾上以后：开机时静默进入右下角托盘（不弹窗），延后 8 秒再开始工作，不跟系统启动抢资源。点托盘图标即可打开主界面。</p>
+                        <h4 class="text-sm font-medium mb-1">开机启动<span class="help-dot ml-1" data-help="勾上以后：开机时静默进右下角托盘，不弹窗；延后 8 秒再开始起服务，不跟系统启动抢磁盘。点托盘图标就能打开主界面。&#10;只写当前用户的启动项，不装系统服务、不要管理员权限；取消勾选会立刻删掉启动项。">?</span></h4>
                         <label class="flex items-center justify-between gap-3 p-3 rounded-md border cursor-pointer" style="border-color: var(--border-color);">
                             <span>
                                 <span class="text-sm block">开机时自动启动回声</span>
-                                <span class="text-xs opacity-60">只写当前用户的启动项，不装服务、不要管理员权限</span>
                             </span>
                             <input type="checkbox" id="openAtLoginToggle" class="w-4 h-4 shrink-0">
                         </label>
@@ -2184,10 +2151,8 @@
                 </div>
                 <div id="shortcutConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-1">全局搜索快捷键</h4>
-                        <p class="text-xs opacity-60 mb-4" style="color: var(--text-secondary);">
-                            在任意软件里按下这组键（不用先切到回声），就能呼出搜索框，输入即搜，回车播放。
-                        </p>
+                        <h4 class="text-sm font-medium mb-1">全局搜索快捷键<span class="help-dot ml-1" data-help="在任意软件里按下这组键（不用先切到回声），直接呼出搜索框，打字即搜、回车播放。">?</span></h4>
+                        
 
                         <div class="flex items-center gap-3 mb-3">
                             <div id="globalShortcutDisplay"
@@ -2223,7 +2188,7 @@
 
                 <div id="updateConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-1">关于与更新</h4>
+                        <h4 class="text-sm font-medium mb-1">关于与更新<span class="help-dot ml-1" data-help="更新信息放 Gitee，安装包走百度网盘 —— 不用 GitHub，也不用挂代理。">?</span></h4>
                         <p class="text-xs opacity-60">回声 EchoMind <span id="updateCurrentVersion" class="font-mono">—</span></p>
                     </div>
                     <div class="rounded-lg border p-4" style="border-color: var(--border-color);">
@@ -2241,7 +2206,6 @@
                             </div>
                         </div>
                     </div>
-                    <p class="text-xs opacity-50 mt-4">更新信息放 Gitee，安装包走百度网盘；用户不需要 GitHub，也不需要代理。</p>
 
                     <div class="mt-6 pt-6 border-t" style="border-color: var(--border-color);">
                         <h4 class="text-sm font-medium mb-1">本地数据</h4>

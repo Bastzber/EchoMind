@@ -206,3 +206,7 @@ tmp/
 # 更新包签名私钥（Ed25519），绝不进仓库
 update-signing-private.pem
 *.pem
+
+# 构建产物（不该入库）
+dist-package-app.asar
+dist-*.asar

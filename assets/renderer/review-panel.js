@@ -1,9 +1,6 @@
 /* review-panel.js —— 待归类审阅面板
  * 从 index.html 原样搬出的完整顶层函数。
  */
-function topFoldersUnder(root) {
-    return [];
-}
 
 async function showReviewPanel() {
     document.getElementById('reviewOverlay')?.remove();

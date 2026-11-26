@@ -2954,6 +2954,8 @@ async def voice_omnivoice_download(background_tasks: BackgroundTasks):
     if omnivoice_local.available():
         return {"success": True, "already": True, "path": omnivoice_local.find_local_weights()}
 
+    # 原代码直接用了模块级没定义的 db_manager，一调下载就 NameError
+    db_manager = get_db_manager()
     job_id = db_manager.create_job("default", "omnivoice_download", 1)
 
     async def _run() -> None:

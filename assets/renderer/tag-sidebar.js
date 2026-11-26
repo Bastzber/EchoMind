@@ -364,21 +364,4 @@ function filterByCategory(categoryId) {
     renderSoundList(document.getElementById('searchInput').value, filtered);
 }
 
-function filterByFolder(folderId) {
-    let filtered = soundData;
-    
-    if (folderId === 'nature') {
-        filtered = soundData.filter(s => s.category === '自然音效');
-    } else if (folderId === 'human') {
-        filtered = soundData.filter(s => s.category === '人声动作');
-    } else if (folderId === 'mechanical') {
-        filtered = soundData.filter(s => s.category === '机械音效');
-    } else if (folderId === 'foley') {
-        filtered = soundData.filter(s => s.category === '拟音');
-    } else if (folderId === 'ambient') {
-        filtered = soundData.filter(s => s.category === '环境音');
-    }
-    
-    renderSoundList(document.getElementById('searchInput').value, filtered);
-}
 

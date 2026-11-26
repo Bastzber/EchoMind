@@ -16,19 +16,6 @@ function setDetailPanelOpen(open) {
     if (detailPanelOpen) renderSoundDetail(currentSound || null);
 }
 
-function detailRow(label, value) {
-    const row = document.createElement('div');
-    row.className = 'flex items-start gap-3 py-1';
-    const key = document.createElement('div');
-    key.className = 'w-14 shrink-0 text-xs opacity-50';
-    key.textContent = label;
-    const val = document.createElement('div');
-    val.className = 'flex-1 min-w-0 text-xs break-all';
-    val.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
-    row.appendChild(key);
-    row.appendChild(val);
-    return row;
-}
 
 function detailSectionTitle(text) {
     const el = document.createElement('div');

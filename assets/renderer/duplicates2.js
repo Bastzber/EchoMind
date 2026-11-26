@@ -221,24 +221,6 @@ async function resolveDuplicates(paths, action, targetDir) {
     }
 }
 
-async function loadUserFolderFiles(folderId, baseList) {
-    try {
-        const data = await rendererApi.get(
-            `/api/v1/projects/${encodeURIComponent(currentProject?.id || 'default')}`
-            + `/folders/${encodeURIComponent(folderId)}/files`
-        );
-        const files = (data && data.files) || [];
-        if (!files.length) return;
-        const mapped = files.map(mapDbFileToSound);
-        const seen = new Set((baseList || []).map(s => s.filePath));
-        const extra = mapped.filter(s => !seen.has(s.filePath));
-        if (!extra.length) return;
-        allSearchResults = (baseList || []).concat(extra);
-        renderSoundList('', allSearchResults);
-    } catch (error) {
-        console.warn('[Folder] 读取文件夹成员失败:', error);
-    }
-}
 
 async function loadFolderStats(force = false) {
     if (!force && importedFolderData.length > 0

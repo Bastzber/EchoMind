@@ -494,13 +494,12 @@ function renderSoundDetail(sound) {
     effectSection.id = 'effectPanel';
     effectSection.className = 'effect-host';
     effectSection.innerHTML = [
-        '<div class="flex items-center gap-2 mb-1">',
+        '<div class="flex items-center gap-2 mb-2">',
         '  <i data-lucide="sliders" class="w-4 h-4 shrink-0" style="color:#8ea7ff"></i>',
         '  <span class="text-sm font-semibold" style="color:#a9bcff">混响</span>',
-        '  <span class="text-[11px] opacity-50">室内 / 大厅 / 教堂，试听后可导出</span>',
+        '  <span class="help-dot" data-help="点一个预设即时试听，拖下面的湿声控制加多少。&#10;觉得合适再点「导出为新文件」，源文件不会被改动。">?</span>',
         '  <span class="effect-summary ml-auto text-[11px] opacity-50"></span>',
         '</div>',
-        '<div class="text-[11px] opacity-45 mb-2">选一个预设试听，觉得合适再导出成新文件；不改动源文件</div>',
         '<div class="effect-body"></div>'
     ].join('');
     paneFx.appendChild(effectSection);

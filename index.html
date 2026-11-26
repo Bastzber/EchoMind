@@ -495,6 +495,15 @@
         }
         /* 底部按钮统一成应用主色 */
         #saveSettingsBtn{background-color:#6b8afd !important}
+
+        /* 菜单里的东西必须 no-drag：顶栏是窗口拖动区，下拉菜单挂在顶栏下面，
+           不显式声明的话鼠标事件会被系统当成「拖窗口」，菜单里悬停不高亮、点了没反应。
+           这就是「临时文件点不动」的真正原因。 */
+        .dropdown-menu, .dropdown-menu *,
+        #settingsDropdown, #settingsDropdown *,
+        #fileDropdown, #fileDropdown *{
+            -webkit-app-region: no-drag;
+        }
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

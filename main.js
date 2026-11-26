@@ -72,19 +72,70 @@ function windowPrefsPath() {
 }
 
 function readWindowPrefs() {
-  const fallback = { closeBehavior: 'tray' };
+  const fallback = { closeBehavior: 'tray', openAtLogin: false };
   try {
     const file = windowPrefsPath();
     if (!fs.existsSync(file)) return fallback;
     const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
     const value = String(data?.closeBehavior || '');
-    if (value === 'tray' || value === 'minimize' || value === 'quit') {
-      return { closeBehavior: value };
-    }
+    return {
+      closeBehavior: ['tray', 'minimize', 'quit'].includes(value) ? value : fallback.closeBehavior,
+      openAtLogin: data?.openAtLogin === true,
+    };
   } catch (error) {
     console.warn('[Window] 读取窗口偏好失败:', error.message);
   }
   return fallback;
+}
+
+// ==================== 开机启动 ====================
+// 写的是当前用户的 Run 键（HKCU\...\Run），不需要管理员权限。
+// 开机启动时带 --autostart，主窗口不显示、先进托盘，并且延后 8 秒再干活，
+// 避免和系统启动时的磁盘/内存高峰抢资源（库里有 6.5 万个文件要扫）。
+const AUTOSTART_DELAY_MS = 8000;
+
+function autostartArgs() {
+  return ['--autostart'];
+}
+
+// Electron 的 setLoginItemSettings 在这个项目里不落地（实测写完注册表还是空的），
+// 直接自己写 HKCU 的 Run 键：reg add / reg delete，行为完全可预期、可检查。
+const AUTOSTART_REG_PATH = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const AUTOSTART_REG_NAME = 'EchoMind';
+
+function autostartCommandLine() {
+  const args = autostartArgs().join(' ');
+  return '"' + process.execPath + '" ' + args;
+}
+
+function applyOpenAtLogin(enabled) {
+  const { execFile } = require('child_process');
+  return new Promise((resolve) => {
+    const args = enabled
+      ? ['add', AUTOSTART_REG_PATH, '/v', AUTOSTART_REG_NAME, '/t', 'REG_SZ', '/d', autostartCommandLine(), '/f']
+      : ['delete', AUTOSTART_REG_PATH, '/v', AUTOSTART_REG_NAME, '/f'];
+    execFile('reg', args, { windowsHide: true }, (error) => {
+      if (error && enabled) {
+        console.warn('[Autostart] 写入启动项失败:', error.message);
+      }
+      resolve(!error);
+    });
+  });
+}
+
+// 读注册表里的真实状态，不听界面记的
+function actualOpenAtLogin() {
+  const { execFileSync } = require('child_process');
+  try {
+    const out = execFileSync('reg', ['query', AUTOSTART_REG_PATH, '/v', AUTOSTART_REG_NAME], {
+      windowsHide: true,
+      encoding: 'utf-8',
+    });
+    const present = String(out || '').includes(AUTOSTART_REG_NAME);
+    return { openAtLogin: present };
+  } catch (error) {
+    return { openAtLogin: false };
+  }
 }
 
 function writeWindowPrefs(prefs) {
@@ -2618,16 +2669,33 @@ ipcMain.handle('dialog-save', async (event, options) => {
     });
   });
 
-  ipcMain.handle('window-prefs-get', () => ({ success: true, ...readWindowPrefs() }));
+  ipcMain.handle('window-prefs-get', () => {
+    const prefs = readWindowPrefs();
+    // openAtLogin 以注册表为准：界面上看到的就是系统里真正生效的状态
+    const actual = actualOpenAtLogin();
+    if (actual.openAtLogin !== prefs.openAtLogin) {
+      prefs.openAtLogin = actual.openAtLogin;
+      writeWindowPrefs(prefs);
+    }
+    return { success: true, ...prefs, openAtLoginEffective: actual.openAtLogin };
+  });
 
-  ipcMain.handle('window-prefs-set', (event, prefs = {}) => {
+  ipcMain.handle('window-prefs-set', async (event, prefs = {}) => {
     const current = readWindowPrefs();
     const value = String(prefs?.closeBehavior || '');
     const next = {
-      closeBehavior: ['tray', 'minimize', 'quit'].includes(value) ? value : current.closeBehavior
+      closeBehavior: ['tray', 'minimize', 'quit'].includes(value) ? value : current.closeBehavior,
+      openAtLogin: current.openAtLogin,
     };
+    if (Object.prototype.hasOwnProperty.call(prefs || {}, 'openAtLogin')) {
+      next.openAtLogin = prefs.openAtLogin === true;
+      await applyOpenAtLogin(next.openAtLogin);
+      // 写进注册表后回读一次，界面显示系统真实结果
+      const actual = actualOpenAtLogin();
+      next.openAtLogin = actual.openAtLogin;
+    }
     writeWindowPrefs(next);
-    return { success: true, ...next };
+    return { success: true, ...next, openAtLoginEffective: actualOpenAtLogin().openAtLogin };
   });
 
   ipcMain.handle('secure-secret', async (event, action, payload = {}) => {
@@ -3380,8 +3448,15 @@ app.whenReady().then(async () => {
   installBackendAuthHeader();
   await primeSafeStorageStatus();
 
-  // 创建启动窗口
-  createSplashWindow();
+  // 开机自启：延后 8 秒再干活，别和系统启动高峰抢磁盘；界面直接进托盘
+  const launchedByAutostart = process.argv.includes('--autostart');
+  const startedHidden = launchedByAutostart || process.argv.includes('--hidden');
+  if (launchedByAutostart) {
+    await new Promise((resolve) => setTimeout(resolve, AUTOSTART_DELAY_MS));
+  }
+
+  // 创建启动窗口（静默启动时不要弹启动动画）
+  if (!startedHidden) createSplashWindow();
   
   // 先启动后端
   updateSplashStatus('正在启动后端服务...', '检查模型文件');
@@ -3427,7 +3502,12 @@ app.whenReady().then(async () => {
       return;
     }
     closeSplashWindow();
-    mainWindow.show();
+    if (startedHidden) {
+      // 开机自启/hidden：窗口不弹，先躲进托盘
+      try { ensureTray(); } catch (error) { console.warn('[Autostart] 托盘创建失败:', error.message); }
+    } else {
+      mainWindow.show();
+    }
     
     // 通知前端后端已就绪
     mainWindow.webContents.send('backend-ready', { success: true });

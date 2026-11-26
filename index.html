@@ -2169,6 +2169,18 @@
                         </label>
                         <div id="windowPrefsStatus" class="text-xs opacity-60 mt-3"></div>
                     </div>
+                    <div class="mb-6 pt-5 mt-2 border-t" style="border-color: var(--border-color);">
+                        <h4 class="text-sm font-medium mb-1">开机启动</h4>
+                        <p class="text-xs opacity-60 mb-4">开机后自动启动回声。勾上以后：开机时静默进入右下角托盘（不弹窗），延后 8 秒再开始工作，不跟系统启动抢资源。点托盘图标即可打开主界面。</p>
+                        <label class="flex items-center justify-between gap-3 p-3 rounded-md border cursor-pointer" style="border-color: var(--border-color);">
+                            <span>
+                                <span class="text-sm block">开机时自动启动回声</span>
+                                <span class="text-xs opacity-60">只写当前用户的启动项，不装服务、不要管理员权限</span>
+                            </span>
+                            <input type="checkbox" id="openAtLoginToggle" class="w-4 h-4 shrink-0">
+                        </label>
+                        <div id="openAtLoginStatus" class="text-xs opacity-60 mt-3"></div>
+                    </div>
                 </div>
                 <div id="shortcutConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">

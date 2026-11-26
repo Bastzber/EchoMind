@@ -423,10 +423,34 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const st = document.getElementById('windowPrefsStatus');
             if (st) st.textContent = '当前：' + (CLOSE_BEHAVIOR_LABELS[value] || value);
+
+            // 开机启动：以主进程回读的注册表状态为准
+            const toggle = document.getElementById('openAtLoginToggle');
+            const openAtLogin = data?.openAtLogin === true;
+            if (toggle) toggle.checked = openAtLogin;
+            const loginStatus = document.getElementById('openAtLoginStatus');
+            if (loginStatus) loginStatus.textContent = '当前：' + (openAtLogin ? '已开启（开机静默进托盘）' : '已关闭');
         } catch (e) {
             console.error('读取窗口设置失败:', e);
         }
     }
+
+    // 开机启动开关
+    document.getElementById('openAtLoginToggle')?.addEventListener('change', async (event) => {
+        const toggle = event.target;
+        const statusEl = document.getElementById('openAtLoginStatus');
+        if (statusEl) statusEl.textContent = '正在写入启动项…';
+        try {
+            const res = await window.electronAPI?.windowPrefs?.set({ openAtLogin: toggle.checked });
+            const effective = res?.openAtLogin === true;
+            toggle.checked = effective;
+            if (statusEl) statusEl.textContent = '当前：' + (effective ? '已开启（开机静默进托盘）' : '已关闭');
+            showNotification?.(effective ? '已设为开机启动' : '已取消开机启动', 'success');
+        } catch (e) {
+            toggle.checked = !toggle.checked;
+            if (statusEl) statusEl.textContent = '写入失败：' + (e.message || e);
+        }
+    });
 
     document.querySelectorAll('input[name="closeBehavior"]').forEach(radio => {
         radio.addEventListener('change', async () => {

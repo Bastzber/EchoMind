@@ -572,6 +572,21 @@
 
         /* 创造音效：固定在合适大小，不再铺满整个窗口 */
         .sfx-dialog{width:1080px;max-width:92vw;height:700px;max-height:86vh}
+
+        /* 方块按钮 + 单行可滚动的分类 tab */
+        /* 分类 tab：两列网格的小胶囊，文字对齐，不挤成一行也不乱换行 */
+        #sfxCategoryTabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px;
+            max-height:none;overflow:visible}
+        #sfxCategoryTabs button{width:100%;justify-content:center;text-align:center;
+            padding:6px 8px !important;border-radius:8px !important;font-size:12px !important;
+            border:1px solid var(--border-color);background:transparent;color:var(--text-secondary);
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        #sfxCategoryTabs button:hover{color:var(--text-primary);background:rgba(255,255,255,.06)}
+        /* 子分类：正方形四角带弧边 */
+        #sfxSubcategoryList.sfx-tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px}
+        .sfx-tile{aspect-ratio:1 / 1;border-radius:14px !important;padding:0;min-width:0;overflow:hidden}
+        .sfx-tile-name{font-size:12px;line-height:1.2;padding:0 6px;word-break:break-all}
+        .sfx-tile-ico{transform:translateY(-1px)}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -2440,7 +2455,7 @@
             <!-- 主区域三栏 -->
             <div class="flex-1 flex overflow-hidden">
                 <!-- 左：分类树 -->
-                <div class="w-56 shrink-0 border-r flex flex-col overflow-hidden" style="border-color: var(--border-color);">
+                <div class="w-60 shrink-0 border-r flex flex-col overflow-hidden" style="border-color: var(--border-color);">
                     <div id="sfxCategoryTabs" class="flex flex-wrap gap-1 p-2 border-b" style="border-color: var(--border-color);"></div>
                     <div id="sfxSubcategoryList" class="flex-1 overflow-y-auto p-2"></div>
                 </div>

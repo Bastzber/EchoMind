@@ -452,6 +452,49 @@
         .om-panel-act.om-danger{color:#ef4444}
         .om-panel-act.om-danger:hover{background:rgba(239,68,68,.12);color:#ef4444}
         .om-panel-hint{font-size:10.5px;color:var(--text-secondary);opacity:.55;margin-top:6px;line-height:1.4}
+
+        /* ===== AI 设置弹窗（A 版：左侧导航 + 右侧内容） ===== */
+        #settingsModal > div{
+            display:grid;grid-template-columns:176px 1fr;
+            grid-template-areas:"hd hd" "tabs content" "ft ft";
+            grid-template-rows:auto minmax(0,1fr) auto;
+            width:720px;max-width:94vw;max-height:86vh;
+        }
+        #settingsModal > div > div:nth-child(1){grid-area:hd}
+        #settingsModal > div > div:nth-child(2){
+            grid-area:tabs;display:flex;flex-direction:column;gap:2px;
+            border:0;border-right:1px solid var(--border-color);
+            padding:8px 6px;overflow-y:auto;background:rgba(0,0,0,.18);
+        }
+        #settingsModal > div > div:nth-child(3){grid-area:content;overflow-y:auto;padding:16px 18px}
+        #settingsModal > div > div:nth-child(4){grid-area:ft}
+        /* 左侧导航项 */
+        #settingsModal .settings-tab{
+            border:0 !important;border-radius:8px;padding:8px 10px !important;
+            font-size:12.5px !important;text-align:left;white-space:nowrap;
+            color:var(--text-secondary);background:transparent;
+        }
+        #settingsModal .settings-tab:hover{background:rgba(255,255,255,.05);color:var(--text-primary)}
+        #settingsModal .settings-tab.border-blue-500{background:#232323;color:var(--text-primary);font-weight:600}
+        /* 提供方：两列卡片 */
+        #llmConfigContent .space-y-2,
+        #embeddingConfigContent .space-y-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        #llmConfigContent .space-y-2 > div,
+        #embeddingConfigContent .space-y-2 > div{grid-column:1/-1;margin:4px 0 0 !important}
+        #llmConfigContent .space-y-2 > label,
+        #embeddingConfigContent .space-y-2 > label{
+            margin:0 !important;padding:9px 11px !important;border-radius:9px;position:relative;
+        }
+        #llmConfigContent .space-y-2 > label > input[type="radio"],
+        #embeddingConfigContent .space-y-2 > label > input[type="radio"]{
+            position:absolute;opacity:0;pointer-events:none;width:0;height:0;
+        }
+        #llmConfigContent .space-y-2 > label:has(input:checked),
+        #embeddingConfigContent .space-y-2 > label:has(input:checked){
+            border-color:#6b8afd !important;background:rgba(107,138,253,.10);
+        }
+        /* 底部按钮统一成应用主色 */
+        #saveSettingsBtn{background-color:#6b8afd !important}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

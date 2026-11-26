@@ -504,6 +504,36 @@
         #fileDropdown, #fileDropdown *{
             -webkit-app-region: no-drag;
         }
+
+        /* ===== AI 设置里的卡片式排版 ===== */
+        .om-card{border:1px solid var(--border-color);border-radius:10px;background:rgba(255,255,255,.02);margin-bottom:12px}
+        .om-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+            padding:11px 14px;border-bottom:1px solid var(--border-color)}
+        .om-card-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text-primary)}
+        .om-card-note{font-size:11.5px;color:var(--text-secondary);opacity:.75}
+        .om-card-body{padding:4px 14px}
+        .om-card-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;
+            padding:11px 14px;border-top:1px solid var(--border-color)}
+        .om-card-foot.om-foot-left{justify-content:flex-start}
+        .om-line{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
+        .om-line:last-child{border-bottom:0}
+        .om-line-label{width:64px;flex:0 0 64px;font-size:12px;color:var(--text-secondary)}
+        .om-line-value{flex:1;font-size:12.5px;color:var(--text-primary)}
+        .om-btn{height:30px;padding:0 12px;border-radius:8px;font-size:12.5px;cursor:pointer;
+            border:1px solid var(--border-color);background:transparent;color:var(--text-secondary);transition:all .12s}
+        .om-btn:hover{background:rgba(255,255,255,.06);color:var(--text-primary)}
+        .om-btn:disabled{opacity:.45;cursor:default}
+        .om-btn:disabled:hover{background:transparent;color:var(--text-secondary)}
+        .om-btn.om-btn-ghost{border-color:transparent;background:transparent;color:var(--text-secondary)}
+        .om-btn.om-btn-ghost:hover{color:var(--text-primary);background:rgba(255,255,255,.06)}
+        .om-btn.om-btn-primary{background:#8b5cf6;border-color:#8b5cf6;color:#fff;font-weight:600}
+        .om-btn.om-btn-primary:hover{background:#7c4ff0}
+        .om-progress-wrap{margin:0 0 12px;padding:0 2px}
+        .om-progress-track{height:6px;border-radius:999px;overflow:hidden;background:var(--bg-tertiary)}
+        .om-progress-bar{height:100%;width:0;border-radius:999px;background:#8b5cf6;transition:width .3s}
+        .om-progress-text{margin-top:6px;font-size:11.5px;color:var(--text-secondary)}
+        .om-log{font-size:11.5px;color:var(--text-secondary);white-space:pre-line;max-height:160px;
+            overflow-y:auto;border:1px solid var(--border-color);border-radius:8px;padding:10px;margin-top:4px}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -2080,49 +2110,50 @@
                     </div>
                 </div>
                 <div id="descConfigContent" class="settings-tab-content hidden">
-                    <div class="mb-6">
-                        <h4 class="text-sm font-medium mb-1">批量生成一句话描述<span class="help-dot ml-1" data-help="给库里音效批量生成 AI 一句话描述。描述写进库后会同步进文本索引，以后搜索直接命中，不用每次再调 AI。&#10;可以断点续跑：中途停下，再点一次接着处理剩下的；全部完成后自动重建文本索引。">?</span></h4>
-                        <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
-                            <div class="flex items-center gap-1 mb-2">
-                                <span class="text-xs font-medium">🪄 系统标签</span>
-                                <span class="help-dot" data-help="系统标签是 AI 读文件名和描述后给出的 4~8 个词（声音类型 / 质感 / 长短 / 场景 / 情绪）。&#10;它们只参与搜索，不铺在左侧「我的标签」里。&#10;最新的那批音效如果只有描述、没标签，点右边按钮补齐。">?</span>
+                    <div class="om-card">
+                        <div class="om-card-head">
+                            <div class="om-card-title">AI 描述与标签
+                                <span class="help-dot" data-help="给库里音效批量生成 AI 一句话描述，写进库后同步进文本索引，以后搜索直接命中。&#10;可以断点续跑：中途停下，再点一次接着处理剩下的。&#10;生成描述时会顺手补系统标签（AI 读名字和描述给出的 4~8 个词，只参与搜索，不进左侧「我的标签」）。">?</span>
                             </div>
-                            <div class="flex items-center gap-3">
-                                <button id="batchTagsBtn"
-                                        class="px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">补齐缺失的标签</button>
-                                <span id="batchTagsStatus" class="text-xs opacity-70"></span>
+                            <span id="descStats" class="om-card-note">—</span>
+                        </div>
+                        <div class="om-card-body">
+                            <div class="om-line">
+                                <span class="om-line-label">描述</span>
+                                <span class="om-line-value">批量生成或补齐 AI 一句话描述</span>
                             </div>
-                        </div>
-                        <div class="flex items-center gap-3 mb-4">
-                            <button id="batchDescBtn"
-                                    class="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors hover:opacity-90"
-                                    style="background: #8b5cf6;">开始批量生成</button>
-                            <span id="descStats" class="text-xs opacity-70"></span>
-                        </div>
-                        <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color);">
-                            <div class="text-sm font-medium mb-1">知识包（换电脑、分享给别人用）<span class="help-dot ml-1" data-help="一个 zip 里同时装着一句话描述、标签、音频向量、文本向量。&#10;别人把软件和包一起拿走，导入自己库里的音效后点「导入知识包」，全部直接套用，不用再跑几小时索引。&#10;后加了一批新音效：点「导出增量包」，选上次那个包当基线，只导新增的部分。">?</span></div>
-                            <div class="flex items-center gap-3">
-                                <button id="exportKnowledgePackBtn"
-                                        class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出知识包</button>
-                                <button id="exportDeltaPackBtn"
-                                        class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导出增量包</button>
-                                <button id="importKnowledgePackBtn"
-                                        class="px-3 py-1.5 rounded-md text-sm transition-colors hover:opacity-80"
-                                        style="background-color: var(--bg-tertiary); color: var(--text-primary);">导入知识包</button>
-                                <span id="knowledgePackStatus" class="text-xs opacity-70"></span>
+                            <div class="om-line">
+                                <span class="om-line-label">系统标签</span>
+                                <span id="batchTagsStatus" class="om-line-value">检查中…</span>
+                                <button id="batchTagsBtn" class="om-btn om-btn-ghost">补齐缺失的标签</button>
                             </div>
                         </div>
-                        <div id="descProgressWrap" class="hidden mb-4">
-                            <div class="w-full h-2 rounded-full overflow-hidden" style="background-color: var(--bg-tertiary);">
-                                <div id="descProgressBar" class="h-full rounded-full transition-all duration-300" style="width: 0%; background: #8b5cf6;"></div>
-                            </div>
-                            <div id="descProgressText" class="text-xs opacity-60 mt-1"></div>
+                        <div class="om-card-foot">
+                            <button id="batchDescBtn" class="om-btn om-btn-primary">开始批量生成</button>
                         </div>
-                        <div id="descLog" class="text-xs opacity-70 whitespace-pre-line max-h-40 overflow-y-auto rounded-md border p-3" style="border-color: var(--border-color);"></div>
                     </div>
+
+                    <div id="descProgressWrap" class="hidden om-progress-wrap">
+                        <div class="om-progress-track"><div id="descProgressBar" class="om-progress-bar"></div></div>
+                        <div id="descProgressText" class="om-progress-text"></div>
+                    </div>
+
+                    <div class="om-card">
+                        <div class="om-card-head">
+                            <div class="om-card-title">知识包
+                                <span class="help-dot" data-help="一个 zip 里同时装着一句话描述、标签、音频向量、文本向量。&#10;换电脑或分享给别人：对方装好软件、导入自己的音效后点「导入知识包」，全部直接套用，不用再跑几小时索引。&#10;后加了一批新音效：点「导出增量包」，选上次那个包当基线，只导新增部分。">?</span>
+                            </div>
+                            <span class="om-card-note">换电脑、分享给别人用</span>
+                        </div>
+                        <div class="om-card-foot om-foot-left">
+                            <button id="exportKnowledgePackBtn" class="om-btn">导出知识包</button>
+                            <button id="exportDeltaPackBtn" class="om-btn">导出增量包</button>
+                            <button id="importKnowledgePackBtn" class="om-btn">导入知识包</button>
+                            <span id="knowledgePackStatus" class="om-card-note"></span>
+                        </div>
+                    </div>
+
+                    <div id="descLog" class="om-log"></div>
                 </div>
                 <div id="windowConfigContent" class="settings-tab-content hidden">
                     <div class="mb-6">

@@ -594,6 +594,44 @@
         .recipe-item:hover{color:var(--text-primary)}
         .recipe-item-ico{display:inline-flex;align-items:center;opacity:.75;flex:0 0 15px}
         .recipe-item-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+        /* 音效详情：三页 + 唯一编辑处 */
+        .detail-tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--border-color);margin:-16px -16px 12px}
+        .detail-tab{flex:1;text-align:center;padding:6px 0;border-radius:7px;font-size:12px;
+            color:var(--text-secondary);background:transparent;border:0;cursor:pointer}
+        .detail-tab:hover{color:var(--text-primary);background:rgba(255,255,255,.05)}
+        .detail-tab.on{background:var(--bg-tertiary);color:var(--text-primary);font-weight:600}
+        .detail-pane{padding-bottom:8px}
+        .detail-kv-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+        .detail-kv{border:1px solid var(--border-color);border-radius:8px;padding:7px 9px}
+        .detail-kv .k{display:block;font-size:10.5px;color:var(--text-secondary)}
+        .detail-kv .v{display:block;font-size:12.5px;margin-top:2px;color:var(--text-primary)}
+        .detail-sec-line{display:flex;align-items:center;justify-content:space-between;
+            font-size:12px;font-weight:600;margin:14px 0 8px}
+        .detail-link{font-size:11.5px;font-weight:400;color:#9db0ff;cursor:pointer}
+        .detail-link:hover{text-decoration:underline}
+        .detail-desc-view{font-size:12.5px;color:var(--text-secondary);line-height:1.6;
+            padding:8px 10px;border:1px dashed var(--border-color);border-radius:8px}
+        .detail-hint{font-size:11px;color:var(--text-secondary);opacity:.75;margin-top:6px;line-height:1.5}
+        .detail-textarea{width:100%;height:64px;padding:7px 9px;border-radius:8px;font-size:12.5px;line-height:1.55;
+            resize:none;outline:none;background:var(--bg-tertiary);border:1px solid #8b5cf6;color:var(--text-primary)}
+        .detail-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+        .detail-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:6px;font-size:11.5px}
+        .detail-chip-sys{background:rgba(107,138,253,.16);color:#9db0ff}
+        .detail-chip-mine{background:rgba(139,92,246,.18);color:#c3a8ff}
+        .detail-chip .x{opacity:.55;cursor:pointer;font-size:10px}
+        .detail-chip .x:hover{opacity:1;color:#ef4444}
+        .detail-foot{display:flex;justify-content:flex-end;gap:8px;padding-top:12px;margin-top:12px;
+            border-top:1px solid var(--border-color)}
+        .detail-btn{height:30px;padding:0 12px;border-radius:8px;font-size:12.5px;cursor:pointer;
+            border:1px solid var(--border-color);background:transparent;color:var(--text-secondary)}
+        .detail-btn:hover{background:rgba(255,255,255,.06);color:var(--text-primary)}
+        .detail-btn:disabled{opacity:.45;cursor:default}
+        .detail-btn-pri{background:#8b5cf6;border-color:#8b5cf6;color:#fff;font-weight:600}
+        .detail-btn-pri:hover{background:#7c4ff0}
+        .detail-btn-pri:disabled{background:transparent;border-color:var(--border-color);color:var(--text-secondary)}
+        .detail-btn-danger{border-color:#ef4444;color:#ef4444;margin-top:8px}
+        .effect-host{border:0;margin:0;padding:0}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">

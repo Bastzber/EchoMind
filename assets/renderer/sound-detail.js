@@ -141,44 +141,137 @@ function renderSoundDetail(sound) {
         return;
     }
 
+    const fileUuid = sound.fileId || sound.file_uuid || '';
+    const original = {
+        description: String(sound.aiDescription || '').replace(/^\[auto\]/, ''),
+        sysTags: (Array.isArray(sound.tags) ? sound.tags.slice() : []),
+        userTags: [],
+    };
+    let userTagNames = [];
+
+    // ---------- 顶部分页 ----------
+    const tabsEl = document.createElement('div');
+    tabsEl.className = 'detail-tabs';
+    const TABS = [['overview', '概览'], ['edit', '标签与描述'], ['fx', '效果器']];
+    let activeTab = 'overview';
+    const tabButtons = {};
+    TABS.forEach(([key, label]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'detail-tab';
+        b.textContent = label;
+        b.addEventListener('click', () => switchTab(key));
+        tabButtons[key] = b;
+        tabsEl.appendChild(b);
+    });
+    body.appendChild(tabsEl);
+
+    const paneOverview = document.createElement('div');
+    paneOverview.className = 'detail-pane';
+    const paneEdit = document.createElement('div');
+    paneEdit.className = 'detail-pane hidden';
+    const paneFx = document.createElement('div');
+    paneFx.className = 'detail-pane hidden';
+    body.appendChild(paneOverview);
+    body.appendChild(paneEdit);
+    body.appendChild(paneFx);
+
+    const foot = document.createElement('div');
+    foot.className = 'detail-foot';
+    const undoBtn = document.createElement('button');
+    undoBtn.type = 'button';
+    undoBtn.className = 'detail-btn';
+    undoBtn.textContent = '撤销改动';
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'detail-btn detail-btn-pri';
+    saveBtn.textContent = '没有待保存的改动';
+    saveBtn.disabled = true;
+    foot.appendChild(undoBtn);
+    foot.appendChild(saveBtn);
+    body.appendChild(foot);
+
+    function switchTab(key) {
+        activeTab = key;
+        Object.entries(tabButtons).forEach(([k, b]) => b.classList.toggle('on', k === key));
+        paneOverview.classList.toggle('hidden', key !== 'overview');
+        paneEdit.classList.toggle('hidden', key !== 'edit');
+        paneFx.classList.toggle('hidden', key !== 'fx');
+        foot.classList.toggle('hidden', key === 'fx');
+        if (key === 'fx' && typeof renderEffectPanel === 'function') renderEffectPanel(sound);
+    }
+
+    // ---------- 概览 ----------
     const titleEl = document.createElement('div');
     titleEl.className = 'text-sm font-medium break-all';
     titleEl.textContent = sound.name || '';
-    body.appendChild(titleEl);
+    paneOverview.appendChild(titleEl);
 
     const pathEl = document.createElement('div');
     pathEl.className = 'text-[11px] opacity-40 break-all mt-1 mb-2';
     pathEl.textContent = sound.filePath || '';
-    body.appendChild(pathEl);
+    paneOverview.appendChild(pathEl);
 
-    // ---- 文件名（会真的改磁盘上的源文件）----
-    body.appendChild(detailSectionTitle('文件名'));
+    const meta = document.createElement('div');
+    meta.className = 'detail-kv-grid';
+    const durSec = Number(sound.duration || 0) / 1000;
+    const ext = String(sound.name || '').split('.').pop().toUpperCase();
+    const fmtDur = (sec) => {
+        const m = Math.floor(sec / 60);
+        const r = Math.round(sec % 60);
+        return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+    };
+    [["时长", durSec ? fmtDur(durSec) : '—'], ["格式", ext || '—'],
+     ["标签", String(original.sysTags.length) + ' 个系统'], ["索引", '已完成']].forEach(([k, v]) => {
+        const cell = document.createElement('div');
+        cell.className = 'detail-kv';
+        cell.innerHTML = '<span class="k"></span><span class="v"></span>';
+        cell.querySelector('.k').textContent = k;
+        cell.querySelector('.v').textContent = v;
+        meta.appendChild(cell);
+    });
+    paneOverview.appendChild(meta);
+
+    // 描述（只读，去编辑入口）
+    const descHead = document.createElement('div');
+    descHead.className = 'detail-sec-line';
+    descHead.innerHTML = '<span>一句话描述</span><span class="detail-link">去编辑 ›</span>';
+    descHead.querySelector('.detail-link').addEventListener('click', () => switchTab('edit'));
+    paneOverview.appendChild(descHead);
+    const descView = document.createElement('div');
+    descView.className = 'detail-desc-view';
+    descView.textContent = original.description || '（还没有描述）';
+    paneOverview.appendChild(descView);
+    const descViewHint = document.createElement('div');
+    descViewHint.className = 'detail-hint';
+    descViewHint.textContent = '这里只读，点右上「去编辑」或切到「标签与描述」页改';
+    paneOverview.appendChild(descViewHint);
+
+    // 文件名（动磁盘，独立两步确认）
+    paneOverview.appendChild(detailSectionTitle('文件名'));
     const nameInput = detailInput('detail-name');
     nameInput.value = sound.name || '';
-    body.appendChild(nameInput);
+    paneOverview.appendChild(nameInput);
     const nameSave = detailSaveButton('重命名文件', null);
-    body.appendChild(nameSave);
+    nameSave.className = 'detail-btn detail-btn-danger';
+    paneOverview.appendChild(nameSave);
     const nameHint = document.createElement('div');
-    nameHint.className = 'text-[11px] opacity-40 mt-1';
-    nameHint.textContent = '会同步改磁盘上的源文件名；扩展名可以省略';
-    body.appendChild(nameHint);
+    nameHint.className = 'detail-hint';
+    nameHint.textContent = '改名会真的动磁盘；它不在「保存改动」里，单独提交';
+    paneOverview.appendChild(nameHint);
     nameSave.addEventListener('click', () => {
-        // 两步确认：第二次点击才动磁盘
         if (nameSave.dataset.armed !== '1') {
             nameSave.dataset.armed = '1';
             nameSave.textContent = '再点一次确认重命名';
-            nameSave.style.color = '#ef4444';
             setTimeout(() => {
                 if (nameSave.dataset.armed !== '1') return;
                 delete nameSave.dataset.armed;
-                nameSave.textContent = nameSave.dataset.idleText || '重命名文件';
-                nameSave.style.color = '';
+                nameSave.textContent = '重命名文件';
             }, 5000);
             return;
         }
         delete nameSave.dataset.armed;
-        nameSave.textContent = nameSave.dataset.idleText || '重命名文件';
-        nameSave.style.color = '';
+        nameSave.textContent = '重命名文件';
         const next = nameInput.value.trim();
         if (!next || next === sound.name) {
             showNotification('文件名没有变化', 'info');
@@ -194,105 +287,78 @@ function renderSoundDetail(sound) {
         });
     });
 
-    // ---- 效果器（折叠，放在详情最上方，方便找）----
-    const effectSection = document.createElement('div');
-    effectSection.id = 'effectPanel';
-    effectSection.className = 'mt-4 pt-3 border-t';
-    effectSection.style.borderColor = 'var(--border-color)';
-    effectSection.innerHTML = [
-        '<button class="effect-toggle w-full text-left">',
-        '  <span class="flex items-center gap-2">',
-        '    <i data-lucide="sliders" class="w-4 h-4 shrink-0" style="color: #8ea7ff;"></i>',
-        '    <span class="text-sm font-semibold tracking-wide" style="color: #a9bcff;">效果器</span>',
-        '    <span class="text-[10px] opacity-45">混响</span>',
-        '    <i data-lucide="chevron-down" class="w-3.5 h-3.5 effect-chevron opacity-50 ml-auto"></i>',
-        '  </span>',
-        '  <span class="flex items-center gap-1 mt-1 pl-6 text-[10px] opacity-50">',
-        '    <span>室内 / 大厅 / 教堂，试听后可导出</span>',
-        '    <span class="effect-summary ml-auto"></span>',
-        '  </span>',
-        '</button>',
-        '<div class="effect-body mt-2"></div>'
-    ].join('');
-    try {
-        body.appendChild(effectSection);
-    } catch (error) {
-        console.warn('[Effect] 面板挂载失败:', error);
-    }
-    const effectToggle = effectSection.querySelector('.effect-toggle');
-    effectToggle.addEventListener('click', () => {
-        const bodyEl = effectSection.querySelector('.effect-body');
-        const chevron = effectSection.querySelector('.effect-chevron');
-        const open = bodyEl.classList.toggle('hidden') === false;
-        if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
-        if (open) renderEffectPanel(sound);
-    });
-    // 默认展开：效果器是高频功能，不该需要点两次才能用
-    renderEffectPanel(sound);
+    // ---------- 标签与描述（唯一编辑处）----------
+    const editTitle = document.createElement('div');
+    editTitle.className = 'text-sm font-medium break-all';
+    editTitle.textContent = sound.name || '';
+    paneEdit.appendChild(editTitle);
+    const editHint = document.createElement('div');
+    editHint.className = 'detail-hint';
+    editHint.style.marginBottom = '10px';
+    editHint.textContent = '全界面只有这一处能改描述和标签，底部一次提交';
+    paneEdit.appendChild(editHint);
 
+    paneEdit.appendChild(detailSectionTitle('一句话描述'));
+    const descInput = document.createElement('textarea');
+    descInput.rows = 3;
+    descInput.className = 'detail-textarea';
+    descInput.placeholder = '一句话说清这是什么声音';
+    descInput.value = original.description;
+    paneEdit.appendChild(descInput);
 
-    // ---- 系统标签（6 维，不进左侧栏）----
-    body.appendChild(detailSectionTitle('系统标签'));
+    // 系统标签
+    paneEdit.appendChild(detailSectionTitle('系统标签'));
     const sysHint = document.createElement('div');
-    sysHint.className = 'text-[11px] opacity-40 -mt-1 mb-1';
-    sysHint.textContent = '音效自带的属性标签，只在详情里改，不会出现在左侧「我的标签」';
-    body.appendChild(sysHint);
-
+    sysHint.className = 'detail-hint';
+    sysHint.textContent = 'AI 自动打，只在详情里改，不进左侧「我的标签」';
+    paneEdit.appendChild(sysHint);
     const chipsEl = document.createElement('div');
-    chipsEl.className = 'flex flex-wrap gap-1 mb-1';
-    body.appendChild(chipsEl);
+    chipsEl.className = 'detail-chips';
+    paneEdit.appendChild(chipsEl);
+    let sysTags = original.sysTags.slice();
     const renderChips = () => {
         chipsEl.innerHTML = '';
-        const list = Array.isArray(sound.tags) ? sound.tags : [];
-        if (!list.length) {
+        if (!sysTags.length) {
             const none = document.createElement('span');
             none.className = 'text-xs opacity-40';
             none.textContent = '（暂无）';
             chipsEl.appendChild(none);
             return;
         }
-        list.forEach(tag => {
+        sysTags.forEach((tag, idx) => {
             const chip = document.createElement('span');
-            chip.className = 'px-1.5 py-0.5 rounded text-[11px]';
-            chip.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary);';
-            chip.textContent = tag;
+            chip.className = 'detail-chip detail-chip-sys';
+            chip.innerHTML = '<span></span><span class="x">✕</span>';
+            chip.querySelector('span').textContent = tag;
+            chip.querySelector('.x').addEventListener('click', () => {
+                sysTags.splice(idx, 1);
+                sysInput.value = sysTags.join(', ');
+                renderChips();
+                updateDirty();
+            });
             chipsEl.appendChild(chip);
         });
     };
     renderChips();
-    const tagsInput = detailInput('detail-tags');
-    tagsInput.placeholder = '逗号分隔，如：城市, 环境';
-    tagsInput.value = (Array.isArray(sound.tags) ? sound.tags : []).join(', ');
-    body.appendChild(tagsInput);
-    const tagsSave = detailSaveButton('保存系统标签', null);
-    body.appendChild(tagsSave);
-    tagsSave.addEventListener('click', () => withButtonFeedback(tagsSave, '保存中…', '✓ 已保存', async () => {
-        const nextTags = parseTagsInput(tagsInput.value);
-        const previous = Array.isArray(sound.tags) ? sound.tags.slice() : [];
-        sound.tags = nextTags;
-        renderChips();          // 先把界面改了，别等接口
-        try {
-            await setSoundTags(sound, nextTags, { silent: true });
-            syncSoundToList(sound, { tags: nextTags });
-        } catch (error) {
-            sound.tags = previous;
-            renderChips();
-            syncSoundToList(sound, { tags: previous });
-            throw error;
-        }
-    }));
+    const sysInput = detailInput('detail-tags');
+    sysInput.placeholder = '逗号分隔，如：城市, 环境';
+    sysInput.value = sysTags.join(', ');
+    sysInput.addEventListener('input', () => {
+        sysTags = parseTagsInput(sysInput.value);
+        renderChips();
+        updateDirty();
+    });
+    paneEdit.appendChild(sysInput);
 
-    // ---- 用户标签（我的标签，进左侧栏）----
-    body.appendChild(detailSectionTitle('用户标签'));
+    // 我的标签
+    paneEdit.appendChild(detailSectionTitle('我的标签'));
     const userHint = document.createElement('div');
-    userHint.className = 'text-[11px] opacity-40 -mt-1 mb-1';
-    userHint.textContent = '你自己的分类标签，会出现在左侧「我的标签」；不进系统标签';
-    body.appendChild(userHint);
-
+    userHint.className = 'detail-hint';
+    userHint.textContent = '你自己的分类，会出现在左侧「我的标签」';
+    paneEdit.appendChild(userHint);
     const userChips = document.createElement('div');
-    userChips.className = 'flex flex-wrap gap-1 mb-1';
-    body.appendChild(userChips);
-    let userTagNames = [];
+    userChips.className = 'detail-chips';
+    paneEdit.appendChild(userChips);
     const renderUserChips = () => {
         userChips.innerHTML = '';
         if (!userTagNames.length) {
@@ -302,22 +368,30 @@ function renderSoundDetail(sound) {
             userChips.appendChild(none);
             return;
         }
-        userTagNames.forEach(tag => {
+        userTagNames.forEach((tag, idx) => {
             const chip = document.createElement('span');
-            chip.className = 'px-1.5 py-0.5 rounded text-[11px]';
-            chip.style.cssText = 'background: rgba(107,138,253,0.16); color: var(--text-primary);';
-            chip.textContent = tag;
+            chip.className = 'detail-chip detail-chip-mine';
+            chip.innerHTML = '<span></span><span class="x">✕</span>';
+            chip.querySelector('span').textContent = tag;
+            chip.querySelector('.x').addEventListener('click', () => {
+                userTagNames.splice(idx, 1);
+                userInput.value = userTagNames.join(', ');
+                renderUserChips();
+                updateDirty();
+            });
             userChips.appendChild(chip);
         });
     };
-
+    renderUserChips();
     const userInput = detailInput('detail-user-tags');
     userInput.placeholder = '逗号分隔，如：常用, 片头';
-    body.appendChild(userInput);
-    const userSave = detailSaveButton('保存用户标签', null);
-    body.appendChild(userSave);
+    userInput.addEventListener('input', () => {
+        userTagNames = parseTagsInput(userInput.value);
+        renderUserChips();
+        updateDirty();
+    });
+    paneEdit.appendChild(userInput);
 
-    const fileUuid = sound.fileId || sound.file_uuid || '';
     const reloadUserTags = async () => {
         if (!fileUuid) { renderUserChips(); return; }
         try {
@@ -326,70 +400,104 @@ function renderSoundDetail(sound) {
         } catch (_) {
             userTagNames = [];
         }
+        original.userTags = userTagNames.slice();
         renderUserChips();
         userInput.value = userTagNames.join(', ');
+        updateDirty();
     };
-    renderUserChips();
     reloadUserTags();
 
-    userSave.addEventListener('click', () => withButtonFeedback(userSave, '保存中…', '✓ 已保存', async () => {
-        if (!fileUuid) throw new Error('这个音效还没有入库记录');
-        const names = parseTagsInput(userInput.value);
-        await rendererApi.post('/api/v1/files/' + encodeURIComponent(fileUuid) + '/tags',
-            { names, tag_ids: [] }, { timeoutMs: 60000 });
-        userTagNames = names;
-        renderUserChips();
-        if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '用户标签');
-        await loadTagStats();
-        renderFolderTree();
-    }));
-
-    // ---- 一句话描述 ----
-    body.appendChild(detailSectionTitle('一句话描述'));
-    const descInput = document.createElement('textarea');
-    descInput.rows = 3;
-    descInput.className = 'w-full px-2 py-1 rounded border text-xs leading-5';
-    descInput.style.cssText = 'background: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);';
-    descInput.placeholder = '一句话说清这是什么声音';
-    descInput.value = String(sound.aiDescription || '').replace(/^\[auto\]/, '');
-    body.appendChild(descInput);
-    const descSave = detailSaveButton('保存描述', null);
-    body.appendChild(descSave);
-    descSave.addEventListener('click', () => withButtonFeedback(descSave, '保存中…', '✓ 已保存', async () => {
-        const text = descInput.value.trim().slice(0, 500);
-        const previous = sound.aiDescription || '';
-        sound.aiDescription = text;
-        renderSoundList();      // 列表里的描述立刻跟着变
-        try {
-            await saveSoundDescription(sound, text);
-            if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改描述');
-            syncSoundToList(sound, { aiDescription: text });
-        } catch (error) {
-            sound.aiDescription = previous;
-            syncSoundToList(sound, { aiDescription: previous });
-            throw error;
+    // ---------- 脏值与保存 ----------
+    function sameList(a, b) {
+        if (a.length !== b.length) return false;
+        return a.every((x, i) => String(x) === String(b[i]));
+    }
+    function dirtyParts() {
+        const parts = [];
+        const descNow = descInput.value.trim();
+        if (descNow !== original.description.trim()) parts.push('描述 1');
+        if (!sameList(sysTags, original.sysTags)) parts.push('系统标签 ' + (sysTags.length + original.sysTags.length - sameList(sysTags, original.sysTags) * 0));
+        if (!sameList(userTagNames, original.userTags)) parts.push('我的标签');
+        return parts;
+    }
+    function updateDirty() {
+        const parts = dirtyParts();
+        if (!parts.length) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = '没有待保存的改动';
+            undoBtn.disabled = true;
+            return;
         }
-    }));
+        saveBtn.disabled = false;
+        saveBtn.textContent = '保存改动（' + parts.join(' · ') + '）';
+        undoBtn.disabled = false;
+    }
+    descInput.addEventListener('input', updateDirty);
+    updateDirty();
 
-    // ---- 文件信息 ----
-    const attrs = document.createElement('div');
-    attrs.className = 'mt-4 pt-3 border-t';
-    attrs.style.borderColor = 'var(--border-color)';
-    // match() 返回数组，直接 .replace 会炸；这里统一转成字符串
-    const rawExt = sound.type
-        || ((sound.name || '').match(/\.[^.]+$/) || [''])[0]
-        || '';
-    const ext = String(rawExt).replace('.', '').toUpperCase();
-    const seconds = Number(sound.duration) > 0 ? (Number(sound.duration) / 1000).toFixed(2) + ' 秒' : '';
-    const khz = Number(sound.sampleRate) > 0 ? (Number(sound.sampleRate) / 1000).toFixed(Number(sound.sampleRate) % 1000 === 0 ? 0 : 1) + ' kHz' : '';
-    attrs.appendChild(detailRow('格式', ext));
-    attrs.appendChild(detailRow('时长', seconds));
-    attrs.appendChild(detailRow('采样率', khz));
-    attrs.appendChild(detailRow('声道', sound.channels));
-    attrs.appendChild(detailRow('大小', Number(sound.size) > 0 ? formatBytes(Number(sound.size)) : ''));
-    attrs.appendChild(detailRow('来源', sound.source === 'ai' ? 'AI 生成' : '用户导入'));
-    body.appendChild(attrs);
+    undoBtn.addEventListener('click', () => {
+        descInput.value = original.description;
+        sysTags = original.sysTags.slice();
+        sysInput.value = sysTags.join(', ');
+        renderChips();
+        userTagNames = (original.userTags || []).slice();
+        userInput.value = userTagNames.join(', ');
+        renderUserChips();
+        updateDirty();
+    });
 
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    saveBtn.addEventListener('click', () => {
+        if (saveBtn.disabled) return;
+        withButtonFeedback(saveBtn, '保存中…', '✓ 已保存', async () => {
+            const prevDesc = sound.aiDescription || '';
+            const prevTags = Array.isArray(sound.tags) ? sound.tags.slice() : [];
+            const prevUser = (original.userTags || []).slice();
+            const nextDesc = descInput.value.trim().slice(0, 500);
+            const nextSys = sysTags.slice();
+            const nextUser = userTagNames.slice();
+            const descChanged = nextDesc !== prevDesc.replace(/^\[auto\]/, '').trim();
+            try {
+                if (descChanged) {
+                    sound.aiDescription = nextDesc;
+                    await saveSoundDescription(sound, nextDesc);
+                }
+                if (!sameList(nextSys, prevTags)) {
+                    sound.tags = nextSys;
+                    await setSoundTags(sound, nextSys, { silent: true });
+                }
+                if (!sameList(nextUser, prevUser) && fileUuid) {
+                    await rendererApi.post('/api/v1/files/' + encodeURIComponent(fileUuid) + '/tags',
+                        { names: nextUser, tag_ids: [] }, { timeoutMs: 60000 });
+                }
+                original.description = nextDesc;
+                original.sysTags = nextSys.slice();
+                original.userTags = nextUser.slice();
+                descView.textContent = nextDesc || '（还没有描述）';
+                syncSoundToList(sound, { aiDescription: nextDesc, tags: nextSys });
+                renderSoundList();
+                if (typeof rememberEvent === 'function') rememberEvent('usage', sound, '改标签');
+                if (typeof loadTagStats === 'function') await loadTagStats();
+                if (typeof renderFolderTree === 'function') renderFolderTree();
+                updateDirty();
+            } catch (error) {
+                sound.aiDescription = prevDesc;
+                sound.tags = prevTags;
+                syncSoundToList(sound, { aiDescription: prevDesc, tags: prevTags });
+                throw error;
+            }
+        });
+    });
+
+    // ---------- 效果器 ----------
+    const effectSection = document.createElement('div');
+    effectSection.id = 'effectPanel';
+    effectSection.className = 'effect-host';
+    paneFx.appendChild(effectSection);
+    try {
+        if (typeof renderEffectPanel === 'function') renderEffectPanel(sound);
+    } catch (error) {
+        console.warn('[Effect] 面板挂载失败:', error);
+    }
+
+    switchTab('overview');
 }
-

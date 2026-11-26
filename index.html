@@ -569,6 +569,9 @@
             color:var(--text-secondary);font-size:11.5px;cursor:pointer;transition:all .12s}
         .sfx-chip:hover{color:var(--text-primary);border-color:#3a3a3a}
         .sfx-chip.on{background:#8b5cf6;border-color:#8b5cf6;color:#fff}
+
+        /* 创造音效：固定在合适大小，不再铺满整个窗口 */
+        .sfx-dialog{width:1080px;max-width:92vw;height:700px;max-height:86vh}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -2422,9 +2425,9 @@
 </div>
 
 <!-- 创造音效面板 -->
-    <div id="sfxModal" class="fixed inset-0 z-[200] hidden flex-col" style="background-color: rgba(0, 0, 0, 0.5);">
-        <div class="flex-1 flex flex-col m-4 rounded-xl shadow-2xl overflow-hidden"
-             style="background-color: var(--bg-secondary); border: 1px solid var(--border-color); max-height: calc(100vh - 32px);">
+    <div id="sfxModal" class="fixed inset-0 z-[200] hidden items-center justify-center" style="background-color: rgba(0, 0, 0, 0.55);">
+        <div class="flex flex-col rounded-xl shadow-2xl overflow-hidden sfx-dialog"
+             style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
             <!-- 标题栏 -->
             <div class="flex items-center justify-between px-6 py-3 border-b shrink-0" style="border-color: var(--border-color);">
                 <div class="flex items-center gap-3">

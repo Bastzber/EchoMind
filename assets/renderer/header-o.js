@@ -54,8 +54,16 @@
         // 整行可拖；只有交互控件和窗口按钮组是 no-drag。
         // 反过来（整行 no-drag + 局部 drag）会让菜单栏空白处拖不动——这是 V22 的回归。
         header.style.webkitAppRegion = 'drag';
+        // 注意：模型状态胶囊是 div，不在 button 里；阈值弹窗里的滑杆也在 div 里。
+        // 只列了 button 就会变成「点了没反应」——这里把这两块整个标成 no-drag。
         header.querySelectorAll('button, nav, a, input, select, .help-dot, #oWinBtns, #oWinBtns *')
             .forEach((el) => { el.style.webkitAppRegion = 'no-drag'; });
+        ['#modelStatusDisplay', '#thresholdPopup'].forEach((sel) => {
+            const host = document.querySelector(sel);
+            if (!host) return;
+            host.style.webkitAppRegion = 'no-drag';
+            host.querySelectorAll('*').forEach((el) => { el.style.webkitAppRegion = 'no-drag'; });
+        });
     }
 
     function mountWindowButtons() {

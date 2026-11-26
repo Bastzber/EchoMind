@@ -420,6 +420,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const thresholdSlider = document.getElementById('thresholdSlider');
     const thresholdValue = document.getElementById('thresholdValue');
             
+    if (thresholdValue) thresholdValue.textContent = currentSearchThreshold.toFixed(2);
+
     // 点击模型状态按钮显示/隐藏阈值弹窗
     modelStatusDisplay.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -441,6 +443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 阈值 -> 一句人话，告诉用户现在是什么效果
     const thresholdEffectEl = document.getElementById('thresholdEffect');
     const describeThreshold = (value) => {
+        if (thresholdValue) thresholdValue.textContent = (value / 100).toFixed(2);
         if (!thresholdEffectEl) return;
         let text = '适中：相关度 0.15 以上都会出现';
         if (value < 10) text = '很宽松：几乎沾边就会出来，结果多但要自己筛';

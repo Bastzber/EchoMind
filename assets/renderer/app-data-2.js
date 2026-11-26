@@ -156,8 +156,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ========== AI 一句话描述 ==========
+    // 缺标签状态：以前这个按钮永远可点，现在按真实缺口显示，0 条就灰掉
+    async function loadTagStatus() {
+        try {
+            const res = await rendererApi.get('/api/v1/descriptions/tags-status');
+            const btn = document.getElementById('batchTagsBtn');
+            const status = document.getElementById('batchTagsStatus');
+            const missing = res && typeof res.missing === 'number' ? res.missing : null;
+            if (missing === null) return;
+            if (btn) btn.disabled = missing === 0;
+            if (status) {
+                status.textContent = missing === 0
+                    ? '全部 ' + (res.total || 0) + ' 条已有标签，没有缺口'
+                    : '还缺 ' + missing + ' 条（批量生成描述时会自动补）';
+            }
+        } catch (e) {
+            console.warn('[Tags] 读取标签缺口失败:', e && e.message);
+        }
+    }
+
     async function loadDescStats() {
         try {
+            loadTagStatus();
             const res = await rendererApi.get('/api/v1/descriptions/stats');
             if (res && res.success) {
                 const el = document.getElementById('descStats');
@@ -244,6 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if ((res.tagged || 0) === 0 && (res.processed || 0) > 0) break; // 这一轮全军覆没，别死循环
             }
             showNotification?.('标签补齐完成，共 ' + done + ' 条', 'success');
+            if (typeof loadTagStatus === 'function') loadTagStatus();
             if (typeof loadDescStats === 'function') loadDescStats();
         } catch (e) {
             if (status) status.textContent = '失败：' + (e.message || e);

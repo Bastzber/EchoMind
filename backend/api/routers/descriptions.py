@@ -505,6 +505,21 @@ def _projects_deleting():
 # 这里补一个真正干活的接口：只挑 tags 为空、但已有描述的文件，让 LLM 出 4~8 个标签，
 # 同时写 files.tags 和 file_tags（左栏计数读的是后者）。新标签标 origin='ai'，
 # 只参与搜索、不铺进左栏「我的标签」。
+@router.get("/api/v1/descriptions/tags-status")
+async def tags_status():
+    """还有多少文件缺系统标签（给界面显示按钮状态用）。"""
+    db_manager = get_db_manager()
+    project_id = getattr(config, "CURRENT_PROJECT_ID", "default")
+    with db_manager.get_cursor() as cursor:
+        missing = cursor.execute(
+            """SELECT COUNT(*) FROM files
+               WHERE project_id=? AND (tags IS NULL OR tags='' OR tags='[]')""",
+            (project_id,),
+        ).fetchone()[0]
+        total = cursor.execute("SELECT COUNT(*) FROM files WHERE project_id=?", (project_id,)).fetchone()[0]
+    return {"success": True, "missing": int(missing), "total": int(total)}
+
+
 @router.post("/api/v1/descriptions/batch-tags")
 async def batch_generate_tags(payload: Dict[str, Any] = None):
     from core.llm_client import get_llm_client

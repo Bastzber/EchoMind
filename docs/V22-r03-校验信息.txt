@@ -1,0 +1,20 @@
+回声 · V22-r03 校验信息
+版本：0.3.0-beta.22（buildStamp r03）
+日期：2026-11-27
+
+【全量包】EchoMind测试版V22-r03.zip
+大小：6.84 GB（7,000 MB，5,155 个文件）
+SHA256：89831a876f18356fff98037e3c348677863bc7363935781be9d4e41626c4f462
+
+【增量包】update-beta22-r03.zip（基线 beta.22，仅 3 个文件）
+大小：73.3 MB
+SHA256：968502c6b544305e2cc6b224899cef8da43c2d4bbc1cb808a17a83f9a8d792e0
+包内：manifest.json + resources/app.asar + backend 可执行与 base_library.zip
+
+【怎么用】
+- 新装：解压全量包，运行 EchoMind.exe，首次会加载模型（约 1 分钟）。
+- 已装 beta.22：设置 → 安装更新包 → 选 update-beta22-r03.zip；装完重启。
+
+【签名】
+增量包的 manifest.json 已用发布私钥签名，应用会先用内置公钥验签再解压；
+校验失败会拒绝安装。

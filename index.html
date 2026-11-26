@@ -2277,7 +2277,7 @@
             <div class="flex items-center gap-2">
                 <i data-lucide="layers" class="w-4 h-4"></i>
                 <h3 class="text-base font-semibold">拟音工坊</h3>
-                <span class="text-xs opacity-50">按参数演奏，不需要等模型</span>
+                <span class="help-dot" data-help="按参数直接合成，不用等模型出图。&#10;左边选配方，中间触控板按下就出声，右侧录制存成音频。">?</span>
             </div>
             <button id="recipeCloseBtn" class="p-1 rounded hover:bg-white/10"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
@@ -2315,8 +2315,10 @@
             <!-- 右：试听与录制 -->
             <div class="w-72 border-l flex flex-col min-h-0 shrink-0" style="border-color: var(--border-color);">
                 <div class="px-4 py-3 border-b shrink-0" style="border-color: var(--border-color);">
-                    <div class="text-sm font-medium">试听与录制</div>
-                    <div class="text-xs opacity-50 mt-1">在左侧触控板上演奏，点录制存成音频</div>
+                    <div class="flex items-center gap-1">
+                        <div class="text-sm font-medium">试听与录制</div>
+                        <span class="help-dot" data-help="在左侧触控板上按一下演奏一步，松手即停；点「录制」把这一段的演奏存成音频文件。">?</span>
+                    </div>
                 </div>
                 <div class="px-4 py-3 border-b shrink-0" style="border-color: var(--border-color);">
                     <div class="flex items-center gap-2">
@@ -2330,8 +2332,9 @@
                     </div>
                 </div>
                 <div class="flex-1 overflow-y-auto p-2 text-xs" id="recipeTakes"></div>
-                <div class="px-4 py-2 border-t text-[11px] opacity-40 shrink-0 leading-5" style="border-color: var(--border-color);">
-                    单次最长 60 秒；拖动触控板会实时改变远近与强弱
+                <div class="px-4 py-2 border-t shrink-0 flex items-center gap-1" style="border-color: var(--border-color);">
+                    <span class="text-[11px] opacity-60">录制上限 60 秒</span>
+                    <span class="help-dot" data-help="一次最长录 60 秒；在触控板上拖动会实时改变远近与强弱；想录更长就分几次存到音效库。">?</span>
                 </div>
             </div>
         </div>

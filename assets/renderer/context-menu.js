@@ -40,7 +40,7 @@ function showTranscodeModal(sounds) {
         '      <input id="tcOutDir" type="text" class="flex-1 px-2 py-1 rounded" style="background: var(--bg-tertiary);" placeholder="留空 = 原文件夹下的 _转码 子目录"></div>' +
         '    <label class="flex items-center gap-2 opacity-70"><input id="tcKeepSource" type="checkbox" checked> 转码后替换源文件（库里记录改成新格式，标签/索引保留）</label>' +
         '    <label class="flex items-center gap-2 opacity-70"><input id="tcOverwrite" type="checkbox"> 同名输出文件直接覆盖</label>' +
-        '    <div class="text-xs opacity-50">损坏的文件会自动尽量救回能解码的部分（救回多少算多少）。</div>' +
+        '    <div class="flex items-center gap-1"><span class="w-20 opacity-70">说明</span><span class="help-dot" data-help="损坏的文件会自动尽量救回能解码的部分，救回多少算多少。&#10;转码会保留标签和索引，替换源文件后库里记录指向新格式。">?</span></div>' +
         '    <div id="tcProgress" class="text-xs opacity-60 h-4"></div>' +
         '    <div id="tcResults" class="max-h-44 overflow-y-auto text-[11px] space-y-1 pr-1"></div>' +
         '    <div id="tcOutHint" class="text-[11px] opacity-55"></div>' +
@@ -455,7 +455,7 @@ function showTagModal(sound) {
     title.className = 'flex items-center justify-between';
     title.innerHTML = '<div>'
         + '<div class="text-base font-semibold">标签</div>'
-        + '<div class="text-[11px] opacity-50 mt-0.5">选预设词，或直接输入自己的分类；输入的分类会自动进左侧「我的标签」</div>'
+        + '<div class="mt-0.5"><span class="help-dot" data-help="选预设词，或直接输入自己的分类；输入的分类会自动进左侧「我的标签」。">?</span></div>'
         + '</div>';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'p-1 rounded hover:bg-white/10';

@@ -167,9 +167,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btn) btn.disabled = missing === 0;
             if (status) {
                 status.textContent = missing === 0
-                    ? '全部 ' + (res.total || 0) + ' 条已有标签，没有缺口'
-                    : '还缺 ' + missing + ' 条（批量生成描述时会自动补）';
+                    ? '无缺口（共 ' + (res.total || 0) + ' 条）'
+                    : '还缺 ' + missing + ' 条，生成描述时会顺带补';
             }
+            const dot = document.getElementById('tagsDot');
+            if (dot) dot.className = 'om-dot ' + (missing === 0 ? 'ok' : 'warn');
         } catch (e) {
             console.warn('[Tags] 读取标签缺口失败:', e && e.message);
         }
@@ -185,8 +187,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const auto = res.auto_count || 0;
                     const pending = res.remaining + auto;
                     el.textContent = pending === 0
-                        ? `AI 描述 ${res.completed} 条 · 共 ${res.total} 条，全部完成`
-                        : `AI 描述 ${res.completed} 条 · 文件名兜底 ${auto} 条 · 待精修/生成 ${pending} 条`;
+                        ? `${res.completed} / ${res.total} 完成`
+                        : `已 ${res.completed} · 待 ${pending}`;
+                    const dot = document.getElementById('descDot');
+                    if (dot) dot.className = 'om-dot ' + (pending === 0 ? 'ok' : 'warn');
                 }
                 return res;
             }

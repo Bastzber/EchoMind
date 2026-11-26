@@ -534,6 +534,22 @@
         .om-progress-text{margin-top:6px;font-size:11.5px;color:var(--text-secondary)}
         .om-log{font-size:11.5px;color:var(--text-secondary);white-space:pre-line;max-height:160px;
             overflow-y:auto;border:1px solid var(--border-color);border-radius:8px;padding:10px;margin-top:4px}
+
+        /* ===== 任务清单式（设置里那条「一句话描述」页） ===== */
+        .om-tbl{border:1px solid var(--border-color);border-radius:10px;overflow:hidden;background:rgba(255,255,255,.02)}
+        .om-tr{display:grid;grid-template-columns:18px 1fr 150px 168px;align-items:center;gap:10px;
+            padding:11px 13px;border-bottom:1px solid var(--border-color)}
+        .om-tr:last-child{border-bottom:0}
+        .om-tr-head{background:rgba(255,255,255,.03);color:var(--text-secondary);font-size:11px;
+            letter-spacing:.05em;padding-top:8px;padding-bottom:8px}
+        .om-cell-main b{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--text-primary)}
+        .om-cell-main i{display:block;font-style:normal;font-size:11px;color:var(--text-secondary);opacity:.75;margin-top:2px}
+        .om-tr-state{font-size:11.5px;color:var(--text-secondary)}
+        .om-tr-act{display:flex;gap:6px;justify-self:end}
+        .om-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+        .om-dot.ok{background:#3fbf7f}
+        .om-dot.warn{background:#d8a13a}
+        .om-dot.idle{background:#4a4a4a}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -2110,47 +2126,52 @@
                     </div>
                 </div>
                 <div id="descConfigContent" class="settings-tab-content hidden">
-                    <div class="om-card">
-                        <div class="om-card-head">
-                            <div class="om-card-title">AI 描述与标签
-                                <span class="help-dot" data-help="给库里音效批量生成 AI 一句话描述，写进库后同步进文本索引，以后搜索直接命中。&#10;可以断点续跑：中途停下，再点一次接着处理剩下的。&#10;生成描述时会顺手补系统标签（AI 读名字和描述给出的 4~8 个词，只参与搜索，不进左侧「我的标签」）。">?</span>
-                            </div>
-                            <span id="descStats" class="om-card-note">—</span>
+                    <div class="om-tbl">
+                        <div class="om-tr om-tr-head">
+                            <span></span><span>项目</span><span>状态</span><span>操作</span>
                         </div>
-                        <div class="om-card-body">
-                            <div class="om-line">
-                                <span class="om-line-label">描述</span>
-                                <span class="om-line-value">批量生成或补齐 AI 一句话描述</span>
-                            </div>
-                            <div class="om-line">
-                                <span class="om-line-label">系统标签</span>
-                                <span id="batchTagsStatus" class="om-line-value">检查中…</span>
-                                <button id="batchTagsBtn" class="om-btn om-btn-ghost">补齐缺失的标签</button>
-                            </div>
+                        <div class="om-tr">
+                            <span class="om-dot ok" id="descDot"></span>
+                            <span class="om-cell-main">
+                                <b>AI 一句话描述
+                                    <span class="help-dot" data-help="给库里没有描述的音效跑 AI，写进库后同步进文本索引，搜索直接命中。&#10;断点续跑：中途停下再点会接着处理剩下的。">?</span>
+                                </b>
+                                <i>写进库后同步进文本索引，搜索时描述能被直接命中</i>
+                            </span>
+                            <span id="descStats" class="om-tr-state">—</span>
+                            <span class="om-tr-act"><button id="batchDescBtn" class="om-btn om-btn-primary">开始生成</button></span>
                         </div>
-                        <div class="om-card-foot">
-                            <button id="batchDescBtn" class="om-btn om-btn-primary">开始批量生成</button>
+                        <div class="om-tr">
+                            <span class="om-dot ok" id="tagsDot"></span>
+                            <span class="om-cell-main">
+                                <b>系统标签
+                                    <span class="help-dot" data-help="AI 读文件名和描述给出 4~8 个词（声音类型/质感/长短/场景/情绪）。只参与搜索，不进左侧「我的标签」。&#10;生成描述时会顺手补，也可以单独补齐。">?</span>
+                                </b>
+                                <i>AI 给的 4~8 个词，只参与搜索</i>
+                            </span>
+                            <span id="batchTagsStatus" class="om-tr-state">检查中…</span>
+                            <span class="om-tr-act"><button id="batchTagsBtn" class="om-btn">补齐</button></span>
+                        </div>
+                        <div class="om-tr">
+                            <span class="om-dot idle" id="packDot"></span>
+                            <span class="om-cell-main">
+                                <b>知识包
+                                    <span class="help-dot" data-help="一个 zip 里同时装着一句话描述、标签、音频向量、文本向量。&#10;换电脑或分享给别人：对方装好软件、导入自己的音效后点「导入知识包」，全部直接套用，不用再跑几小时索引。&#10;后加了一批新音效：点「导出增量包」，选上次那个包当基线，只导新增部分。">?</span>
+                                </b>
+                                <i>换电脑、分享给别人用</i>
+                            </span>
+                            <span id="knowledgePackStatus" class="om-tr-state">未导出</span>
+                            <span class="om-tr-act">
+                                <button id="exportKnowledgePackBtn" class="om-btn">导出</button>
+                                <button id="exportDeltaPackBtn" class="om-btn">增量</button>
+                                <button id="importKnowledgePackBtn" class="om-btn">导入</button>
+                            </span>
                         </div>
                     </div>
 
                     <div id="descProgressWrap" class="hidden om-progress-wrap">
                         <div class="om-progress-track"><div id="descProgressBar" class="om-progress-bar"></div></div>
                         <div id="descProgressText" class="om-progress-text"></div>
-                    </div>
-
-                    <div class="om-card">
-                        <div class="om-card-head">
-                            <div class="om-card-title">知识包
-                                <span class="help-dot" data-help="一个 zip 里同时装着一句话描述、标签、音频向量、文本向量。&#10;换电脑或分享给别人：对方装好软件、导入自己的音效后点「导入知识包」，全部直接套用，不用再跑几小时索引。&#10;后加了一批新音效：点「导出增量包」，选上次那个包当基线，只导新增部分。">?</span>
-                            </div>
-                            <span class="om-card-note">换电脑、分享给别人用</span>
-                        </div>
-                        <div class="om-card-foot om-foot-left">
-                            <button id="exportKnowledgePackBtn" class="om-btn">导出知识包</button>
-                            <button id="exportDeltaPackBtn" class="om-btn">导出增量包</button>
-                            <button id="importKnowledgePackBtn" class="om-btn">导入知识包</button>
-                            <span id="knowledgePackStatus" class="om-card-note"></span>
-                        </div>
                     </div>
 
                     <div id="descLog" class="om-log"></div>

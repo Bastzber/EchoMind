@@ -148,10 +148,10 @@ function updateSoundRowTags(sound) {
     cell.innerHTML = '';
     if (tags.length) {
         const wrap = document.createElement('div');
-        wrap.className = 'flex flex-wrap items-center gap-1 max-h-8 overflow-hidden';
-        tags.slice(0, 4).forEach((tag) => {
+        wrap.className = 'flex flex-nowrap items-center gap-1 overflow-hidden';
+        tags.slice(0, 3).forEach((tag) => {
             const pill = document.createElement('span');
-            pill.className = 'px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap';
+            pill.className = 'px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap shrink-0 max-w-[76px] overflow-hidden text-ellipsis';
             pill.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary)';
             pill.textContent = tag;
             wrap.appendChild(pill);
@@ -159,7 +159,7 @@ function updateSoundRowTags(sound) {
         if (tags.length > 4) {
             const more = document.createElement('span');
             more.className = 'text-[10px] opacity-50';
-            more.textContent = '+' + (tags.length - 4);
+            more.textContent = '+' + (tags.length - 3);
             wrap.appendChild(more);
         }
         cell.appendChild(wrap);
@@ -316,10 +316,10 @@ function renderSoundList(filter = '', sounds = soundData) {
             tagCell.title = tags.join('、');
             if (tags.length) {
                 const wrap = document.createElement('div');
-                wrap.className = 'flex flex-wrap items-center gap-1 max-h-8 overflow-hidden';
-                tags.slice(0, 4).forEach((tag) => {
+                wrap.className = 'flex flex-nowrap items-center gap-1 overflow-hidden';
+                tags.slice(0, 3).forEach((tag) => {
                     const pill = document.createElement('span');
-                    pill.className = 'px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap';
+                    pill.className = 'px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap shrink-0 max-w-[76px] overflow-hidden text-ellipsis';
                     pill.style.cssText = 'background: var(--bg-tertiary); color: var(--text-secondary)';
                     pill.textContent = tag;
                     wrap.appendChild(pill);
@@ -327,7 +327,7 @@ function renderSoundList(filter = '', sounds = soundData) {
                 if (tags.length > 4) {
                     const more = document.createElement('span');
                     more.className = 'text-[10px] opacity-50';
-                    more.textContent = '+' + (tags.length - 4);
+                    more.textContent = '+' + (tags.length - 3);
                     wrap.appendChild(more);
                 }
                 tagCell.appendChild(wrap);

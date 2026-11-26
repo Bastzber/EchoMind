@@ -3,6 +3,32 @@
 > 说明：本项目沿用 SoundBot 的变更记录格式（[Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)），
 > 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。测试版编号 V<n> 对应 `0.3.0-beta.<n>`。
 
+## [0.3.0-beta.22-r03] - 2026-11-27 (Prerelease / 预发布)
+
+> 测试版 V22-r03。这一轮只做界面与可用性：设置、造音、详情、标签显示全面收拾一遍。
+
+### Changed / 变更
+
+- AI 设置改左导航布局；「LLM 模型 / Embedding 模型」换成中文用途名「对话模型（写描述、打标签）」「声音理解模型（决定按感觉搜得准不准）」 / Settings use a left nav; model tabs renamed to plain Chinese purpose labels
+- 「创造音效」「拟音工坊」改名「AI 造音」「采样拟音」，各带一句用途副标题，避免看起来重复 / Renamed the two sound-creation entries to make their difference obvious
+- 解释性文案统一收进「?」气泡（悬停显示、点击固定），界面上只留可点的东西 / Explanatory copy moved into hover-and-pin help bubbles
+- 音效详情拆成「概览 / 标签与描述 / 效果器」三页；描述与标签合并成唯一编辑处，保存按钮带改动计数、支持撤销 / Detail panel split into three tabs with a single edit surface and counted save button
+- 创造音效窗口固定 1080×700 居中，不再铺满；子分类改正方形图标块，参数由滑杆改成档位按钮 / Sound creation dialog is now a centered 1080×700 window with square category tiles and stepped parameters
+- 列表标签列改成单行：显示前 3 个 + 「+N」，不再出现被切一半的第二行 / Tag column renders on one line with a "+N" overflow marker
+
+### Added / 新增
+
+- 新接口 `POST /api/v1/descriptions/batch-tags`、`GET /api/v1/descriptions/tags-status`：补齐缺系统标签的文件，并按真实缺口决按钮状态 / New endpoints to backfill missing system tags
+- 「待归类审阅」现在把待归类文件铺进主列表（最多 1000 条），可播可右键归类；原试听小窗保留为「试听归类」 / Unclassified files now load into the main list
+- 批量生成描述时顺带补系统标签（描述写完若标签为空就生成 4~8 个） / Description batch also fills in system tags
+
+### Fixed / 修复
+
+- 调 OmniVoice 权重下载接口必抛 `NameError`（`db_manager` 未定义） / OmniVoice download endpoint raised NameError
+- 「模型就绪」胶囊点不开：顶栏是拖动区，胶囊和阈值弹窗没标 no-drag / Model status pill swallowed clicks in the drag region
+- 效果器页被改空：渲染函数只认 `#effectPanel` 里的 `.effect-body`，骨架被拆掉了 / Effect tab rendered blank
+- 音频协议补上 HTTP Range 支持，波形与播放头不再错位、拖动定位失效 / Audio protocol now supports HTTP Range
+
 ## [0.3.0-beta.22] - 2026-11-25 (Prerelease / 预发布)
 
 > 测试版 V22。声音克隆从「要另开一个软件」变成装完就能用；主界面按原型重排。

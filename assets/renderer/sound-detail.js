@@ -489,12 +489,25 @@ function renderSoundDetail(sound) {
     });
 
     // ---------- 效果器 ----------
+    // renderEffectPanel 认的是 #effectPanel 里的 .effect-body，所以这里要把骨架搭全
     const effectSection = document.createElement('div');
     effectSection.id = 'effectPanel';
     effectSection.className = 'effect-host';
+    effectSection.innerHTML = [
+        '<div class="flex items-center gap-2 mb-1">',
+        '  <i data-lucide="sliders" class="w-4 h-4 shrink-0" style="color:#8ea7ff"></i>',
+        '  <span class="text-sm font-semibold" style="color:#a9bcff">混响</span>',
+        '  <span class="text-[11px] opacity-50">室内 / 大厅 / 教堂，试听后可导出</span>',
+        '  <span class="effect-summary ml-auto text-[11px] opacity-50"></span>',
+        '</div>',
+        '<div class="text-[11px] opacity-45 mb-2">选一个预设试听，觉得合适再导出成新文件；不改动源文件</div>',
+        '<div class="effect-body"></div>'
+    ].join('');
     paneFx.appendChild(effectSection);
     try {
         if (typeof renderEffectPanel === 'function') renderEffectPanel(sound);
+        if (typeof refreshLucideIcons === 'function') refreshLucideIcons();
+        else if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
     } catch (error) {
         console.warn('[Effect] 面板挂载失败:', error);
     }

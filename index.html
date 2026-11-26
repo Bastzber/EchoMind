@@ -550,6 +550,25 @@
         .om-dot.ok{background:#3fbf7f}
         .om-dot.warn{background:#d8a13a}
         .om-dot.idle{background:#4a4a4a}
+
+        /* ===== 创造音效：图标块 + 档位 ===== */
+        #sfxSubcategoryList.sfx-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px}
+        .sfx-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+            padding:12px 6px;border:1px solid var(--border-color);border-radius:10px;background:rgba(255,255,255,.02);
+            color:var(--text-secondary);font-size:12.5px;cursor:pointer;transition:all .12s;text-align:center}
+        .sfx-tile:hover{background:#1d1d1d;color:var(--text-primary)}
+        .sfx-tile.on{border-color:#8b5cf6;background:rgba(139,92,246,.14);color:var(--text-primary);font-weight:600}
+        .sfx-tile-ico{display:block;opacity:.85}
+        .sfx-tile.on .sfx-tile-ico{opacity:1}
+        .sfx-pgroup{border:1px solid var(--border-color);border-radius:10px;padding:11px 13px;background:rgba(255,255,255,.02)}
+        .sfx-pgroup-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;
+            font-size:12.5px;color:var(--text-primary)}
+        .sfx-pgroup-val{font-size:11.5px;color:var(--text-secondary);opacity:.85}
+        .sfx-chips{display:flex;flex-wrap:wrap;gap:6px}
+        .sfx-chip{padding:4px 11px;border:1px solid var(--border-color);border-radius:99px;background:transparent;
+            color:var(--text-secondary);font-size:11.5px;cursor:pointer;transition:all .12s}
+        .sfx-chip:hover{color:var(--text-primary);border-color:#3a3a3a}
+        .sfx-chip.on{background:#8b5cf6;border-color:#8b5cf6;color:#fff}
 </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -2426,7 +2445,7 @@
                 <div class="flex-1 overflow-y-auto p-6">
                     <div id="sfxTitle" class="text-xl font-semibold mb-1">风与气流</div>
                     <div id="sfxSubtitle" class="text-xs opacity-50 mb-5"></div>
-                    <div id="sfxParams" class="space-y-5"></div>
+                    <div id="sfxParams" class="space-y-2.5"></div>
                     <div class="mt-6 border-t pt-4" style="border-color: var(--border-color);">
                         <div class="text-sm font-medium mb-2">生成描述</div>
                         <div id="sfxPromptPreview" class="text-sm opacity-80 rounded-lg px-3 py-2 border leading-relaxed" style="border-color: var(--border-color); min-height: 2.75rem;"></div>

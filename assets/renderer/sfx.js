@@ -186,6 +186,61 @@
         try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_MAX))); } catch (e) {}
     }
 
+    // 分类图标（单色描边，跟随主题）：每个分类一个，不再共用一个 ≈
+    const SFX_ICONS = {
+        '风与气流': '<path d="M2 6h9a3 3 0 1 0-3-3"/><path d="M2 10h13a3 3 0 1 1-3 3"/><path d="M2 14h7"/>',
+        '城市环境': '<path d="M2 16V8h4v8"/><path d="M8 16V4h4v12"/><path d="M14 16v-6h2v6"/><path d="M1 16h16"/>',
+        '雨天': '<path d="M4 8a4 4 0 0 1 8 0"/><path d="M5 12l-1 3"/><path d="M9 12l-1 3"/><path d="M13 12l-1 3"/>',
+        '林间鸟鸣': '<path d="M2 11c3 0 4-2 5-4 1 2 2 4 5 4"/><path d="M12 6l3-2"/><path d="M2 15h12"/>',
+        '夜晚虫鸣': '<circle cx="9" cy="10" r="3"/><path d="M9 7V5"/><path d="M6 10H3"/><path d="M12 10h3"/><path d="M6.5 12.5L4 15"/><path d="M11.5 12.5L14 15"/>',
+        '海边浪潮': '<path d="M2 9c2-3 4-3 6 0s4 3 6 0"/><path d="M2 13c2-3 4-3 6 0s4 3 6 0"/>',
+        '溪流瀑布': '<path d="M4 4v9"/><path d="M8 3v11"/><path d="M12 5v8"/><path d="M2 16h14"/>',
+        '篝火燃烧': '<path d="M9 3c3 3 4 5 4 7a4 4 0 0 1-8 0c0-2 1-4 4-7z"/><path d="M2 16h14"/>',
+        '脚步': '<path d="M6 4c2 0 3 2 3 5s-1 4-3 4-3-1-3-4 1-5 3-5z"/><path d="M12 8c2 0 3 2 3 5s-1 4-3 4-3-1-3-4 1-5 3-5z"/>',
+        '衣物摩擦': '<path d="M3 5l6-3 6 3v4l-2 1v6H5v-6L3 9z"/><path d="M8 12h4"/>',
+        '门与开关': '<path d="M4 16V3h9v13"/><path d="M2 16h14"/><circle cx="10.5" cy="9.5" r="1"/>',
+        '日常拟音': '<path d="M3 12c2 0 3-6 6-6s4 6 6 6"/><path d="M3 16h12"/>',
+        '碰撞与转场': '<path d="M5 4l6 6-6 6"/><path d="M13 4l-4 6 4 6"/>',
+        '车辆': '<path d="M3 12l2-5h8l2 5"/><path d="M2 12h14v3H2z"/><circle cx="5" cy="15" r="1.4"/><circle cx="13" cy="15" r="1.4"/>'
+    };
+    function sfxIconSvg(name) {
+        const d = SFX_ICONS[name] || '<circle cx="9" cy="9" r="5"/>';
+        return '<svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+    }
+
+    // 档位选择（替代滑杆）：words 每项一个 chip，点了直接取那个词
+    function appendChipRow(box, cfg) {
+        const wrap = document.createElement('div');
+        wrap.className = 'sfx-pgroup';
+        const head = document.createElement('div');
+        head.className = 'sfx-pgroup-head';
+        const nameEl = document.createElement('span');
+        nameEl.textContent = cfg.label;
+        const valEl = document.createElement('span');
+        valEl.className = 'sfx-pgroup-val';
+        head.appendChild(nameEl); head.appendChild(valEl);
+        const chips = document.createElement('div');
+        chips.className = 'sfx-chips';
+        cfg.options.forEach((opt, idx) => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'sfx-chip';
+            chip.textContent = opt;
+            chip.addEventListener('click', () => {
+                cfg.onPick(idx);
+                chips.querySelectorAll('.sfx-chip').forEach((c, i) => c.classList.toggle('on', i === idx));
+                valEl.textContent = cfg.options[idx];
+                updatePromptPreview();
+            });
+            chips.appendChild(chip);
+        });
+        wrap.appendChild(head); wrap.appendChild(chips);
+        box.appendChild(wrap);
+        const idx0 = Math.max(0, Math.min(cfg.options.length - 1, cfg.currentIndex()));
+        chips.querySelectorAll('.sfx-chip').forEach((c, i) => c.classList.toggle('on', i === idx0));
+        valEl.textContent = cfg.options[idx0];
+    }
+
     // ---------- 渲染：分类树 ----------
     function renderCategories() {
         const tabs = document.getElementById('sfxCategoryTabs');
@@ -222,24 +277,18 @@
             list.appendChild(hint);
             return;
         }
+                // 两列图标块（原来竖列表，点起来慢也不直观）
+        list.classList.add('sfx-tiles');
         state.activeCat.items.forEach(item => {
-            const row = document.createElement('button');
-            row.className = 'w-full text-left px-3 py-2 rounded-md text-sm transition-colors mb-1 flex items-center justify-between' +
-                (item === state.activeItem ? ' text-white' : ' opacity-75 hover:opacity-100');
-            if (item === state.activeItem) row.style.background = 'rgba(139, 92, 246, 0.35)';
-            const name = document.createElement('span');
-            name.textContent = item.name;
-            row.appendChild(name);
-            const arrow = document.createElement('span');
-            arrow.className = 'opacity-50 text-xs';
-            arrow.textContent = '›';
-            row.appendChild(arrow);
-            row.addEventListener('click', () => { state.activeItem = item; renderSubcategories(); renderParams(); });
-            list.appendChild(row);
+            const tile = document.createElement('button');
+            tile.type = 'button';
+            tile.className = 'sfx-tile' + (item === state.activeItem ? ' on' : '');
+            tile.innerHTML = '<span class="sfx-tile-ico">' + sfxIconSvg(item.name) + '</span>' + '<span class="sfx-tile-name">' + item.name + '</span>';
+            tile.addEventListener('click', () => { state.activeItem = item; renderSubcategories(); renderParams(); });
+            list.appendChild(tile);
         });
     }
 
-    // 通用滑块：灰轨道 + 紫色填充 + 紫色白边圆点（div 结构，不依赖浏览器伪元素，任何环境下都可见）
     function appendCustomSlider(box, cfg) {
         const min = cfg.min ?? 0;
         const max = cfg.max ?? 100;
@@ -315,27 +364,27 @@
             ta.addEventListener('input', () => { state.customPrompt = ta.value; updatePromptPreview(); });
             wrap.appendChild(label); wrap.appendChild(ta);
             box.appendChild(wrap);
-            // 声音距离滑杆
-            appendCustomSlider(box, {
+            // 距离 / 强度 / 时长：档位（和分类模式一致，不再用滑杆）
+            const DIST = ['贴耳清晰，仿佛在耳边', '中等距离，清晰自然', '从远处传来，带空间混响'];
+            appendChipRow(box, {
                 label: '声音距离',
-                getLabel: () => ['贴耳清晰，仿佛在耳边', '中等距离，清晰自然', '从远处传来，带空间混响'][Math.min(2, Math.round(state.distance / 100 * 2))],
-                value: () => state.distance,
-                set: v => { state.distance = v; },
+                options: DIST,
+                currentIndex: () => Math.min(2, Math.round(state.distance / 100 * 2)),
+                onPick: (idx) => { state.distance = Math.round(idx / 2 * 100); },
             });
-            // 声音强度滑杆
-            appendCustomSlider(box, {
+            const INTENS = ['微弱，轻轻掠过', '适中，不吵不弱', '强烈，响亮有力'];
+            appendChipRow(box, {
                 label: '声音强度',
-                getLabel: () => ['微弱，轻轻掠过', '适中，不吵不弱', '强烈，响亮有力'][Math.min(2, Math.round(state.intensity / 100 * 2))],
-                value: () => state.intensity,
-                set: v => { state.intensity = v; },
+                options: INTENS,
+                currentIndex: () => Math.min(2, Math.round(state.intensity / 100 * 2)),
+                onPick: (idx) => { state.intensity = Math.round(idx / 2 * 100); },
             });
-            // 时长滑杆
-            appendCustomSlider(box, {
+            const DUR = [5, 10, 12, 20, 30];
+            appendChipRow(box, {
                 label: '时长',
-                min: 5, max: 30,
-                getLabel: () => state.duration + ' 秒',
-                value: () => state.duration,
-                set: v => { state.duration = v; },
+                options: DUR.map(n => n + ' 秒'),
+                currentIndex: () => { const i = DUR.indexOf(state.duration); return i >= 0 ? i : 2; },
+                onPick: (idx) => { state.duration = DUR[idx]; },
             });
             updatePromptPreview();
             return;
@@ -343,25 +392,28 @@
         document.getElementById('sfxTitle').textContent = item.name;
         document.getElementById('sfxSubtitle').textContent = item.desc || '';
         // 初始化参数值
-        item.params.forEach(p => {
+                item.params.forEach(p => {
             if (!(p.key in state.values)) state.values[p.key] = p.default || 40;
         });
         item.params.forEach(p => {
-            appendCustomSlider(box, {
+            const options = p.words || [];
+            if (!options.length) return;
+            appendChipRow(box, {
                 label: p.label,
-                min: 0, max: 100,
-                getLabel: () => wordFor(p),
-                value: () => state.values[p.key],
-                set: v => { state.values[p.key] = v; },
+                options: options,
+                currentIndex: () => Math.round((state.values[p.key] / 100) * (options.length - 1)),
+                onPick: (idx) => {
+                    state.values[p.key] = options.length > 1 ? Math.round(idx / (options.length - 1) * 100) : 0;
+                },
             });
         });
-        // 时长滑杆
-        appendCustomSlider(box, {
+        // 时长档位（后端上限 30 秒）
+        const DURATIONS = [5, 10, 12, 20, 30];
+        appendChipRow(box, {
             label: '时长',
-            min: 5, max: 30,
-            getLabel: () => state.duration + ' 秒',
-            value: () => state.duration,
-            set: v => { state.duration = v; },
+            options: DURATIONS.map(n => n + ' 秒'),
+            currentIndex: () => { const i = DURATIONS.indexOf(state.duration); return i >= 0 ? i : 2; },
+            onPick: (idx) => { state.duration = DURATIONS[idx]; },
         });
         updatePromptPreview();
     }

@@ -168,8 +168,8 @@
         { id: 'rebuild', label: '重建索引', icon: 'database', help: '把当前工程所有音效的索引全部重算，7 万条约 1~2 小时。', run: () => runProjectIndexAction('rebuild') },
         { id: 'importdesc', label: '导入描述包', icon: 'file-down', help: '导入别人导出的描述包或标签包（.json），一次套用几万条描述和标签；纯标签包也支持。', run: () => document.getElementById('descPackImportBtn')?.click() },
         { id: 'exportdesc', label: '导出描述包', icon: 'file-up', help: '把当前库的描述和标签导出成 json，方便换机或分享。', run: () => document.getElementById('descPackExportBtn')?.click() },
-        { id: 'sfx', label: '创造音效', icon: 'sparkles', help: '用一句话生成新的音效。', run: () => document.getElementById('sfxMenuBtn')?.click() },
-        { id: 'recipe', label: '拟音工坊', icon: 'sliders-horizontal', help: '按配方叠加、裁切、变速生成新音效。', run: () => document.getElementById('recipeMenuBtn')?.click() },
+        { id: 'sfx', label: 'AI 造音', icon: 'sparkles', help: 'AI 现造：库里没有的声音，点几档参数让 AI 生成（需联网、会计费）。', run: () => document.getElementById('sfxMenuBtn')?.click() },
+        { id: 'recipe', label: '采样拟音', icon: 'sliders-horizontal', help: '拿你库里的采样分层拼：毫秒级、免费，用触控板演奏并录下来。', run: () => document.getElementById('recipeMenuBtn')?.click() },
         { id: 'update', label: '检查更新', icon: 'download', help: '检查是否有新版本。', run: () => document.getElementById('checkUpdateMenuBtn')?.click() },
         { id: 'cleartemp', label: '清理临时文件', icon: 'trash-2', help: '清理裁切/转码产生的临时文件。', run: () => document.getElementById('clearTempClipsBtn')?.click() }
     ];

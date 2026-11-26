@@ -2083,7 +2083,16 @@
                     <div class="mb-6">
                         <h4 class="text-sm font-medium mb-1">批量生成一句话描述<span class="help-dot ml-1" data-help="给库里音效批量生成 AI 一句话描述。描述写进库后会同步进文本索引，以后搜索直接命中，不用每次再调 AI。&#10;可以断点续跑：中途停下，再点一次接着处理剩下的；全部完成后自动重建文本索引。">?</span></h4>
                         <div class="rounded-md border p-3 mb-4" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
-                            <div class="text-xs font-medium mb-1">🪄 同时自动打上「系统标签」<span class="help-dot ml-1" data-help="每生成一条描述，AI 会同时分析音频内容，产出 4~8 个描述性标签（如「呼啸声 / 电子 / 快速 / 长尾 / 高频」），一起写进库。">?</span></div>
+                            <div class="flex items-center gap-1 mb-2">
+                                <span class="text-xs font-medium">🪄 系统标签</span>
+                                <span class="help-dot" data-help="系统标签是 AI 读文件名和描述后给出的 4~8 个词（声音类型 / 质感 / 长短 / 场景 / 情绪）。&#10;它们只参与搜索，不铺在左侧「我的标签」里。&#10;最新的那批音效如果只有描述、没标签，点右边按钮补齐。">?</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button id="batchTagsBtn"
+                                        class="px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80"
+                                        style="background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">补齐缺失的标签</button>
+                                <span id="batchTagsStatus" class="text-xs opacity-70"></span>
+                            </div>
                         </div>
                         <div class="flex items-center gap-3 mb-4">
                             <button id="batchDescBtn"

@@ -223,6 +223,36 @@ document.addEventListener('DOMContentLoaded', () => {
             loadFilesFromDatabase();
         },
     });
+    // 补齐系统标签：只挑「有描述、没标签」的文件，一轮 100 条
+    document.getElementById('batchTagsBtn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('batchTagsBtn');
+        const status = document.getElementById('batchTagsStatus');
+        if (!btn || btn.disabled) return;
+        btn.disabled = true;
+        btn.textContent = '补齐中…';
+        let done = 0;
+        try {
+            for (let round = 0; round < 200; round++) {
+                const res = await rendererApi.post('/api/v1/descriptions/batch-tags', { limit: 100 });
+                if (!res || !res.success) {
+                    if (status) status.textContent = '失败：' + (res?.detail || '未知错误');
+                    break;
+                }
+                done += res.tagged || 0;
+                if (status) status.textContent = '已补 ' + done + ' 条，还剩 ' + (res.remaining ?? '?') + ' 条';
+                if (!res.processed || (res.remaining || 0) <= 0) break;
+                if ((res.tagged || 0) === 0 && (res.processed || 0) > 0) break; // 这一轮全军覆没，别死循环
+            }
+            showNotification?.('标签补齐完成，共 ' + done + ' 条', 'success');
+            if (typeof loadDescStats === 'function') loadDescStats();
+        } catch (e) {
+            if (status) status.textContent = '失败：' + (e.message || e);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '补齐缺失的标签';
+        }
+    });
+
     document.getElementById('batchDescBtn')?.addEventListener('click', async () => {
         if (descBatchRunning) return;
         descBatchRunning = true;

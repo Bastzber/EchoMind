@@ -43,6 +43,33 @@
         });
     }
 
+
+    // 兜底：文档捕获阶段的委托。任何模块停掉冒泡都不影响这一条 ——
+    // 之前出现过点「目录设置」那几个字没反应（事件被别人截了）。
+    document.addEventListener('click', function (event) {
+        const target = event.target;
+        if (!target || !target.closest) return;
+        const rowEl = target.closest('#omTempRow');
+        if (rowEl) {
+            event.preventDefault();
+            event.stopPropagation();
+            const panel = document.getElementById('tempDetailPanel');
+            if (panel) panel.classList.toggle('hidden');
+            const chev = rowEl.querySelector('.om-chev');
+            if (chev) chev.style.transform = panel && !panel.classList.contains('hidden') ? 'rotate(90deg)' : '';
+            return;
+        }
+        const back = target.closest('#omTempBack');
+        if (back) {
+            event.preventDefault();
+            event.stopPropagation();
+            const panel = document.getElementById('tempDetailPanel');
+            if (panel) panel.classList.add('hidden');
+            const chev2 = document.querySelector('#omTempRow .om-chev');
+            if (chev2) chev2.style.transform = '';
+        }
+    }, true);
+
     function boot() {
         const dropdown = document.getElementById('settingsDropdown');
         if (!dropdown) return;

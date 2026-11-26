@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional  # noqa: E402
 from fastapi import BackgroundTasks, Query  # noqa: E402
 
 import os
+import re
 import json
 import time
 import math
@@ -87,6 +88,90 @@ async def ai_description_stats():
     current_project_id = getattr(config, 'CURRENT_PROJECT_ID', 'default')
     stats = db_manager.ai_description_stats(current_project_id)
     return {"success": True, **stats}
+
+
+# ==================== 标签生成（批量描述 & 补标签共用） ====================
+async def _llm_tags(client, filename: str, description: str) -> List[str]:
+    """让 LLM 出 4~8 个系统标签。失败返回空列表。"""
+    system = "你是音效库管理员。只输出最终答案，不要分析、不要解释。"
+    user = (
+        "根据音效的文件名和描述，给出 4~8 个简体中文标签。"
+        "标签要短（2~4 个字），从这几个维度里取：声音类型、听感质感、时长长短、使用场景、情绪。"
+        "只输出标签，用顿号分隔，不要编号、不要解释。\n"
+        f"文件名：{filename}\n描述：{description}"
+    )
+    try:
+        chunks: List[str] = []
+        async for chunk in client.chat(
+            messages=[{"role": "user", "content": user}],
+            system_prompt=system,
+            temperature=0.2,
+            max_tokens=300,
+            stream=False,
+        ):
+            if chunk["type"] == "content":
+                chunks.append(chunk["content"])
+        raw = "".join(chunks).strip()
+        if not raw:
+            return []
+        parts = re.split(r"[、,，;；\s]+", raw)
+        tags: List[str] = []
+        for part in parts:
+            name = part.strip().strip("#·-*0123456789.、")
+            if not name or len(name) > 8:
+                continue
+            if name not in tags:
+                tags.append(name)
+            if len(tags) >= 8:
+                break
+        return tags
+    except Exception as exc:
+        logger.warning("生成标签失败 %s: %s", filename, exc)
+        return []
+
+
+def _persist_tags(db_manager, project_id: str, file_uuid: str, path: str, tags: List[str]) -> bool:
+    """同时写 files.tags 和 file_tags；新标签标 origin='ai'（只参与搜索，不进左栏）。"""
+    from core import tag_layers
+
+    if not tags:
+        return False
+    try:
+        if not db_manager.update_tags(path, tags, project_id):
+            return False
+        with db_manager.get_cursor() as cursor:
+            resolved: List[str] = []
+            for name in tags:
+                hit = cursor.execute(
+                    "SELECT id FROM tags WHERE project_id=? AND name=?", (project_id, name)
+                ).fetchone()
+                if hit:
+                    resolved.append(str(hit[0]))
+                else:
+                    new_id = uuid.uuid4().hex
+                    cursor.execute(
+                        "INSERT INTO tags (id, project_id, name, layer, created_at, origin) "
+                        "VALUES (?,?,?,?,?,?)",
+                        (new_id, project_id, name, tag_layers.LAYER_ATTR, datetime.now().isoformat(), "ai"),
+                    )
+                    resolved.append(new_id)
+            tag_layers.set_file_tags(cursor, project_id, str(file_uuid), resolved)
+        return True
+    except Exception as exc:
+        logger.warning("写入标签失败 %s: %s", path, exc)
+        return False
+
+
+def _has_tags(db_manager, project_id: str, file_uuid: str) -> bool:
+    try:
+        with db_manager.get_cursor() as cursor:
+            row = cursor.execute(
+                "SELECT tags FROM files WHERE project_id=? AND file_uuid=?", (project_id, file_uuid)
+            ).fetchone()
+        raw = (row[0] if row else "") or ""
+        return raw not in ("", "[]", "null")
+    except Exception:
+        return False
 
 
 @router.post("/api/v1/descriptions/batch")
@@ -164,9 +249,15 @@ async def batch_generate_descriptions(
                 if not description:
                     logger.warning("生成描述为空: %s", filename)
                     return False
-                return db_manager.update_ai_description(
+                ok = db_manager.update_ai_description(
                     str(record["path"]), description, current_project_id
                 )
+                # 顺手把系统标签也补上：以前这里只写描述，标签全空。
+                if ok and not _has_tags(db_manager, current_project_id, str(record["file_uuid"])):
+                    tags = await _llm_tags(client, filename, description)
+                    if tags:
+                        _persist_tags(db_manager, current_project_id, str(record["file_uuid"]), str(record["path"]), tags)
+                return ok
             except Exception as exc:
                 logger.warning("生成描述失败 %s: %s", filename, exc)
                 return False
@@ -460,45 +551,9 @@ async def batch_generate_tags(payload: Dict[str, Any] = None):
     # 并发 24：单条 LLM 往返约 8 秒，8 并发只有 1 条/秒，2300 条要 40 分钟
     semaphore = asyncio.Semaphore(24)
 
-    async def _tags_for(row) -> Optional[List[str]]:
-        filename = str(row["filename"] or "")
-        desc = str(row["ai_description"] or "")
-        user = (
-            "根据音效的文件名和描述，给出 4~8 个简体中文标签。"
-            "标签要短（2~4 个字），从这几个维度里取：声音类型、听感质感、时长长短、使用场景、情绪。"
-            "只输出标签，用顿号分隔，不要编号、不要解释。\n"
-            f"文件名：{filename}\n描述：{desc}"
-        )
+    async def _tags_for(row):
         async with semaphore:
-            try:
-                chunks: List[str] = []
-                async for chunk in client.chat(
-                    messages=[{"role": "user", "content": user}],
-                    system_prompt=system,
-                    temperature=0.2,
-                    max_tokens=300,
-                    stream=False,
-                ):
-                    if chunk["type"] == "content":
-                        chunks.append(chunk["content"])
-                raw = "".join(chunks).strip()
-                if not raw:
-                    return None
-                import re as _re
-                parts = _re.split(r"[、,，;；\s]+", raw)
-                tags: List[str] = []
-                for part in parts:
-                    name = part.strip().strip("#·-*0123456789.、")
-                    if not name or len(name) > 8:
-                        continue
-                    if name not in tags:
-                        tags.append(name)
-                    if len(tags) >= 8:
-                        break
-                return tags or None
-            except Exception as exc:
-                logger.warning("生成标签失败 %s: %s", filename, exc)
-                return None
+            return await _llm_tags(client, str(row["filename"] or ""), str(row["ai_description"] or ""))
 
     results = await asyncio.gather(*[_tags_for(row) for row in rows])
     tagged = 0
@@ -511,26 +566,9 @@ async def batch_generate_tags(payload: Dict[str, Any] = None):
             tagged += 1
             continue
         try:
-            ok = db_manager.update_tags(str(row["path"]), tags, project_id)
+            ok = _persist_tags(db_manager, project_id, str(row["file_uuid"]), str(row["path"]), tags)
             if not ok:
                 continue
-            with db_manager.get_cursor() as cursor:
-                resolved: List[str] = []
-                for name in tags:
-                    hit = cursor.execute(
-                        "SELECT id FROM tags WHERE project_id=? AND name=?", (project_id, name)
-                    ).fetchone()
-                    if hit:
-                        resolved.append(str(hit[0]))
-                    else:
-                        new_id = uuid.uuid4().hex
-                        cursor.execute(
-                            "INSERT INTO tags (id, project_id, name, layer, created_at, origin) "
-                            "VALUES (?,?,?,?,?,?)",
-                            (new_id, project_id, name, tag_layers.LAYER_ATTR, datetime.now().isoformat(), "ai"),
-                        )
-                        resolved.append(new_id)
-                tag_layers.set_file_tags(cursor, project_id, str(row["file_uuid"]), resolved)
             tagged += 1
             if len(samples) < 5:
                 samples.append({"filename": row["filename"], "tags": tags})

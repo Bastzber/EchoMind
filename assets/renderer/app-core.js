@@ -1000,6 +1000,29 @@ async function openRecipeModal() {
     renderRecipeList();
 }
 
+
+// 拟音工坊：配方图标（按 id 取，认不出就按分类给默认图标）
+const RECIPE_ICONS = {
+    amb_wind: '<path d="M2 6h9a3 3 0 1 0-3-3"/><path d="M2 10h13a3 3 0 1 1-3 3"/><path d="M2 14h7"/>',
+    amb_rain: '<path d="M4 8a4 4 0 0 1 8 0"/><path d="M5 12l-1 3"/><path d="M9 12l-1 3"/><path d="M13 12l-1 3"/>',
+    amb_forest: '<path d="M2 11c3 0 4-2 5-4 1 2 2 4 5 4"/><path d="M12 6l3-2"/><path d="M2 15h12"/>',
+    amb_sea: '<path d="M2 9c2-3 4-3 6 0s4 3 6 0"/><path d="M2 13c2-3 4-3 6 0s4 3 6 0"/>',
+    amb_fire: '<path d="M9 3c3 3 4 5 4 7a4 4 0 0 1-8 0c0-2 1-4 4-7z"/><path d="M2 16h14"/>',
+    footstep_wood: '<path d="M2 14h4V9h4V4h4"/><path d="M2 16h14"/>',
+    footstep_concrete: '<path d="M6 4c2 0 3 2 3 5s-1 4-3 4-3-1-3-4 1-5 3-5z"/><path d="M12 8c2 0 3 2 3 5s-1 4-3 4-3-1-3-4 1-5 3-5z"/>',
+    door_wood: '<path d="M4 16V3h9v13"/><path d="M2 16h14"/><circle cx="10.5" cy="9.5" r="1"/>'
+};
+const RECIPE_CAT_ICONS = {
+    '环境音': '<path d="M2 9c2-3 4-3 6 0s4 3 6 0"/><path d="M2 13c2-3 4-3 6 0s4 3 6 0"/>',
+    '脚步': '<path d="M6 4c2 0 3 2 3 5s-1 4-3 4-3-1-3-4 1-5 3-5z"/><path d="M12 8c2 0 3 2 3 5s-1 4-3 4-3-1-3-4 1-5 3-5z"/>',
+    '门与开关': '<path d="M4 16V3h9v13"/><path d="M2 16h14"/><circle cx="10.5" cy="9.5" r="1"/>'
+};
+function recipeIconSvg(id, category, size) {
+    const d = RECIPE_ICONS[id] || RECIPE_CAT_ICONS[category] || '<circle cx="9" cy="9" r="5"/>';
+    const s = size || 15;
+    return '<svg viewBox="0 0 18 18" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+}
+
 function renderRecipeList() {
     const list = document.getElementById('recipeList');
     if (!list) return;
@@ -1010,14 +1033,15 @@ function renderRecipeList() {
     });
     Object.keys(groups).forEach((category) => {
         const head = document.createElement('div');
-        head.className = 'px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider opacity-50';
-        head.textContent = category;
+        head.className = 'flex items-center gap-1.5 px-2 pt-3 pb-1 text-[10px] uppercase tracking-wider opacity-55';
+        head.innerHTML = recipeIconSvg(null, category, 11) + '<span>' + category + '</span>';
         list.appendChild(head);
         groups[category].forEach((recipe) => {
             const item = document.createElement('button');
-            item.className = 'w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-white/5'
+            item.className = 'recipe-item w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-white/5 flex items-center gap-2'
                 + (recipe.usable ? '' : ' opacity-40 cursor-not-allowed');
-            item.textContent = recipe.name;
+            item.innerHTML = '<span class="recipe-item-ico">' + recipeIconSvg(recipe.id, recipe.category) + '</span>'
+                + '<span class="recipe-item-name">' + recipe.name + '</span>';
             item.disabled = !recipe.usable;
             item.addEventListener('click', () => selectRecipe(recipe));
             list.appendChild(item);

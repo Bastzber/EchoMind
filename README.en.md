@@ -51,10 +51,13 @@ names, tags, descriptions, or anything that identifies a person. You can turn it
 **Main window: folder tree + AI descriptions + waveform**
 
 ![Main window](assets/screenshots/main.png)
+![Detail panel](assets/screenshots/ui-detail-tags.png)
+![Card view](assets/screenshots/main-v12.png)
 
 **Generate a new sound effect from a sentence**
 
-![Sound generation](assets/screenshots/generate.png)
+![AI sound generation](assets/screenshots/generate.png)
+![Sample-based foley](assets/screenshots/ui-recipe.png)
 
 **Batch AI descriptions, with a portable description pack**
 

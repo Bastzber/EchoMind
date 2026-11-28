@@ -13,9 +13,9 @@
 >
 > 本地优先、AI 驱动的桌面音效管理器。
 
-当前源码版本为 **v0.3.0-beta.22（预发布）**。
+当前源码版本：**v0.3.0-beta.22 · buildStamp r03（预发布，2026-11-27）**
 
-测试版 V20 · [发布页](https://github.com/Bastzber/EchoMind/releases)
+[发布页](https://github.com/Bastzber/EchoMind/releases)
 
 > **本项目基于 [SoundBot](https://github.com/Huckrick/SoundBot) 修改而来**（原作者 Nagisa_Huckrick / 胡杨，GPL-3.0-or-later）。
 > 本仓库保留原许可证与署名，在其基础上做了中文本地化、检索链路与索引稳定性的调整，
@@ -27,20 +27,20 @@
 
 ## 📥 下载
 
-**网盘里的安装包：v0.3.0-beta.22（测试版 V22）· Windows x64**
+**网盘里的安装包：v0.3.0-beta.22 · buildStamp r03（测试版 V22-r03）· Windows x64**
 
 | 资源 | 说明 | 下载 |
 | --- | --- | --- |
-| **完整安装包（V13）**（6.78 GB） | 解压即用，**不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
-| 描述包（64,781 条） | 安装包根目录已带；也可单独下载 | `EchoMind-描述包.json` |
-| 标签包（64,983 条） | 系统标签 + 用户标签 + 3,993 词表 | `EchoMind-标签包.json` |
+| **完整安装包（V22-r03）** 6.84 GB | 解压即用，**不含任何音效素材**；已内置描述包、标签包、安装说明 | [百度网盘](https://pan.baidu.com/s/1Tp9P_0Pc2m-dR-lX9fOcyg?pwd=73ca)　提取码：`73ca` |
+| **增量更新包** 73.3 MB | 装机是 beta.22 的只要这个：设置 → 安装更新包 → 选它，装完重启 | 同上网盘目录（`update-beta22-r03.zip`） |
+| 描述包 | 安装包根目录已带；也可单独下载 | `EchoMind-描述包.json` |
+| 标签包 | 系统标签 + 用户标签 + 词表 | `EchoMind-标签包.json` |
 
-> **V12 比 V11 大了 3.3 GB，是因为把两套模型打进了安装包**：
-> 本地语音引擎 Breeze（229 MB 服务 + 3.32 GB 音色模型）和 Demucs 分轨模型（80 MB）。
-> 装上就能离线朗读、离线分轨，不用再联网下模型。
-
-> 安装包 6.67 GB，超过 GitHub 单附件上限，走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面放版本说明和校验值。
-> V12 的逐项改动与实测数据见 [`docs/验收说明-20261029.md`](docs/验收说明-20261029.md)。
+> **安装包为什么这么大**：为了让装完就能用、不联网也能干活，包里直接打了本地语音引擎 Breeze（229 MB 服务 + 3.32 GB 音色模型）、Demucs 分轨模型（80 MB）和 CLAP / BGE 两套索引模型。
+> OmniVoice 声音克隆的权重（约 3.1 GB）不打包，首次使用时会自动下载，也可以先下离线包放进去。
+>
+> 完整包 6.84 GB，超过 GitHub 单附件上限，走网盘分发；[Releases](https://github.com/Bastzber/EchoMind/releases) 页面放版本说明和校验值（`docs/V22-r03-校验信息.txt`）。
+> V22 的逐项改动见 [`docs/EchoMind-V22-r03-更新说明.md`](docs/EchoMind-V22-r03-更新说明.md)。
 >
 > 解压后双击 `win-unpacked\EchoMind.exe` 即可运行。首次启动会加载 CLAP 模型（30~60 秒）并索引音效库。
 

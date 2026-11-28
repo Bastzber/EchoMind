@@ -70,21 +70,43 @@
 
 ### 界面预览
 
-**主界面：目录树 + AI 描述 + 波形试听**
+> 下面这些截图是 **V22-r03**（2026-11-27）的实际界面。
+
+**主界面：列表 + 标签列 + 右侧三页详情（概览 / 标签与描述 / 效果器）**
 
 ![回声 EchoMind 主界面](assets/screenshots/main.png)
 
-**用一句话描述生成新音效**
+**卡片视图：每条音效带封面、描述、标签和波形**
 
-![创造音效](assets/screenshots/generate.png)
+![回声 EchoMind 卡片视图](assets/screenshots/main-v12.png)
 
-**批量生成一句话描述，并可导出描述包跨机器复用**
+**详情 · 标签与描述：全界面唯一能改描述和标签的地方，保存按钮带改动计数**
+
+![详情 - 标签与描述](assets/screenshots/ui-detail-tags.png)
+
+**详情 · 效果器：混响预设、湿声强度、试听与导出**
+
+![详情 - 效果器](assets/screenshots/ui-detail-fx.png)
+
+**AI 造音：选分类（每个分类一个图标）→ 点档位 → 软件自动拼提示词交给 AI 生成**
+
+![AI 造音](assets/screenshots/generate.png)
+
+**采样拟音：拿你库里的采样分层拼，毫秒级、免费，用触控板演奏并录下来**
+
+![采样拟音](assets/screenshots/ui-recipe.png)
+
+**批量生成一句话描述：任务清单式，缺标签时一键补齐（可导出知识包跨机器复用）**
 
 ![一句话描述](assets/screenshots/description-pack.png)
 
-**LLM 可接 DeepSeek / Kimi / OpenAI / 本地模型**
+**AI 设置：左导航 + 中文用途名——对话模型（写描述、打标签）/ 声音理解模型（决定按感觉搜得准不准）**
 
 ![AI 设置](assets/screenshots/settings-llm.png)
+
+**待归类审阅：把「_待归类」里的文件直接铺进主列表，边听边右键归类**
+
+![待归类审阅](assets/screenshots/ui-unclassified.png)
 
 ***
 

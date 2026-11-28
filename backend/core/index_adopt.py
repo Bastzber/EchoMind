@@ -8,7 +8,6 @@
 正确做法：以 collection 里实际存在的 id 和它自带的 source_fingerprint 为准，
 指纹一致的行直接标回 ready；不一致的留给后面的增量重建。
 """
-from __future__ import annotations
 
 import logging
 from datetime import datetime

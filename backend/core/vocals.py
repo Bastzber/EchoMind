@@ -7,11 +7,10 @@
 适合：从立体声歌曲里抽一个能用的伴奏垫底。
 不适合：人声偏左/偏右、或本身是单声道的素材。
 """
-from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 

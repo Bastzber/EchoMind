@@ -33,8 +33,6 @@ import asyncio
 import numpy as np
 import json
 from typing import List, Optional, Dict, Any, Tuple, Callable
-from dataclasses import dataclass, field
-from functools import lru_cache
 
 # 关键词搜索的文件快照缓存：5 万条从 SQLite 重建要 ~10s，命中后只剩内存匹配。
 # 键里带文件数，导入/删除后自动失效；另有 TTL 兜底。
@@ -44,7 +42,6 @@ _FILES_SNAPSHOT_TTL = 300.0
 # 查询结果缓存必须跨 searcher 实例共享：索引 revision 一变，上层就会新建
 # searcher，实例级缓存随之清零，导致同样的查询每次都重跑全链路。
 _GLOBAL_QUERY_CACHE = None
-import hashlib
 import threading
 from pathlib import Path
 
@@ -71,7 +68,7 @@ logger = logging.getLogger(__name__)
 #   core/search_cache.py     查询缓存与缓存条目
 #   core/search_text.py      中文分词/关键词提取
 #   core/search_files_mixin.py  文件快照与关键词检索
-from core.search_cache import QueryCache, SearchCacheEntry  # noqa: F401
+from core.search_cache import QueryCache
 from core.search_text import ChineseTextProcessor  # noqa: F401
 from core.search_files_mixin import FileSnapshotMixin
 

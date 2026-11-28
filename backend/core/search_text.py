@@ -25,16 +25,8 @@
 5. 中文优化 - 支持中文分词和拼音匹配
 """
 
-import os
-import re
-import time
 import logging
-import asyncio
-import numpy as np
-import json
-from typing import List, Optional, Dict, Any, Tuple, Callable
-from dataclasses import dataclass, field
-from functools import lru_cache
+from typing import List, Dict
 
 # 关键词搜索的文件快照缓存：5 万条从 SQLite 重建要 ~10s，命中后只剩内存匹配。
 # 键里带文件数，导入/删除后自动失效；另有 TTL 兜底。
@@ -44,26 +36,7 @@ _FILES_SNAPSHOT_TTL = 300.0
 # 查询结果缓存必须跨 searcher 实例共享：索引 revision 一变，上层就会新建
 # searcher，实例级缓存随之清零，导致同样的查询每次都重跑全链路。
 _GLOBAL_QUERY_CACHE = None
-import hashlib
-import threading
-from pathlib import Path
 
-import config
-from core.embedder import (
-    peek_embedder,
-    get_embedder_fingerprint,
-    get_text_embedding_config_fingerprint,
-)
-from core.indexer import get_collection_revision, safe_project_chroma_path
-from core.query_translator import contains_chinese, translate_query_to_english
-from core.query_lexicon import translate_to_english as translate_with_lexicon
-from core.searcher import (
-    SearchResult,
-    AudioSearcher,
-    MetadataTextSearcher,
-    build_chroma_where,
-    cosine_similarity_from_distance,
-)
 
 logger = logging.getLogger(__name__)
 

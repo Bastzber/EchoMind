@@ -8,7 +8,6 @@
 导入不重新计算向量：按 sha256 匹配本机文件，命中哪条就把哪条标成 ready，
 未命中的保持 pending，由用户后续本地补索引。
 """
-from __future__ import annotations
 
 import hashlib
 import json
@@ -16,7 +15,7 @@ import logging
 import struct
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

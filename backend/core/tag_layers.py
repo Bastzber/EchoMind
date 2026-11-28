@@ -5,7 +5,6 @@
 1. 建 tags / file_tags 两张表
 2. 首次启动时把 files.tags 迁移成 tag 记录（默认层 attr），之后可提升为 scene
 """
-from __future__ import annotations
 
 import json
 import logging

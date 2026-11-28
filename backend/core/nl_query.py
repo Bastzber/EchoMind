@@ -7,7 +7,6 @@
 刻意做得「可降级」：LLM 不可用、超时、返回不是 JSON 时，直接把原句当关键词，
 面板上会标注「已降级为关键词搜索」，不会因为 DeepSeek 抖一下就搜不了。
 """
-from __future__ import annotations
 
 import json
 import logging

@@ -3,7 +3,6 @@
 
 顺带用于"损坏文件救急"：解码时容忍中间坏帧，能救回坏点之前的部分。
 """
-from __future__ import annotations
 
 import logging
 from pathlib import Path

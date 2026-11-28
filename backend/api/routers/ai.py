@@ -1,28 +1,16 @@
 # -*- coding: utf-8 -*-
 """ai 域，从 main.py 拆出（AGENTS.md：新接口别继续堆那个文件）。
 """
-from __future__ import annotations
 
-import os
-import json
-import time
-import math
-import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Mapping, Sequence, Tuple
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Path as PathParam, Query
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
 
 from core.errors import SoundBotAPIError
 
-import tempfile
-import sys
-import uuid
-from datetime import datetime
-from core.database import is_safe_project_id, canonicalize_path
+from core.database import is_safe_project_id
 from models import schemas
 import config
 

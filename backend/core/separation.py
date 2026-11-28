@@ -4,7 +4,6 @@
 相比中置声道消除，Demucs 是神经网络分离，人声干净、低频不会被削掉；
 代价是要下模型、每首歌十几到几十秒（有显卡更快）。
 """
-from __future__ import annotations
 
 import logging
 import threading

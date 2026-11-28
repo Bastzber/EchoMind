@@ -4,7 +4,6 @@
 从 main.py 拆出来（AGENTS.md：新接口别继续堆那个文件，已堆进去的按域逐步搬）。
 只依赖 core.database，没有全局状态，是最安全的一块样板。
 """
-from __future__ import annotations
 
 import logging
 

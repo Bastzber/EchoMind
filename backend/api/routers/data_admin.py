@@ -11,13 +11,12 @@ r"""本地数据管理：查看占用、清除全部数据（恢复出厂）。
   voice     voice_profiles（克隆音色）
   cache     tts_cache / panel-audio / generated（可再生的缓存）
 """
-from __future__ import annotations
 
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field

@@ -22,7 +22,6 @@ SoundBot 启动引导模块
 """
 
 import sys
-import os
 from pathlib import Path
 
 

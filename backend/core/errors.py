@@ -4,7 +4,6 @@
 原来是 main.py 里的一个类，11-02 拆路由时被当作依赖搬进了 ai.py，
 导致 main.py 的异常处理器反而找不到它。现在下沉到 core，所有模块从这里取。
 """
-from __future__ import annotations
 
 from typing import Any, Dict, Optional
 

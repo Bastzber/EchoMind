@@ -7,7 +7,6 @@
 
 这里只做「检测」——找出库里存在、磁盘上已消失的目录，交给 repair-paths 修复。
 """
-from __future__ import annotations
 
 import os
 from collections import Counter

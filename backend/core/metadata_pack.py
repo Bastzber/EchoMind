@@ -4,9 +4,7 @@
 路径会随换盘/改名变化，所以不能只看绝对路径。反向路径树（从文件名往上）
 能在目录被整体挪动时仍匹配到正确条目，并且只接受唯一命中。
 """
-from __future__ import annotations
 
-import importlib.util
 import json
 import logging
 import unicodedata

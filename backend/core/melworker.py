@@ -9,7 +9,6 @@ worker 逐文件 decode + ClapProcessor，返回 {path: {"input_values": np.ndar
 子进程隔离后，毒文件进程被父进程 kill/重启，不影响其他 worker 与主流程。
 """
 
-from __future__ import annotations
 
 import os
 import pickle

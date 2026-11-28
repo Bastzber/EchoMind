@@ -3,13 +3,12 @@
 
 前端不需要跟 Breeze 的 chunked 响应纠缠，只要 POST 一个字，然后 1 秒轮询一次进度。
 """
-from __future__ import annotations
 
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field

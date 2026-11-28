@@ -1,27 +1,21 @@
 # -*- coding: utf-8 -*-
 """db 域，从 main.py 拆出（AGENTS.md：新接口别继续堆那个文件）。
 """
-from __future__ import annotations
 
 import os
 import json
-import time
-import math
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Mapping, Sequence, Tuple
+from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Path as PathParam, Query
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from core.errors import SoundBotAPIError
-from core.database import canonicalize_path, is_safe_project_id
+from core.database import canonicalize_path
 from models import schemas
 
-import tempfile
-import sys
 import uuid
 from datetime import datetime
 import config

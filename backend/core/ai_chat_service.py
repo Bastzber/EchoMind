@@ -4,7 +4,6 @@
 
 """AI intent routing with deterministic search fallback and project isolation."""
 
-from __future__ import annotations
 
 import json
 import logging

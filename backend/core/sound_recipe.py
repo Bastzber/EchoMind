@@ -5,11 +5,9 @@
 每个配方 = 若干层样本 + 两个轴（远近 / 轻重），
 轴的值映射到低通、增益、音高与各层的触发概率。
 """
-from __future__ import annotations
 
 import io
 import logging
-import math
 import random
 import wave
 from dataclasses import dataclass, field

@@ -16,7 +16,6 @@ explicit prevents a text-only model from accidentally replacing the audio
 encoder.
 """
 
-from __future__ import annotations
 
 import asyncio
 import hashlib

@@ -9,7 +9,6 @@ Starlette 的 FileResponse 自带 Range 支持，<audio> 可以边下边播。
 或 24/32bit 浮点，Chromium 解不了，直接播会报 MEDIA_ERR_SRC_NOT_SUPPORTED。
 转码结果按 (uuid, mtime, size) 缓存，第二次秒开。
 """
-from __future__ import annotations
 
 import asyncio
 import logging

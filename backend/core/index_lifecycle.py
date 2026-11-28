@@ -7,7 +7,6 @@ transaction. Existing collections are deliberately retained so a failed or
 cancelled rebuild cannot destroy working search data.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 import re

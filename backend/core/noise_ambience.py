@@ -4,7 +4,6 @@
 所有信号都在频域构造（随机相位 → irfft），因此天然周期，
 首尾相接不会有断层，也不需要交叉淡化。
 """
-from __future__ import annotations
 
 import re
 

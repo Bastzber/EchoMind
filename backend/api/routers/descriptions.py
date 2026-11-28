@@ -3,7 +3,6 @@
 
 从 main.py 拆出（AGENTS.md：新接口别继续堆那个文件）。
 """
-from __future__ import annotations
 
 import logging
 
@@ -12,21 +11,14 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["descriptions"])
 
-from typing import Any, Dict, List, Optional  # noqa: E402
+from typing import Any, Dict, List
 from fastapi import BackgroundTasks, Query  # noqa: E402
 
-import os
 import re
-import json
-import time
-import math
 import asyncio
-import tempfile
-import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from core.database import is_safe_project_id, canonicalize_path
 from models import schemas
 import config
 

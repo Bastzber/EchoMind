@@ -11,7 +11,6 @@
 注意：`probe()` 内部已经有 MP3 帧头兜底（core/mp3_meta.py），所以「能读」
 的判断和导入时用的是同一条路径，不会出现「导入能进、这里说坏」的分裂。
 """
-from __future__ import annotations
 
 import logging
 from datetime import datetime

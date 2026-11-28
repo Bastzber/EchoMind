@@ -3,7 +3,6 @@
 
 Breeze 返回 24 kHz / 单声道 / s16le 裸 PCM，这里包成 WAV 落盘供前端播放。
 """
-from __future__ import annotations
 
 import hashlib
 import io

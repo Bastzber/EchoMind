@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """导入报告：把「描述包里没匹配上的条目」导出成 CSV，方便人工核对。"""
-from __future__ import annotations
 
 import csv
 import os

@@ -5,12 +5,11 @@
 `database is locked`。连接已经设了 busy_timeout，但长事务超过阈值仍会失败。
 这里给批量写路径提供统一重试，避免一次失败就把整批写成 500。
 """
-from __future__ import annotations
 
 import logging
 import sqlite3
 import time
-from typing import Any, Callable, TypeVar
+from typing import Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 

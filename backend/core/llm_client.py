@@ -9,7 +9,6 @@ not probed first.  Explicit connection tests remain available through
 ``check_available`` and the configuration manager.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json

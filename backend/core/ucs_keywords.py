@@ -65,8 +65,7 @@ import posixpath
 import sys
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
-from functools import lru_cache
+from typing import Dict, List, Optional, Set
 from xml.etree import ElementTree
 
 logger = logging.getLogger(__name__)

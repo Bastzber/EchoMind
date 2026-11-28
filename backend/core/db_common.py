@@ -36,18 +36,12 @@ import sqlite3
 import json
 import ntpath
 import os
-import shutil
-import threading
 import hashlib
 import math
 import re
-import time
 import uuid
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Iterable, Tuple
-from contextlib import contextmanager
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, asdict
-from datetime import datetime
 
 logger = None  # 延迟初始化
 

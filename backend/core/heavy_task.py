@@ -12,7 +12,6 @@ SQLite 只有一个写者、机械盘只有一条队列，撞在一起就是「�
 为什么加排队：原来只有 busy() 自旋，后到的任务可能先抢到，用户点了导入没反应、
 也不知道是在排队还是卡死了。现在等的人会登记进 _waiting，status() 能报出队位。
 """
-from __future__ import annotations
 
 import itertools
 import threading

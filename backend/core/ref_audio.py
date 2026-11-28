@@ -9,7 +9,6 @@
   崩了之后整个语音功能就没了 —— 不是这一条失败，是所有合成全废。
   所以上传前统一转成 24 kHz / 单声道 / 16-bit PCM WAV。
 """
-from __future__ import annotations
 
 import io
 import logging

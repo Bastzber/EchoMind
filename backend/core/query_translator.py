@@ -11,12 +11,10 @@ query into a compact English keyword phrase via the configured LLM, keeping
 the original query untouched for the keyword/文件名 layers.
 """
 
-from __future__ import annotations
 
-import asyncio
 import logging
 import re
-from typing import Dict, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 

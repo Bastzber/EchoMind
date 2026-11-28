@@ -3,7 +3,6 @@
 
 主进程（main.py）读取 stats() 展示；索引器（indexer.py）每编码一批 bump 一次。
 """
-from __future__ import annotations
 
 import threading
 from typing import Dict

@@ -7,7 +7,6 @@
 LUFS 用 K-weighting 的简化版（只有高通 + RMS），对短音效足够；
 要做到广播级精确得引 pyloudnorm，但那会多一个依赖，收益不成正比。
 """
-from __future__ import annotations
 
 import io
 import logging

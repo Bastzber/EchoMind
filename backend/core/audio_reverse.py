@@ -4,7 +4,6 @@
 播放器本身是 <audio>，没法直接倒着播；这里生成一个反向文件，
 前端按原路径 + mtime 缓存，同一文件不会重复生成。
 """
-from __future__ import annotations
 
 import hashlib
 import os

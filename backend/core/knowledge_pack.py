@@ -6,7 +6,6 @@
   metadata.jsonl    每行 {sha256, rel, filename, description, tags[]}
   audio_vectors.bin / text_vectors.bin   定长二进制（21 字节头 + 1056 字节/条）
 """
-from __future__ import annotations
 
 import json
 import logging

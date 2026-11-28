@@ -1,31 +1,19 @@
 # -*- coding: utf-8 -*-
 """知识包（描述包 + 两套向量）的导入导出域，从 main.py 拆出。"""
-from __future__ import annotations
 
-import os
-import json
-import time
-import math
 import asyncio
 import logging
-import tempfile
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Mapping, Sequence, Tuple
+from typing import Optional, List
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Path as PathParam, Query
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel
 
-from core.errors import SoundBotAPIError
 from core import task_flags
 
 import config
 
 import sys
-import uuid
-from datetime import datetime
-from core.database import is_safe_project_id, canonicalize_path
-from models import schemas
 
 from api.routers import _deps as _d
 

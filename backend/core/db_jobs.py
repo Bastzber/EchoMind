@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """由 database.py 拆分出来的方法组，不要单独实例化，只作为 DatabaseManager 的 mixin。"""
-from __future__ import annotations
 
-from core.db_common import *  # noqa: F401,F403
+from typing import Any
+from typing import Dict
+from typing import Iterable
+from typing import List
+from typing import Optional
+from datetime import datetime
+import uuid
+
 from core.db_common import (  # noqa: F401
-    _execute_sql_statements,
     _get_logger,
-    _is_windows_style_path,
-    _parse_tags,
-    _stable_file_uuid,
 )
-from core.db_common import logger_proxy as logger  # noqa: F401
+from core.db_common import _get_logger
 
 # 单例入口在 core.database 里，这里按需延迟取，避免循环导入
 def get_db_manager(*args, **kwargs):

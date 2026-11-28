@@ -11,13 +11,11 @@
 - 自定义 CSS 里禁止 @import / url(http…) / javascript:
 - 单个皮肤目录不超过 50 MB
 """
-from __future__ import annotations
 
 import json
 import os
 import re
 import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 

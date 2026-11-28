@@ -7,7 +7,6 @@
 这里只做一件事：读 ID3 头、扫第一个有效 MPEG 帧头、按码率估算时长。
 不依赖任何第三方库，也不会抛异常给上层（失败返回 None）。
 """
-from __future__ import annotations
 
 import os
 from typing import Any, Dict, Optional

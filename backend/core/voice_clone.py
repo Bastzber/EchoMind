@@ -13,7 +13,6 @@ r"""声音克隆：用一段 15 秒左右的人声复刻音色，再用这个音
 音色档案（speaker）存在用户目录，不写进音效库：
     %APPDATA%\EchoMind\voice_profiles\profiles.json
 """
-from __future__ import annotations
 
 import json
 import os

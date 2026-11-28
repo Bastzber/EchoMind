@@ -13,7 +13,9 @@
 >
 > 本地优先、AI 驱动的桌面音效管理器。
 
-当前源码版本：**v0.3.0-beta.22 · buildStamp r03（预发布，2026-11-27）**
+当前源码版本为 **v0.3.0-beta.22（预发布）**。
+
+> 本 README 对应的打包：**buildStamp r03**（2026-11-27）。
 
 [发布页](https://github.com/Bastzber/EchoMind/releases)
 

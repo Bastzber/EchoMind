@@ -11,7 +11,6 @@
      "ref_text": str, "speed": float}               -> {"ok": True, "pcm": bytes, "sample_rate": int}
                                                     或 {"ok": False, "error": str}
 """
-from __future__ import annotations
 
 import os
 import pickle

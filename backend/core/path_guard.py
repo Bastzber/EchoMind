@@ -9,7 +9,6 @@
 这一点和 sfx.py 里「先算 base_dir 再 relative_to」的写法一致，
 只是把边界换成了用户真正的素材库，而不是生成目录。
 """
-from __future__ import annotations
 
 import os
 from pathlib import Path

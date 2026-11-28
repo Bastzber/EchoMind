@@ -8,7 +8,6 @@
 2. **音频向量段**（听起来像）接在后面：CLAP 余弦 ≥ 阈值才收，按相似度降序；
 3. 两段不混排，总数默认 100；不把「自定义文件夹 / 系统分类」算作同类依据。
 """
-from __future__ import annotations
 
 import json
 import logging

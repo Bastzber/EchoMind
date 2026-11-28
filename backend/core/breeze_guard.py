@@ -8,7 +8,6 @@
 这里每 15 秒探一次 /health，连续 3 次失败就按候选路径把服务重新拉起来，
 并且限制重启频率，避免一个坏模型把 CPU 占死。
 """
-from __future__ import annotations
 
 import json
 import logging

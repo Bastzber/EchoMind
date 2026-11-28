@@ -13,9 +13,7 @@ Breeze 本地模型的两个毛病，实测数据（232 字 / 91.8 秒那次）�
 为什么用 atempo 而不是简单重采样：重采样会连音高一起改，
 男声会变成尖嗓子。atempo 是时域处理，音高不动。
 """
-from __future__ import annotations
 
-import io
 import wave
 from pathlib import Path
 from typing import Dict

@@ -13,7 +13,6 @@ POST /api/v1/ai/nl-search
 
 为什么放在后端而不是面板里：面板是明文 JS，Key 必须留在本机后端。
 """
-from __future__ import annotations
 
 import asyncio
 import logging

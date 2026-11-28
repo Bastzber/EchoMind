@@ -8,7 +8,6 @@
 
 不依赖 provider 的 function calling，任何 OpenAI 兼容模型都能用。
 """
-from __future__ import annotations
 
 import json
 import logging

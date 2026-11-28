@@ -6,7 +6,6 @@
   - MP3 / 其它：PyAV（41ms/文件，准确）
 6.5 万条约 3 分钟跑完，全程不阻塞界面。波形是另一个任务，这里不算。
 """
-from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor

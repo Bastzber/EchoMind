@@ -3,7 +3,6 @@
 
 排序口径见 core/similar.py：标签/描述命中的排在前面，音频向量（听感）接在后面。
 """
-from __future__ import annotations
 
 import asyncio
 

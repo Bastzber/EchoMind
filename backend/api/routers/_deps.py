@@ -7,7 +7,6 @@
 
 约定：入口是 `python main.py`，模块名是 `__main__`；uvicorn 方式启动时是 `__main__` 或 `main`。
 """
-from __future__ import annotations
 
 import sys
 from typing import Any

@@ -5,7 +5,6 @@ SQLite 没有内置中文分词。这里用无词典的二元组方案：
 「玻璃破碎」→ 玻璃 / 璃破 / 破碎，召回率接近词典分词，
 索引体积约为原文的 1.3 倍，且写入与查询共用同一函数，不会对不齐。
 """
-from __future__ import annotations
 
 import re
 import unicodedata

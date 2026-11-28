@@ -3,7 +3,6 @@
 
 独立于 CLAP：写入 Chroma 的 text_zh 集合，供长句语义检索使用。
 """
-from __future__ import annotations
 
 import logging
 import threading

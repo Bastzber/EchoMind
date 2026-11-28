@@ -6,12 +6,10 @@
 2. 同哈希不同路径 = 重复素材；
 3. 增量导入时跳过已存在的文件。
 """
-from __future__ import annotations
 
 import hashlib
 import logging
 import os
-from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)

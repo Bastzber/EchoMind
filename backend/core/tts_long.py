@@ -9,12 +9,9 @@
 
 输出位置由调用方给（用户自定义文件夹），不给就落 %APPDATA%\\EchoMind\\generated\\YYYYMMDD。
 """
-from __future__ import annotations
 
-import json
 import logging
 import os
-import struct
 import threading
 import time
 import urllib.error

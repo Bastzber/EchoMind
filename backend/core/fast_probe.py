@@ -6,7 +6,6 @@ PyAV 打开一个文件要 40ms（要初始化容器/解码器上下文），6.5
 
 拿到时长用来填 files.duration，波形仍然由后台任务单独补（要整段解码）。
 """
-from __future__ import annotations
 
 import os
 import struct

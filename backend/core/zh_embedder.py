@@ -3,7 +3,6 @@
 
 只做文本侧 embedding，音频侧仍用 CLAP。模型缺失时返回 None，调用方回退 CLAP 文本塔。
 """
-from __future__ import annotations
 
 import logging
 import os  # noqa: F401  （_PREFERRED 读取环境变量）

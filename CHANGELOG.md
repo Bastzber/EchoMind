@@ -22,6 +22,11 @@
 - 「待归类审阅」现在把待归类文件铺进主列表（最多 1000 条），可播可右键归类；原试听小窗保留为「试听归类」 / Unclassified files now load into the main list
 - 批量生成描述时顺带补系统标签（描述写完若标签为空就生成 4~8 个） / Description batch also fills in system tags
 
+- 去掉音色库右上角重复的「长文本转语音」按钮（已并进声音克隆的标签页） / Removed the duplicate long-form TTS button from the voice library header
+- 音色库「引擎」标签显示实际引擎：Breeze 在跑就显示 breeze，不再固定显示 volc / Voice library engine label now reflects the engine actually in use
+- 长文本转语音并进「声音克隆」：顶部两个标签页（短音频 / 长音频），共用同一个音色库 / Long-form TTS folded into the Voice Clone dialog as a second tab, sharing one voice library
+- 新增「长文本转语音」：粘贴整章文字后台生成，进度可查，可中途停止，输出文件夹和文件名自己选 / Long-form text to speech: paste a chapter, watch progress, stop midway, choose output folder and filename
+- **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 ### Fixed / 修复
 
 - 调 OmniVoice 权重下载接口必抛 `NameError`（`db_manager` 未定义） / OmniVoice download endpoint raised NameError
@@ -63,13 +68,8 @@
 
 ## [Unreleased]
 
-### Added / 新增
+_（暂无）_
 
-- 去掉音色库右上角重复的「长文本转语音」按钮（已并进声音克隆的标签页） / Removed the duplicate long-form TTS button from the voice library header
-- 音色库「引擎」标签显示实际引擎：Breeze 在跑就显示 breeze，不再固定显示 volc / Voice library engine label now reflects the engine actually in use
-- 长文本转语音并进「声音克隆」：顶部两个标签页（短音频 / 长音频），共用同一个音色库 / Long-form TTS folded into the Voice Clone dialog as a second tab, sharing one voice library
-- 新增「长文本转语音」：粘贴整章文字后台生成，进度可查，可中途停止，输出文件夹和文件名自己选 / Long-form text to speech: paste a chapter, watch progress, stop midway, choose output folder and filename
-- **右键「找相似」**：主列表右键菜单最上面，按「标签 / 描述 / 音频向量」混合找相似——同类段（词命中 + IDF）排在前面，听感段（CLAP 余弦 ≥ 0.55）接在后面，总数 100；结果顶部有「与 X 相似 · 返回全部」横幅 / **Find similar** in the list context menu: hybrid ranking of tag/description term hits (IDF-weighted, first) and CLAP audio neighbours (cosine ≥ 0.55, after), capped at 100, with a banner to return to the full list.
 
 ## [0.3.0-beta.21] - 2026-11-11 (Prerelease / 预发布)
 

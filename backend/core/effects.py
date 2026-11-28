@@ -6,13 +6,12 @@
 程序生成一段指数衰减的噪声当作脉冲响应（IR），和干声做 FFT 卷积，
 就能得到"房间/大厅/教堂/隧道"这类空间感，且完全离线、无额外依赖。
 """
-from __future__ import annotations
 
 import hashlib
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 # 预设：decay 衰减时间(秒) / predelay 预延迟(毫秒) / wet 默认干湿比 / damp 高频衰减
 PRESETS = {

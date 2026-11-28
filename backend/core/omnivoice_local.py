@@ -11,16 +11,13 @@
 3. 许可：omnivoice 包是 AGPL-3.0-only；音频分词器权重是 Boson Higgs Audio 2
    社区许可。自用无碍，对外分发要附许可并按 AGPL 提供对应源码。
 """
-from __future__ import annotations
 
-import json
 import logging
 import os
 import pickle
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 

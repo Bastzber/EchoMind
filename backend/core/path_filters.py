@@ -5,7 +5,6 @@
 根目录修正后这类误扫基本消失，但系统垃圾目录（回收站、System Volume Information）
 仍会混进 rglob 结果，这里统一挡掉。
 """
-from __future__ import annotations
 
 import os
 from typing import Iterable, Set

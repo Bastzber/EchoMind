@@ -7,7 +7,6 @@
 
 这里用一个小模块持有状态，谁都可以读写，语义唯一。
 """
-from __future__ import annotations
 
 import threading
 

@@ -5,7 +5,6 @@ CLAP 文本塔以英文为主，中文直接编码几乎无信号。LLM 翻译�
 不适合放在搜索主路径；这里用一张精选词典做即时转换，覆盖常见音效词。
 未命中时返回 None，由调用方决定是否回退（保留原查询/扩展词）。
 """
-from __future__ import annotations
 
 import re
 from typing import List, Optional

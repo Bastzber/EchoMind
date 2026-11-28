@@ -10,7 +10,6 @@ FFmpeg libraries. No operation depends on a system FFmpeg executable or an
 unrelated libsndfile codec matrix.
 """
 
-from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from hashlib import sha256

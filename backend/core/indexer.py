@@ -11,7 +11,6 @@ SQLite owns the durable file/artifact state; :meth:`AudioIndexer.reconcile`
 provides the hook used by the API layer to compare that state with Chroma.
 """
 
-from __future__ import annotations
 
 import hashlib
 import gc
@@ -23,7 +22,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import chromadb
 import numpy as np

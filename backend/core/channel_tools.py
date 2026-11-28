@@ -4,7 +4,6 @@
 5.1 之类的音效有 6 个声道，播放器只播"整体"；
 这里让用户能看到每个声道的波形，并单独听某一个声道。
 """
-from __future__ import annotations
 
 import hashlib
 import json

@@ -66,9 +66,9 @@ def validate_path(path: str, allow_absolute: bool = True) -> bool:
     
     return True
 
-from fastapi import FastAPI, HTTPException, Query, Path as PathParam, BackgroundTasks, WebSocket, WebSocketDisconnect, Body, Request
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, StreamingResponse, Response, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -77,13 +77,8 @@ import config
 from core.db_common import serialize_peaks
 from core.errors import SoundBotAPIError
 from models import schemas
-from core.indexer import (
-    get_indexer,
-    AudioIndexer,
-    reset_all_indexers,
-    reset_chroma_client,
-)
-from core.searcher import get_searcher, AudioSearcher, reset_searcher
+from core.indexer import reset_all_indexers, reset_chroma_client
+from core.searcher import reset_searcher
 from core.embedder import get_embedder, reset_embedder, is_embedder_available, is_embedder_loaded
 from core.database import (
     get_db_manager,
